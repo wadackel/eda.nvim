@@ -33,7 +33,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Language
 
-- All comments, documentation, commit messages, and user-facing strings must be written in English
+- All comments, documentation, commit messages, PR titles/descriptions, and user-facing strings must be written in English
+- When invoking skills with language arguments (e.g., `/create-pr ja`), respect this rule — do not use `ja` flag unless the user explicitly requests it
 
 ## Testing
 
@@ -57,6 +58,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Git Conventions
 
 - Conventional Commits: `feat:`, `fix:`, `chore:`, `refactor:`, `test:`, `docs:`
+- Merge strategy: squash merge only (merge commits are not allowed)
 
 ## Documentation
 
