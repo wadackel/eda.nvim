@@ -167,7 +167,7 @@ T["normalize_confirm"]["true returns defaults"] = function()
     move = "overwrite_only",
     create = false,
     path_format = "short",
-    signs = { create = "", delete = "", move = "" },
+    signs = { create = "", delete = "", move = "" },
   })
 end
 
@@ -178,7 +178,7 @@ T["normalize_confirm"]["false returns all false"] = function()
     move = false,
     create = false,
     path_format = "short",
-    signs = { create = "", delete = "", move = "" },
+    signs = { create = "", delete = "", move = "" },
   })
 end
 
@@ -189,7 +189,7 @@ T["normalize_confirm"]["nil returns defaults"] = function()
     move = "overwrite_only",
     create = false,
     path_format = "short",
-    signs = { create = "", delete = "", move = "" },
+    signs = { create = "", delete = "", move = "" },
   })
 end
 
@@ -200,7 +200,7 @@ T["normalize_confirm"]["partial table merges with defaults"] = function()
     move = false,
     create = false,
     path_format = "short",
-    signs = { create = "", delete = "", move = "" },
+    signs = { create = "", delete = "", move = "" },
   })
 end
 
@@ -211,7 +211,7 @@ T["normalize_confirm"]["create 0 becomes false"] = function()
     move = "overwrite_only",
     create = false,
     path_format = "short",
-    signs = { create = "", delete = "", move = "" },
+    signs = { create = "", delete = "", move = "" },
   })
 end
 

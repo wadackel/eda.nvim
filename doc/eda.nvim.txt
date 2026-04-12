@@ -84,16 +84,15 @@ DEFAULT CONFIGURATION ~
       git = {
         enabled = true,
         icons = {
-          untracked = "",
-          added = "",
-          modified = "●",
-          deleted = "",
-          renamed = "",
-          staged = "",
-          conflict = "",
-          ignored = "◌",
+          untracked = "nf-oct-question",     -- U+F420
+          added = "nf-oct-plus",             -- U+F44D
+          modified = "nf-oct-diff",          -- U+F444
+          deleted = "nf-oct-circle_slash",   -- U+F474
+          renamed = "nf-oct-arrow_right",    -- U+F432
+          staged = "nf-oct-check",           -- U+F42E
+          conflict = "nf-oct-alert",         -- U+F421
+          ignored = "◌",                     -- U+25CC
         },
-      },
     
       indent = {
         width = 2,

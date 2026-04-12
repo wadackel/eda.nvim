@@ -349,7 +349,7 @@ T["git_decorator sets name_hl for modified file"] = function()
   local node = Node.create({ id = 1, name = "f", path = "/f", type = "file" })
   local ctx = { store = {}, git_status = { ["/f"] = "M" }, config = config.get() }
   local dec = decorator.git_decorator(node, ctx)
-  MiniTest.expect.equality(dec.suffix, "●")
+  MiniTest.expect.equality(dec.suffix, "")
   MiniTest.expect.equality(dec.suffix_hl, "EdaGitModifiedIcon")
   MiniTest.expect.equality(dec.name_hl, "EdaGitModifiedName")
   MiniTest.expect.equality(dec.icon_hl, nil)
@@ -367,7 +367,7 @@ T["git_decorator does not set name_hl for directory nodes"] = function()
   })
   local ctx = { store = {}, git_status = { ["/dir"] = "M" }, config = config.get() }
   local dec = decorator.git_decorator(node, ctx)
-  MiniTest.expect.equality(dec.suffix, "●")
+  MiniTest.expect.equality(dec.suffix, "")
   MiniTest.expect.equality(dec.suffix_hl, "EdaGitModifiedIcon")
   MiniTest.expect.equality(dec.name_hl, nil)
   MiniTest.expect.equality(dec.icon_hl, nil)
@@ -445,12 +445,12 @@ T["git_decorator returns default icons for each status"] = function()
   local node = Node.create({ id = 1, name = "f", path = "/f", type = "file" })
 
   local expected = {
-    ["?"] = { suffix = "", suffix_hl = "EdaGitUntrackedIcon", name_hl = "EdaGitUntrackedName" },
-    ["A"] = { suffix = "", suffix_hl = "EdaGitAddedIcon", name_hl = "EdaGitAddedName" },
-    ["M"] = { suffix = "●", suffix_hl = "EdaGitModifiedIcon", name_hl = "EdaGitModifiedName" },
-    ["R"] = { suffix = "", suffix_hl = "EdaGitRenamedIcon", name_hl = "EdaGitRenamedName" },
-    ["C"] = { suffix = "", suffix_hl = "EdaGitStagedIcon", name_hl = "EdaGitStagedName" },
-    ["U"] = { suffix = "", suffix_hl = "EdaGitConflictIcon", name_hl = "EdaGitConflictName" },
+    ["?"] = { suffix = "", suffix_hl = "EdaGitUntrackedIcon", name_hl = "EdaGitUntrackedName" },
+    ["A"] = { suffix = "", suffix_hl = "EdaGitAddedIcon", name_hl = "EdaGitAddedName" },
+    ["M"] = { suffix = "", suffix_hl = "EdaGitModifiedIcon", name_hl = "EdaGitModifiedName" },
+    ["R"] = { suffix = "", suffix_hl = "EdaGitRenamedIcon", name_hl = "EdaGitRenamedName" },
+    ["C"] = { suffix = "", suffix_hl = "EdaGitStagedIcon", name_hl = "EdaGitStagedName" },
+    ["U"] = { suffix = "", suffix_hl = "EdaGitConflictIcon", name_hl = "EdaGitConflictName" },
     ["!"] = { suffix = "◌", suffix_hl = "EdaGitIgnoredIcon", name_hl = "EdaGitIgnoredName" },
   }
 
@@ -468,7 +468,7 @@ T["git_decorator returns decoration for deleted status (default Nerd Font icon)"
   local node = Node.create({ id = 1, name = "f", path = "/f", type = "file" })
   local ctx = { store = {}, git_status = { ["/f"] = "D" }, config = config.get() }
   local dec = decorator.git_decorator(node, ctx)
-  MiniTest.expect.equality(dec.suffix, "")
+  MiniTest.expect.equality(dec.suffix, "")
   MiniTest.expect.equality(dec.suffix_hl, "EdaGitDeletedIcon")
 end
 
@@ -792,7 +792,7 @@ T["Chain decorate preserves link_suffix alongside suffix"] = function()
     return { link_suffix = "→ ../foo", link_suffix_hl = "EdaSymlinkTarget" }
   end)
   chain:add(function()
-    return { suffix = "●", suffix_hl = "EdaGitModifiedIcon" }
+    return { suffix = "", suffix_hl = "EdaGitModifiedIcon" }
   end)
 
   config.setup()
@@ -803,7 +803,7 @@ T["Chain decorate preserves link_suffix alongside suffix"] = function()
   local result = chain:decorate(flat_lines, ctx)
 
   MiniTest.expect.equality(result[1].link_suffix, "→ ../foo")
-  MiniTest.expect.equality(result[1].suffix, "●")
+  MiniTest.expect.equality(result[1].suffix, "")
 end
 
 return T

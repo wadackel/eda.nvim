@@ -6,7 +6,7 @@ local T = MiniTest.new_set()
 local root_path = "/project"
 
 -- Default signs from config
-local default_signs = { create = "", delete = "", move = "" }
+local default_signs = { create = "", delete = "", move = "" }
 
 T["show with empty operations calls on_confirm immediately"] = function()
   local confirmed = false
@@ -233,9 +233,9 @@ T["format_operations"]["uses configured sign icons"] = function()
     { type = "move", src = "/project/src/a.txt", dst = "/project/src/b.txt" },
   }
   local result = Confirm._format_operations(ops, "/project", "short", default_signs)
-  MiniTest.expect.equality(result.lines[2], "    src/new.txt  (file)")
-  MiniTest.expect.equality(result.lines[3], "    src/old.txt")
-  MiniTest.expect.equality(result.lines[4], "    src/a.txt → .../b.txt")
+  MiniTest.expect.equality(result.lines[2], "    src/new.txt  (file)")
+  MiniTest.expect.equality(result.lines[3], "    src/old.txt")
+  MiniTest.expect.equality(result.lines[4], "    src/a.txt → .../b.txt")
 end
 
 T["format_operations"]["full format uses absolute paths"] = function()
@@ -243,7 +243,7 @@ T["format_operations"]["full format uses absolute paths"] = function()
     { type = "delete", path = "/project/foo.txt" },
   }
   local result = Confirm._format_operations(ops, "/project", "full", default_signs)
-  MiniTest.expect.equality(result.lines[2], "    /project/foo.txt")
+  MiniTest.expect.equality(result.lines[2], "    /project/foo.txt")
 end
 
 T["format_operations"]["move without common prefix shows full dst"] = function()
@@ -251,7 +251,7 @@ T["format_operations"]["move without common prefix shows full dst"] = function()
     { type = "move", src = "/project/src/foo.lua", dst = "/project/lib/foo.lua" },
   }
   local result = Confirm._format_operations(ops, "/project", "short", default_signs)
-  MiniTest.expect.equality(result.lines[2], "    src/foo.lua → lib/foo.lua")
+  MiniTest.expect.equality(result.lines[2], "    src/foo.lua → lib/foo.lua")
 end
 
 T["format_operations"]["returns segments with correct highlight groups"] = function()
@@ -313,7 +313,7 @@ T["build_title_chunks"]["includes all non-zero counts"] = function()
   MiniTest.expect.equality(#chunks, 10)
   MiniTest.expect.equality(chunks[1][1], " Confirm: ")
   MiniTest.expect.equality(chunks[1][2], "EdaConfirmTitle")
-  MiniTest.expect.equality(chunks[2][1], "")
+  MiniTest.expect.equality(chunks[2][1], "")
   MiniTest.expect.equality(chunks[2][2], "EdaOpDeleteSign")
   MiniTest.expect.equality(chunks[3][1], " 2")
   MiniTest.expect.equality(chunks[3][2], "EdaOpDeleteText")
@@ -323,7 +323,7 @@ T["build_title_chunks"]["omits zero-count types"] = function()
   local counts = { delete = 0, create = 3, move = 0 }
   local chunks = Confirm._build_title_chunks(counts, default_signs)
   MiniTest.expect.equality(#chunks, 4)
-  MiniTest.expect.equality(chunks[2][1], "")
+  MiniTest.expect.equality(chunks[2][1], "")
   MiniTest.expect.equality(chunks[2][2], "EdaOpCreateSign")
   MiniTest.expect.equality(chunks[3][1], " 3")
   MiniTest.expect.equality(chunks[3][2], "EdaOpCreateText")

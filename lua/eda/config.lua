@@ -161,13 +161,13 @@ local defaults = {
   git = {
     enabled = true,
     icons = {
-      untracked = "",
-      added = "",
-      modified = "●",
-      deleted = "",
-      renamed = "",
-      staged = "",
-      conflict = "",
+      untracked = "",
+      added = "",
+      modified = "",
+      deleted = "",
+      renamed = "",
+      staged = "",
+      conflict = "",
       ignored = "◌",
     },
   },
@@ -262,9 +262,9 @@ local confirm_defaults = {
   create = false,
   path_format = "short",
   signs = {
-    create = "",
-    delete = "",
-    move = "",
+    create = "",
+    delete = "",
+    move = "",
   },
 }
 
