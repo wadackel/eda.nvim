@@ -1,0 +1,8 @@
+.deps/
+*.swp
+*.swo
+*~
+.DS_Store
+.luarc.json.bak
+result
+doc/tags

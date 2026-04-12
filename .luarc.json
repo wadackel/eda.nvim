@@ -1,0 +1,13 @@
+{
+  "runtime": {
+    "version": "LuaJIT"
+  },
+  "workspace": {
+    "library": ["${3rd}/luv/library", "$VIMRUNTIME/lua"],
+    "checkThirdParty": false
+  },
+  "diagnostics": {
+    "globals": ["vim", "describe", "it", "before_each", "after_each", "MiniTest"],
+    "disable": ["missing-fields"]
+  }
+}

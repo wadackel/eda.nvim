@@ -1,0 +1,11 @@
+{
+  "bootstrap-sha": "0bc7317c64a35a7ba0d86e0fb0d20ecf8a6dc45e",
+  "packages": {
+    ".": {
+      "release-type": "simple",
+      "package-name": "eda.nvim",
+      "bump-minor-pre-major": true,
+      "bump-patch-for-minor-pre-major": true
+    }
+  }
+}
