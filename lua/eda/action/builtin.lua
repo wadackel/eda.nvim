@@ -53,6 +53,20 @@ local function refresh(ctx)
   ctx.buffer:render(ctx.store)
 end
 
+---Refresh git status after file mutation and re-render.
+---@param ctx eda.ActionContext
+local function refresh_git(ctx)
+  if ctx.config.git.enabled then
+    git.status(ctx.explorer.root_path, function(_status)
+      local util = require("eda.util")
+      if not util.is_valid_buf(ctx.buffer.bufnr) then
+        return
+      end
+      refresh(ctx)
+    end)
+  end
+end
+
 ---Helper: refresh preserving user edits when buffer is dirty.
 ---@param ctx eda.ActionContext
 ---@param capture eda.EditCapture? Pre-computed capture to reuse (avoids redundant capture() call)
@@ -322,6 +336,7 @@ action.register("refresh", function(ctx)
         return
       end
       refresh(ctx)
+      refresh_git(ctx)
     end)
   end)
 end, { desc = "Refresh file tree" })
@@ -643,6 +658,7 @@ action.register("mark_bulk_delete", function(ctx)
         ctx.scanner:rescan_preserving_state(ctx.store.root_id, function()
           vim.schedule(function()
             refresh(ctx)
+            refresh_git(ctx)
           end)
         end)
       end)
@@ -685,6 +701,7 @@ action.register("mark_bulk_move", function(ctx)
             ctx.scanner:rescan_preserving_state(ctx.store.root_id, function()
               vim.schedule(function()
                 refresh(ctx)
+                refresh_git(ctx)
               end)
             end)
           end
@@ -730,6 +747,7 @@ action.register("duplicate", function(ctx)
       ctx.scanner:rescan_preserving_state(ctx.store.root_id, function()
         vim.schedule(function()
           refresh(ctx)
+          refresh_git(ctx)
         end)
       end)
     end)
