@@ -1026,4 +1026,115 @@ T["git"]["next_git_change jumps through edit_preserve path on dirty buffer"] = f
   )
 end
 
+-- ===========================================================================
+-- Real-time git status refresh after buffer editing
+-- ===========================================================================
+
+T["git"]["git status refreshes after creating a file via buffer edit"] = function()
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = true },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+    })
+  ]]
+  )
+
+  e2e.open_eda(child, tmp)
+
+  -- Wait for initial git status to be ready
+  e2e.wait_until(child, string.format([[require("eda.git").get_status_ready(%q) == "ready"]], tmp), 10000)
+
+  -- Create a new file via buffer editing
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(child, "o")
+  e2e.feed_insert(child, "new_untracked.txt")
+  e2e.feed(child, ":w<CR>")
+
+  -- Wait for the file to exist on disk
+  local new_path = tmp .. "/new_untracked.txt"
+  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) ~= nil", new_path))
+
+  -- Wait for git status cache to reflect the new untracked file
+  e2e.wait_until(
+    child,
+    string.format(
+      [[
+    local git = require("eda.git")
+    local status = git.get_cached(%q)
+    if not status then return false end
+    return status[%q] == "?"
+  ]],
+      tmp,
+      new_path
+    ),
+    10000
+  )
+end
+
+T["git"]["git status refreshes after renaming a file via buffer edit"] = function()
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = true },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+    })
+  ]]
+  )
+
+  e2e.open_eda(child, tmp)
+
+  -- Wait for initial git status to be ready
+  e2e.wait_until(child, string.format([[require("eda.git").get_status_ready(%q) == "ready"]], tmp), 10000)
+
+  -- Rename tracked.txt to renamed.txt via buffer editing
+  e2e.wait_until(
+    child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for i, l in ipairs(lines) do
+      if l:find("tracked.txt") then
+        vim.api.nvim_win_set_cursor(0, {i, 0})
+        return true
+      end
+    end
+    return false
+  ]]
+  )
+  e2e.feed(child, "cc")
+  e2e.feed_insert(child, "renamed.txt")
+  e2e.feed(child, ":w<CR>")
+
+  -- Wait for rename to complete on disk
+  local old_path = tmp .. "/tracked.txt"
+  local new_path = tmp .. "/renamed.txt"
+  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) == nil and vim.uv.fs_stat(%q) ~= nil", old_path, new_path))
+
+  -- Wait for git status cache to reflect the rename
+  e2e.wait_until(
+    child,
+    string.format(
+      [[
+    local git = require("eda.git")
+    local status = git.get_cached(%q)
+    if not status then return false end
+    -- After rename, the new file shows as untracked (?) or deleted+added
+    local s = status[%q]
+    return s ~= nil
+  ]],
+      tmp,
+      new_path
+    ),
+    10000
+  )
+end
+
 return T

@@ -910,6 +910,16 @@ function M.open(opts)
             end
             mark_render_dirty()
             schedule_render()
+            -- Refresh git status after external filesystem changes
+            if cfg.git.enabled then
+              git.status(root_path, function(_status)
+                if not util.is_valid_buf(buffer.bufnr) then
+                  return
+                end
+                mark_render_dirty()
+                schedule_render()
+              end)
+            end
           end)
         end)
       end)
@@ -1022,6 +1032,15 @@ function M._handle_write(explorer)
               vim.bo[buffer.bufnr].modified = false
               buffer:render(store)
               vim.notify("Applied " .. #result.completed .. " operation(s)")
+              -- Refresh git status after successful file operations
+              if cfg.git.enabled then
+                git.status(explorer.root_path, function(_status)
+                  if not util.is_valid_buf(buffer.bufnr) then
+                    return
+                  end
+                  buffer:render(store)
+                end)
+              end
             end
           end)
         end)
@@ -1158,6 +1177,18 @@ function M._change_root(explorer, new_path, opts)
               return
             end
             explorer.buffer:render(explorer.store)
+            -- Refresh git status after external filesystem changes
+            if cfg.git.enabled then
+              git.status(new_path, function(_status)
+                if explorer.generation ~= gen then
+                  return
+                end
+                if not util.is_valid_buf(explorer.buffer.bufnr) then
+                  return
+                end
+                explorer.buffer:render(explorer.store)
+              end)
+            end
           end)
         end)
       end)
@@ -1264,12 +1295,25 @@ end
 
 ---Refresh all active explorer instances.
 function M.refresh_all()
+  local cfg = config.get()
   for _, explorer in ipairs(M._instances) do
     if util.is_valid_buf(explorer.buffer.bufnr) then
+      local gen = explorer.generation
       explorer.scanner:rescan_preserving_state(explorer.store.root_id, function()
         vim.schedule(function()
           if util.is_valid_buf(explorer.buffer.bufnr) then
             explorer.buffer:render(explorer.store)
+            -- Refresh git status after rescan
+            if cfg.git.enabled then
+              git.status(explorer.root_path, function(_status)
+                if explorer.generation ~= gen then
+                  return
+                end
+                if util.is_valid_buf(explorer.buffer.bufnr) then
+                  explorer.buffer:render(explorer.store)
+                end
+              end)
+            end
           end
         end)
       end)
