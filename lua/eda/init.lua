@@ -528,10 +528,12 @@ function M.open(opts)
     if cfg_now.show_only_git_changes then
       local ready = git.get_status_ready(rp)
       if ready == "loading" or ready == nil then
+        vim.bo[buf.bufnr].modifiable = true
         vim.api.nvim_buf_set_lines(buf.bufnr, 0, -1, false, { "Git status loading..." })
         -- nvim_buf_set_lines marks the buffer modified; clear it so the next render
         -- (after git status becomes ready) is not skipped by the modified-guard.
         vim.bo[buf.bufnr].modified = false
+        vim.bo[buf.bufnr].modifiable = false
         buf.flat_lines = {}
         explorer._last_painted_gen = explorer._render_gen
         explorer._incremental_hint = nil
@@ -626,6 +628,9 @@ function M.open(opts)
     end
     if not used_incremental then
       buf.painter:paint(flat_lines, decorations, paint_opts)
+    end
+    if paint_opts.empty_message then
+      vim.bo[buf.bufnr].modifiable = false
     end
     buf:restore_cursor()
     buf.target_node_id = nil
