@@ -12,10 +12,20 @@ jobs:
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
       - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d # v16
-      - uses: DeterminateSystems/magic-nix-cache-action@87b14cf437d03d37989d87f0fa5ce4f5dc1a330b # v8
-        continue-on-error: true
-      - run: nix develop .#ci -c just format-check
-      - run: nix develop .#ci -c just lint
+      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
+        with:
+          primary-key: nix-lint-v1-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-lint-v1-${{ runner.os }}-
+          gc-max-store-size-linux: 5G
+          purge: true
+          purge-prefixes: nix-lint-v1-${{ runner.os }}-
+          purge-last-accessed: P7D
+          purge-primary-key: never
+      - name: Lint
+        run: |
+          eval "$(nix print-dev-env .#ci)"
+          just format-check
+          just lint
 
   test:
     runs-on: ubuntu-latest
