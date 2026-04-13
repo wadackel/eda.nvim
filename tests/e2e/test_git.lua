@@ -585,6 +585,11 @@ T["git"]["render shows loading empty-state when show_only_git_changes and git st
   local empty_seen = e2e.exec(child, [[return require("eda").get_current()._empty_state_rendered == true]])
   MiniTest.expect.equality(empty_seen, true)
 
+  -- Verify buffer is modifiable after git status becomes ready and tree renders
+  -- (non-empty render restores modifiable=true via paint())
+  local modifiable = e2e.exec(child, [[return vim.bo.modifiable]])
+  MiniTest.expect.equality(modifiable, true)
+
   -- Reset filter for test isolation
   e2e.feed(child, "gs")
 end
@@ -621,6 +626,16 @@ T["git"]["shows 'No git changes' when filter on and repo is clean"] = function()
   ]],
     5000
   )
+
+  -- Buffer should be non-modifiable in empty state
+  local modifiable = e2e.exec(child, [[return vim.bo.modifiable]])
+  MiniTest.expect.equality(modifiable, false)
+
+  -- Toggle filter off; buffer should become modifiable again
+  e2e.feed(child, "gs")
+  e2e.wait_until(child, [[return vim.bo.modifiable == true]], 5000)
+  local modifiable_after = e2e.exec(child, [[return vim.bo.modifiable]])
+  MiniTest.expect.equality(modifiable_after, true)
 end
 
 T["git"]["filter indicator extmark appears on header row in split mode"] = function()
