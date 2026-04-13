@@ -178,9 +178,9 @@ require("eda").setup({
     path_format = "short",
     -- Signs shown in confirm dialogs
     signs = {
-      create = "",
-      delete = "",
-      move = "",
+      create = "", -- nf-oct-plus
+      delete = "", -- nf-oct-circle_slash
+      move = "",   -- nf-oct-arrow_right
     },
   },
 
@@ -229,13 +229,13 @@ require("eda").setup({
     enabled = true,
     -- Git status icons
     icons = {
-      untracked = "",
-      added = "",
-      modified = "●",
-      deleted = "",
-      renamed = "",
-      staged = "",
-      conflict = "",
+      untracked = "", -- nf-oct-question
+      added = "",     -- nf-oct-plus
+      modified = "",  -- nf-oct-diff
+      deleted = "",   -- nf-oct-circle_slash
+      renamed = "",   -- nf-oct-arrow_right
+      staged = "",    -- nf-oct-check
+      conflict = "",  -- nf-oct-alert
       ignored = "◌",
     },
   },
