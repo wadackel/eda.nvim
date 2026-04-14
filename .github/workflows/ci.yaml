@@ -48,12 +48,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: kdheepak/panvimdoc@662fb20304d20c539fb48a0bda628f5165507de7 # v4.0.1
+      - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d # v16
+      - uses: nix-community/cache-nix-action@7df957e333c1e5da7721f60227dbba6d06080569 # v7
         with:
-          vimdoc: eda.nvim
-          pandoc: doc/eda.md
-          version: "Neovim >= 0.10"
-          description: "Tree-view file explorer with buffer-native editing"
-          toc: true
+          primary-key: nix-lint-v1-${{ runner.os }}-${{ hashFiles('flake.lock') }}
+          restore-prefixes-first-match: nix-lint-v1-${{ runner.os }}-
+          gc-max-store-size-linux: 5G
+          purge: true
+          purge-prefixes: nix-lint-v1-${{ runner.os }}-
+          purge-last-accessed: P7D
+          purge-primary-key: never
+      - name: Generate vimdoc
+        run: |
+          eval "$(nix print-dev-env .#ci)"
+          GITHUB_ACTIONS= just doc
       - name: Check vimdoc is up to date
         run: git diff --exit-code doc/eda.nvim.txt

@@ -38,6 +38,7 @@
           ci = pkgs.mkShell {
             packages = lintPackages ++ [
               pkgs.just
+              pkgs.panvimdoc
             ];
           };
         }
