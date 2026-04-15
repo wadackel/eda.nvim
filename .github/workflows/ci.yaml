@@ -11,11 +11,12 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: DeterminateSystems/nix-installer-action@e50d5f73bfe71c2dd0aa4218de8f4afa59f8f81d # v16
-      - uses: DeterminateSystems/magic-nix-cache-action@87b14cf437d03d37989d87f0fa5ce4f5dc1a330b # v8
-        continue-on-error: true
-      - run: nix develop .#ci -c just format-check
-      - run: nix develop .#ci -c just lint
+      - uses: ./.github/actions/setup-nix
+      - name: Lint
+        run: |
+          eval "$(nix print-dev-env .#ci)"
+          just format-check
+          just lint
 
   test:
     runs-on: ubuntu-latest
@@ -38,12 +39,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5 # v4
-      - uses: kdheepak/panvimdoc@662fb20304d20c539fb48a0bda628f5165507de7 # v4.0.1
-        with:
-          vimdoc: eda.nvim
-          pandoc: doc/eda.md
-          version: "Neovim >= 0.10"
-          description: "Tree-view file explorer with buffer-native editing"
-          toc: true
+      - uses: ./.github/actions/setup-nix
+      - name: Generate vimdoc
+        run: |
+          eval "$(nix print-dev-env .#ci)"
+          GITHUB_ACTIONS= just doc
       - name: Check vimdoc is up to date
         run: git diff --exit-code doc/eda.nvim.txt
