@@ -42,6 +42,7 @@ local M = {}
 ---@field indent eda.IndentConfig
 ---@field preview eda.PreviewConfig
 ---@field full_name eda.FullNameConfig
+---@field mark eda.MarkConfig
 ---@field header eda.HeaderConfig|false
 ---@field expand_depth integer
 ---@field update_focused_file eda.UpdateFocusedFileConfig
@@ -95,6 +96,9 @@ local M = {}
 
 ---@class eda.FullNameConfig
 ---@field enabled boolean
+
+---@class eda.MarkConfig
+---@field icon string
 
 ---@alias eda.HeaderPosition "left" | "center" | "right"
 
@@ -184,6 +188,12 @@ local defaults = {
 
   full_name = {
     enabled = true,
+  },
+
+  mark = {
+    -- U+F01A4 (nf-md-bookmark). Built via string.char to avoid PUA-character
+    -- dropping by tooling that cannot safely pass private-use code points.
+    icon = string.char(0xf3, 0xb0, 0x86, 0xa4),
   },
 
   header = {

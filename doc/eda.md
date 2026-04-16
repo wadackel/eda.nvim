@@ -443,6 +443,14 @@ Maximum recursion depth for `expand_all` and `expand_recursive` actions.
   in a narrow window. The popup displays the full line content (indent, icon,
   filename, and suffixes) with identical highlights.
 
+### mark
+
+`table`
+
+- `icon` `string` (default: `mark.icon` — nf-md-bookmark)
+  Prefix marker icon displayed before the file/folder icon on marked nodes.
+  Set to `""` to disable the prefix icon (the name highlight still applies).
+
 ### header
 
 `table|false`
@@ -927,7 +935,7 @@ Directories only receive suffix highlighting (not name highlighting).
 
 | Group           | Default Link      | Description                    |
 |-----------------|-------------------|--------------------------------|
-| `EdaMarkedNode` | `Visual`          | Marked node                    |
+| `EdaMarkedNode` | `Special`         | Marked node (prefix icon and name, fg-only) |
 | `EdaCut`        | `italic = true`   | Cut node (italic, preserves git colors) |
 | `EdaOpDeleteSign` | `DiagnosticError`  | Delete sign in confirm              |
 | `EdaOpDeletePath` | `DiagnosticError`  | Delete path in confirm              |

@@ -12,6 +12,20 @@ local Exports = {
   FILTER_LABEL = FILTER_LABEL,
 }
 
+---Build the virt_text array for icon extmarks, optionally prepending a prefix.
+---@param entry table Decoration cache entry
+---@return table[] virt_text array
+local function build_icon_virt_text(entry)
+  local vt = {}
+  if entry.prefix_text then
+    vt[#vt + 1] = { entry.prefix_text, entry.prefix_hl }
+  end
+  if entry.icon_text then
+    vt[#vt + 1] = { entry.icon_text, entry.icon_hl }
+  end
+  return vt
+end
+
 ---@class eda.RenderSnapshot
 ---@field entries table<integer, { line: integer, path: string }>
 
@@ -24,7 +38,7 @@ local Exports = {
 ---@field indent_width integer
 ---@field header_lines integer Number of header lines (0, 1, or 2)
 ---@field snapshot eda.RenderSnapshot
----@field _decoration_cache table<integer, { icon_text: string?, icon_hl: string, name_hl: string|string[], suffix: string?, suffix_hl: string, link_suffix: string?, link_suffix_hl: string? }>
+---@field _decoration_cache table<integer, { prefix_text: string?, prefix_hl: string?, icon_text: string?, icon_hl: string, name_hl: string|string[], suffix: string?, suffix_hl: string, link_suffix: string?, link_suffix_hl: string? }>
 ---@field _flat_lines eda.FlatLine[] Current flat lines for decoration provider
 ---@field _line_lengths integer[] Pre-computed line text lengths for decoration provider
 ---@field _row_to_fl table<integer, integer> Buffer row -> flat_lines index mapping
@@ -274,12 +288,14 @@ end
 ---@param node eda.TreeNode
 ---@param name_hl string|string[]
 ---@param separator string
----@return { icon_text: string?, icon_hl: string, name_hl: string|string[], suffix: string?, suffix_hl: string, link_suffix: string?, link_suffix_hl: string? }?
+---@return { prefix_text: string?, prefix_hl: string?, icon_text: string?, icon_hl: string, name_hl: string|string[], suffix: string?, suffix_hl: string, link_suffix: string?, link_suffix_hl: string? }?
 local function build_cache_entry(dec, node, name_hl, separator)
   if not dec then
     return nil
   end
   return {
+    prefix_text = dec.prefix and dec.prefix ~= "" and (dec.prefix .. " ") or nil,
+    prefix_hl = dec.prefix_hl or "EdaMarkedNode",
     icon_text = dec.icon and dec.icon ~= "" and (dec.icon .. separator) or nil,
     icon_hl = dec.icon_hl or (Node.is_dir(node) and "EdaDirectoryIcon") or "EdaFileIcon",
     name_hl = name_hl,
@@ -407,10 +423,10 @@ function Painter:paint(flat_lines, decorations, opts)
   vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_icon, 0, -1)
   for i, fl in ipairs(flat_lines) do
     local entry = self._decoration_cache[fl.node_id]
-    if entry and entry.icon_text then
+    if entry and (entry.icon_text or entry.prefix_text) then
       local indent_len = fl.depth * self.indent_width
       vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, offset + i - 1, indent_len, {
-        virt_text = { { entry.icon_text, entry.icon_hl } },
+        virt_text = build_icon_virt_text(entry),
         virt_text_pos = "inline",
         right_gravity = false,
       })
@@ -598,10 +614,10 @@ function Painter:paint_incremental(flat_lines, decorations, opts, hint)
   vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_icon, 0, -1)
   for i, fl in ipairs(flat_lines) do
     local entry = self._decoration_cache[fl.node_id]
-    if entry and entry.icon_text then
+    if entry and (entry.icon_text or entry.prefix_text) then
       local indent_len = fl.depth * self.indent_width
       vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, offset + i - 1, indent_len, {
-        virt_text = { { entry.icon_text, entry.icon_hl } },
+        virt_text = build_icon_virt_text(entry),
         virt_text_pos = "inline",
         right_gravity = false,
       })
@@ -664,7 +680,7 @@ function Painter:_resync_on_redraw()
         local fl_idx = idx_by_node_id[m[1]]
         if fl_idx then
           local entry = self._decoration_cache[self._flat_lines[fl_idx].node_id]
-          if entry and entry.icon_text then
+          if entry and (entry.icon_text or entry.prefix_text) then
             if icon_idx > #icon_marks or icon_marks[icon_idx][2] ~= m[2] then
               icons_need_resync = true
               break
@@ -684,10 +700,10 @@ function Painter:_resync_on_redraw()
         if fl_idx then
           local fl = self._flat_lines[fl_idx]
           local entry = self._decoration_cache[fl.node_id]
-          if entry and entry.icon_text then
+          if entry and (entry.icon_text or entry.prefix_text) then
             local indent_len = fl.depth * self.indent_width
             vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, m[2], indent_len, {
-              virt_text = { { entry.icon_text, entry.icon_hl } },
+              virt_text = build_icon_virt_text(entry),
               virt_text_pos = "inline",
               right_gravity = false,
             })
@@ -739,10 +755,10 @@ function Painter:resync_highlights()
     if fl then
       row_to_fl[v.row] = i
       local entry = self._decoration_cache[fl.node_id]
-      if entry and entry.icon_text then
+      if entry and (entry.icon_text or entry.prefix_text) then
         local indent_len = fl.depth * self.indent_width
         vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, v.row, indent_len, {
-          virt_text = { { entry.icon_text, entry.icon_hl } },
+          virt_text = build_icon_virt_text(entry),
           virt_text_pos = "inline",
           right_gravity = false,
         })
