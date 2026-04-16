@@ -447,7 +447,7 @@ Maximum recursion depth for `expand_all` and `expand_recursive` actions.
 
 `table`
 
-- `icon` `string` (default: `mark.icon` — nf-md-bookmark)
+- `icon` `string` (default: `mark.icon` — nf-md-checkbox_marked)
   Prefix marker icon displayed before the file/folder icon on marked nodes.
   Set to `""` to disable the prefix icon (the name highlight still applies).
 

@@ -191,9 +191,9 @@ local defaults = {
   },
 
   mark = {
-    -- U+F01A4 (nf-md-bookmark). Built via string.char to avoid PUA-character
+    -- U+F0132 (nf-md-checkbox_marked). Built via string.char to avoid PUA-character
     -- dropping by tooling that cannot safely pass private-use code points.
-    icon = string.char(0xf3, 0xb0, 0x86, 0xa4),
+    icon = string.char(0xf3, 0xb0, 0x84, 0xb2),
   },
 
   header = {

@@ -331,8 +331,8 @@ function M.cut_decorator(node, _ctx)
   return nil
 end
 
--- U+F01A4 (nf-md-bookmark). Built via string.char to avoid PUA-character dropping.
-local MARK_ICON = string.char(0xf3, 0xb0, 0x86, 0xa4)
+-- U+F0132 (nf-md-checkbox_marked). Built via string.char to avoid PUA-character dropping.
+local MARK_ICON = string.char(0xf3, 0xb0, 0x84, 0xb2)
 
 ---Mark decorator: shows a prefix marker icon on marked nodes.
 ---@param node eda.TreeNode
