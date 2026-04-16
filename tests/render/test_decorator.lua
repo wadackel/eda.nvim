@@ -806,4 +806,88 @@ T["Chain decorate preserves link_suffix alongside suffix"] = function()
   MiniTest.expect.equality(result[1].suffix, "")
 end
 
+-- =============================================
+-- Mark decorator tests
+-- =============================================
+
+T["mark_decorator returns icon/icon_hl/name_hl for marked node"] = function()
+  config.setup()
+  local node = Node.create({ id = 1, name = "f", path = "/f", type = "file" })
+  node._marked = true
+  local ctx = { store = {}, git_status = nil, config = config.get() }
+  local dec = decorator.mark_decorator(node, ctx)
+  MiniTest.expect.equality(dec.icon, ctx.config.mark.icon)
+  MiniTest.expect.equality(dec.icon_hl, "EdaMarkedNode")
+  MiniTest.expect.equality(dec.name_hl, "EdaMarkedNode")
+end
+
+T["mark_decorator returns nil for unmarked node"] = function()
+  config.setup()
+  local node = Node.create({ id = 1, name = "f", path = "/f", type = "file" })
+  local ctx = { store = {}, git_status = nil, config = config.get() }
+  local dec = decorator.mark_decorator(node, ctx)
+  MiniTest.expect.equality(dec, nil)
+end
+
+T["mark_decorator uses custom icon from config"] = function()
+  config.setup({ mark = { icon = "X" } })
+  local node = Node.create({ id = 1, name = "f", path = "/f", type = "file" })
+  node._marked = true
+  local ctx = { store = {}, git_status = nil, config = config.get() }
+  local dec = decorator.mark_decorator(node, ctx)
+  MiniTest.expect.equality(dec.icon, "X")
+end
+
+T["mark_decorator returns empty icon when mark.icon is empty string"] = function()
+  config.setup({ mark = { icon = "" } })
+  local node = Node.create({ id = 1, name = "f", path = "/f", type = "file" })
+  node._marked = true
+  local ctx = { store = {}, git_status = nil, config = config.get() }
+  local dec = decorator.mark_decorator(node, ctx)
+  MiniTest.expect.equality(dec.icon, "")
+  MiniTest.expect.equality(dec.name_hl, "EdaMarkedNode")
+end
+
+T["Chain decorate passes through prefix field (last-write-wins)"] = function()
+  local chain = decorator.Chain.new()
+  chain:add(function()
+    return { prefix = "A" }
+  end)
+  chain:add(function()
+    return { prefix = "B" }
+  end)
+
+  config.setup()
+  local flat_lines = {
+    { node_id = 1, depth = 0, node = Node.create({ id = 1, name = "f", path = "/f", type = "file" }) },
+  }
+  local ctx = { store = {}, git_status = nil, config = config.get() }
+  local result = chain:decorate(flat_lines, ctx)
+  MiniTest.expect.equality(result[1].prefix, "B") -- last wins
+end
+
+T["cut + marked node accumulates name_hl and overrides icon"] = function()
+  local register = require("eda.register")
+  register.set({ "/f" }, "cut")
+
+  local chain = decorator.Chain.new()
+  chain:add(decorator.cut_decorator)
+  chain:add(decorator.mark_decorator)
+
+  config.setup()
+  local node = Node.create({ id = 1, name = "f", path = "/f", type = "file" })
+  node._marked = true
+  local flat_lines = { { node_id = 1, depth = 0, node = node } }
+  local ctx = { store = {}, git_status = nil, config = config.get() }
+  local result = chain:decorate(flat_lines, ctx)
+
+  MiniTest.expect.equality(result[1].icon, config.get().mark.icon)
+  MiniTest.expect.equality(result[1].icon_hl, "EdaMarkedNode")
+  MiniTest.expect.equality(type(result[1].name_hl), "table")
+  MiniTest.expect.equality(result[1].name_hl[1], "EdaCut")
+  MiniTest.expect.equality(result[1].name_hl[2], "EdaMarkedNode")
+
+  register.clear()
+end
+
 return T

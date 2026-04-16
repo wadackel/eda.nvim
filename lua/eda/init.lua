@@ -95,7 +95,7 @@ local highlight_groups = {
   EdaGitConflictIcon = { link = "EdaGitConflict" },
   EdaGitIgnoredName = { link = "EdaGitIgnored" },
   EdaGitIgnoredIcon = { link = "EdaGitIgnored" },
-  EdaMarkedNode = { link = "Visual" },
+  EdaMarkedNode = { link = "Special" },
   EdaCut = { italic = true },
   EdaOpDeleteSign = { link = "DiagnosticError" },
   EdaOpDeletePath = { link = "DiagnosticError" },
@@ -157,6 +157,23 @@ local function setup_highlights()
       local resolved = vim.api.nvim_get_hl(0, { name = name, link = false })
       if resolved and resolved.fg then
         vim.api.nvim_set_hl(0, name, { fg = resolved.fg })
+      end
+    end
+  end
+  -- Resolve EdaMarkedNode to fg-only (strip bg from link target).
+  -- Same pattern as git suffix groups above: marked nodes should highlight
+  -- the filename foreground without overriding CursorLine or adding bg.
+  -- NOTE: The main loop uses default=true, which silently skips groups that
+  -- were already set (e.g., a stale link to "Visual" from a prior session).
+  -- Force re-set the intended link first so the resolved fg comes from the
+  -- correct target, then strip the bg unconditionally.
+  do
+    local spec = highlight_groups.EdaMarkedNode
+    if spec and spec.link then
+      vim.api.nvim_set_hl(0, "EdaMarkedNode", { link = spec.link })
+      local resolved = vim.api.nvim_get_hl(0, { name = "EdaMarkedNode", link = false })
+      if resolved and resolved.fg then
+        vim.api.nvim_set_hl(0, "EdaMarkedNode", { fg = resolved.fg })
       end
     end
   end
@@ -457,6 +474,7 @@ function M.open(opts)
     chain:add(decorator_mod.git_decorator)
   end
   chain:add(decorator_mod.cut_decorator)
+  chain:add(decorator_mod.mark_decorator)
 
   ---@type eda.Explorer
   local explorer = {

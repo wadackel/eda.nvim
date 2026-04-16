@@ -3,6 +3,8 @@ local Node = require("eda.tree.node")
 local M = {}
 
 ---@class eda.Decoration
+---@field prefix string?
+---@field prefix_hl string?
 ---@field icon string?
 ---@field icon_hl string?
 ---@field name_hl (string|string[])?
@@ -53,6 +55,12 @@ function Chain:decorate(flat_lines, ctx)
     for _, dec_fn in ipairs(self.decorators) do
       local dec = dec_fn(fl.node, ctx)
       if dec then
+        if dec.prefix ~= nil then
+          merged.prefix = dec.prefix
+        end
+        if dec.prefix_hl ~= nil then
+          merged.prefix_hl = dec.prefix_hl
+        end
         if dec.icon ~= nil then
           merged.icon = dec.icon
         end
@@ -321,6 +329,21 @@ function M.cut_decorator(node, _ctx)
     return { name_hl = "EdaCut", icon_hl = "EdaCut" }
   end
   return nil
+end
+
+-- U+F01A4 (nf-md-bookmark). Built via string.char to avoid PUA-character dropping.
+local MARK_ICON = string.char(0xf3, 0xb0, 0x86, 0xa4)
+
+---Mark decorator: shows a prefix marker icon on marked nodes.
+---@param node eda.TreeNode
+---@param ctx eda.DecoratorContext
+---@return eda.Decoration?
+function M.mark_decorator(node, ctx)
+  if not node._marked then
+    return nil
+  end
+  local icon = ctx.config.mark and ctx.config.mark.icon or MARK_ICON
+  return { icon = icon, icon_hl = "EdaMarkedNode", name_hl = "EdaMarkedNode" }
 end
 
 M.Chain = Chain

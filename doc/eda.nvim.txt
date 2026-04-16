@@ -463,6 +463,15 @@ FULL_NAME ~
     filename, and suffixes) with identical highlights.
 
 
+MARK ~
+
+`table`
+
+- `icon` `string` (default: `mark.icon` — nf-md-bookmark)
+    Prefix marker icon displayed before the file/folder icon on marked nodes.
+    Set to `""` to disable the prefix icon (the name highlight still applies).
+
+
 HEADER ~
 
 `table|false`
@@ -1032,7 +1041,8 @@ OPERATIONS ~
   -----------------------------------------------------------------------
   Group             Default Link        Description
   ----------------- ------------------- ---------------------------------
-  EdaMarkedNode     Visual              Marked node
+  EdaMarkedNode     Special             Marked node (prefix icon and
+                                        name, fg-only)
 
   EdaCut            italic = true       Cut node (italic, preserves git
                                         colors)
