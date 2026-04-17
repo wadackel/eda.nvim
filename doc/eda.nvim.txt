@@ -123,6 +123,7 @@ DEFAULT CONFIGURATION ~
         ["q"] = "close",
         ["^"] = "parent",
         ["~"] = "cwd",
+        ["gC"] = "cd",
         ["W"] = "collapse_recursive",
         ["E"] = "expand_recursive",
         ["gW"] = "collapse_all",
@@ -132,19 +133,19 @@ DEFAULT CONFIGURATION ~
         ["yn"] = "yank_name",
         ["<C-l>"] = "refresh",
         ["<C-h>"] = "collapse_node",
-        ["."] = "toggle_hidden",
+        ["g."] = "toggle_hidden",
         ["gi"] = "toggle_gitignored",
         ["gs"] = "toggle_git_changes",
         ["[c"] = "prev_git_change",
         ["]c"] = "next_git_change",
         ["m"] = "mark_toggle",
-        ["D"] = "mark_bulk_delete",
-        ["gx"] = "system_open",
-        ["I"] = "inspect",
+        ["D"] = "delete",
+        ["go"] = "system_open",
+        ["K"] = "inspect",
         ["gd"] = "duplicate",
-        ["gX"] = "cut",
-        ["gY"] = "copy",
-        ["gP"] = "paste",
+        ["gx"] = "cut",
+        ["gy"] = "copy",
+        ["gp"] = "paste",
         ["g?"] = "help",
         ["ga"] = "actions",
         ["<C-f>"] = "preview_scroll_down",
@@ -612,45 +613,87 @@ MAPPINGS                                          *eda.nvim-eda.nvim-mappings*
 Default key mappings in the explorer buffer. Customize via the `mappings`
 configuration option.
 
-  Key             Action                Description
-  --------------- --------------------- -----------------------------------
-  <CR>            select                Open file or toggle directory
-  <2-LeftMouse>   select                Open file or toggle directory
-  <C-t>           select_tab            Open in new tab
-  \|              select_vsplit         Open in vertical split
-  -               select_split          Open in horizontal split
-  q               close                 Close explorer
-  ^               parent                Navigate to parent directory
-  ~               cwd                   Go to current working dir
-  gC              cd                    Change root to directory
-  W               collapse_recursive    Collapse directory recursively
-  E               expand_recursive      Expand directory recursively
-  gW              collapse_all          Collapse all directories
-  gE              expand_all            Expand all directories
-  yp              yank_path             Yank relative path
-  yP              yank_path_absolute    Yank absolute path
-  yn              yank_name             Yank filename
-  <C-l>           refresh               Refresh explorer
-  <C-h>           collapse_node         Collapse or move to parent
-  g.              toggle_hidden         Toggle hidden files
-  gi              toggle_gitignored     Toggle gitignored files
-  gs              toggle_git_changes    Toggle git-changes filter
-  [c              prev_git_change       Jump to previous git change
-  ]c              next_git_change       Jump to next git change
-  m               mark_toggle           Mark/unmark node
-  D               mark_bulk_delete      Delete all marked nodes
-  go              system_open           Open with system default app
-  K               inspect               Print node details
-  gd              duplicate             Duplicate file
-  gx              cut                   Cut selected nodes
-  gy              copy                  Copy selected nodes
-  gp              paste                 Paste from register
-  g?              help                  Show help
-  ga              actions               Open action picker
-  <C-f>           preview_scroll_down   Scroll preview down (half page)
-  <C-b>           preview_scroll_up     Scroll preview up (half page)
-  <C-w>v          split                 Open explorer in vertical split
-  <C-w>s          vsplit                Open explorer in horizontal split
+  ----------------------------------------------------------------------------
+  Key             Action                  Description
+  --------------- ----------------------- ------------------------------------
+  <CR>            select                  Open file or toggle directory
+
+  <2-LeftMouse>   select                  Open file or toggle directory
+
+  <C-t>           select_tab              Open in new tab
+
+  \|              select_vsplit           Open in vertical split
+
+  -               select_split            Open in horizontal split
+
+  q               close                   Close explorer
+
+  ^               parent                  Navigate to parent directory
+
+  ~               cwd                     Go to current working dir
+
+  gC              cd                      Change root to directory
+
+  W               collapse_recursive      Collapse directory recursively
+
+  E               expand_recursive        Expand directory recursively
+
+  gW              collapse_all            Collapse all directories
+
+  gE              expand_all              Expand all directories
+
+  yp              yank_path               Yank relative path
+
+  yP              yank_path_absolute      Yank absolute path
+
+  yn              yank_name               Yank filename
+
+  <C-l>           refresh                 Refresh explorer
+
+  <C-h>           collapse_node           Collapse or move to parent
+
+  g.              toggle_hidden           Toggle hidden files
+
+  gi              toggle_gitignored       Toggle gitignored files
+
+  gs              toggle_git_changes      Toggle git-changes filter
+
+  [c              prev_git_change         Jump to previous git change
+
+  ]c              next_git_change         Jump to next git change
+
+  m               mark_toggle             Mark/unmark node
+
+  D               delete                  Delete target nodes (Visual >
+                                          marks > cursor)
+
+  go              system_open             Open with system default app
+
+  K               inspect                 Print node details
+
+  gd              duplicate               Duplicate target nodes (Visual >
+                                          marks > cursor)
+
+  gx              cut                     Cut target nodes (Visual > marks >
+                                          cursor)
+
+  gy              copy                    Copy target nodes (Visual > marks >
+                                          cursor)
+
+  gp              paste                   Paste from register
+
+  g?              help                    Show help
+
+  ga              actions                 Open action picker
+
+  <C-f>           preview_scroll_down     Scroll preview down (half page)
+
+  <C-b>           preview_scroll_up       Scroll preview up (half page)
+
+  <C-w>v          split                   Open explorer in vertical split
+
+  <C-w>s          vsplit                  Open explorer in horizontal split
+  ----------------------------------------------------------------------------
 
 ACTIONS                                            *eda.nvim-eda.nvim-actions*
 
@@ -691,16 +734,31 @@ YANK ~
 
 FILE OPERATIONS ~
 
-- **duplicate** — Duplicate the file under the cursor with a prompted name.
-- **cut** — Cut selected nodes (cursor or visual selection) to the register.
-- **copy** — Copy selected nodes to the register.
-- **paste** — Paste from the register into the directory under the cursor.
-    Appends `_copy` suffix on name collision.
-- **mark_toggle** — Toggle mark on the current node and move cursor down.
-- **mark_bulk_delete** — Delete all marked nodes with confirmation.
-- **mark_bulk_move** — Move all marked nodes to a prompted directory.
-    _No default mapping._
+`cut` / `copy` / `delete` / `duplicate` resolve their targets with a unified
+priority: **Visual selection > marked nodes > cursor node**. Root is always
+excluded. When the operation runs from marked nodes, marks are cleared on
+success (partial failures keep the marks for the failed/unattempted entries).
 
+- **delete** — Delete target nodes. Routes through `confirm.delete` for the
+    confirmation dialog, matching the buffer-edit delete path.
+- **cut** — Move target node paths into the register with `cut` operation.
+    `paste` later moves them.
+- **copy** — Copy target node paths into the register with `copy` operation.
+    `paste` later duplicates them.
+- **paste** — Paste from the register into the directory under the cursor
+    (or the parent of a file under the cursor; falls back to the explorer
+    root). Appends `_copy` suffix on name collision and falls back to `_2`,
+    `_3`… counters.
+- **duplicate** — Duplicate each target node into its parent directory with
+    the same `_copy` collision-resolution as `paste`. No prompt; works on
+    files and directories.
+- **mark_toggle** — Toggle mark on the current node and move cursor down.
+
+
+  **Note:** `mark_bulk_delete` and `mark_bulk_move` were removed in favour of the
+  unified `delete` and the cut-paste flow. To move marked files to a new
+  directory: `m` to mark, `gx` to cut, navigate to the target directory node,
+  then `gp` to paste.
 
 DISPLAY ~
 

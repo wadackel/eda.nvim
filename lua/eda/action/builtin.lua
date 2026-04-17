@@ -625,7 +625,13 @@ action.register("mark_toggle", function(ctx)
   if not node then
     return
   end
-  node._marked = not node._marked
+  -- Toggle between nil and true (avoids `false` intermediate state from `not`).
+  -- Note: `x and nil or true` is always true; use explicit if-else.
+  if node._marked then
+    node._marked = nil
+  else
+    node._marked = true
+  end
   refresh(ctx)
   -- Move cursor down
   local cursor = vim.api.nvim_win_get_cursor(ctx.window.winid)
@@ -635,81 +641,92 @@ action.register("mark_toggle", function(ctx)
   end
 end, { desc = "Toggle mark on node" })
 
-action.register("mark_bulk_delete", function(ctx)
-  local Fs = require("eda.fs")
-  local Confirm = require("eda.buffer.confirm")
-  local operations = {}
-  for _, node in pairs(ctx.store.nodes) do
-    if node._marked then
-      table.insert(operations, {
-        type = "delete",
-        path = node.path,
-        entry_type = Node.is_dir(node) and "directory" or "file",
-      })
-    end
-  end
-  if #operations == 0 then
-    vim.notify("No marked nodes")
+--- Delete action: unified mark-aware deletion.
+--- Targets are resolved with priority Visual > marks > cursor via _get_target_nodes.
+--- When origin is "marks", marks for completed deletions are cleared pre-rescan
+--- (so partial-failure marks on failed/unattempted ops survive for retry).
+--- Confirmation routing goes through eda._should_confirm to honor cfg.confirm.delete,
+--- matching the buffer-edit delete path.
+action.register("delete", function(ctx)
+  -- M._get_target_nodes is used (not local get_target_nodes) because it is defined
+  -- later in the file; module-field lookup is deferred until call time.
+  local target = M._get_target_nodes(ctx)
+  if #target.nodes == 0 then
+    vim.notify("No items selected")
     return
   end
-  Confirm.show(operations, ctx.explorer.root_path, function()
-    Fs.execute_operations(operations, { delete_to_trash = ctx.config.delete_to_trash }, function(_result)
+  local from_marks = target.origin == "marks"
+
+  local Fs = require("eda.fs")
+  local Confirm = require("eda.buffer.confirm")
+  local util = require("eda.util")
+
+  local operations = {}
+  for _, node in ipairs(target.nodes) do
+    table.insert(operations, {
+      type = "delete",
+      path = node.path,
+      entry_type = Node.is_dir(node) and "directory" or "file",
+    })
+  end
+
+  local function clear_marks_for_completed(completed)
+    for _, op in ipairs(completed) do
+      for _, n in pairs(ctx.store.nodes) do
+        if n.path == op.path then
+          n._marked = nil
+        end
+      end
+    end
+  end
+
+  local function execute()
+    vim.api.nvim_exec_autocmds("User", { pattern = "EdaMutationPre", data = { operations = operations } })
+    Fs.execute_operations(operations, { delete_to_trash = ctx.config.delete_to_trash }, function(result)
       vim.schedule(function()
+        if not util.is_valid_buf(ctx.buffer.bufnr) then
+          return
+        end
+        if from_marks and result.completed then
+          clear_marks_for_completed(result.completed)
+        end
+        if result.error and (not result.completed or #result.completed == 0) then
+          vim.notify("Delete failed: " .. result.error, vim.log.levels.ERROR)
+          vim.api.nvim_exec_autocmds(
+            "User",
+            { pattern = "EdaMutationPost", data = { operations = operations, results = result } }
+          )
+          return
+        end
         ctx.scanner:rescan_preserving_state(ctx.store.root_id, function()
           vim.schedule(function()
+            if not util.is_valid_buf(ctx.buffer.bufnr) then
+              return
+            end
             refresh(ctx)
             refresh_git(ctx)
+            vim.api.nvim_exec_autocmds(
+              "User",
+              { pattern = "EdaMutationPost", data = { operations = operations, results = result } }
+            )
+            local completed_count = result.completed and #result.completed or 0
+            if result.error then
+              vim.notify("Deleted " .. completed_count .. " item(s), error: " .. result.error, vim.log.levels.WARN)
+            else
+              vim.notify("Deleted " .. completed_count .. " item(s)")
+            end
           end)
         end)
       end)
     end)
-  end, function() end)
-end, { desc = "Delete marked nodes" })
+  end
 
-action.register("mark_bulk_move", function(ctx)
-  local marked = {}
-  for _, node in pairs(ctx.store.nodes) do
-    if node._marked then
-      table.insert(marked, node)
-    end
+  if get_eda()._should_confirm(ctx.config.confirm, operations) then
+    Confirm.show(operations, ctx.explorer.root_path, execute, function() end)
+  else
+    execute()
   end
-  if #marked == 0 then
-    vim.notify("No marked nodes")
-    return
-  end
-  -- Prompt for destination directory
-  vim.ui.input({ prompt = "Move to directory: ", default = ctx.explorer.root_path .. "/" }, function(input)
-    if not input or input == "" then
-      return
-    end
-    local Fs = require("eda.fs")
-    local Confirm = require("eda.buffer.confirm")
-    local dest = input:gsub("/+$", "")
-    local operations = {}
-    for _, node in ipairs(marked) do
-      table.insert(operations, {
-        type = "move",
-        src = node.path,
-        dst = dest .. "/" .. node.name,
-        path = dest .. "/" .. node.name,
-      })
-    end
-    Confirm.show(operations, ctx.explorer.root_path, function()
-      Fs.execute_operations(operations, { delete_to_trash = false }, function(result)
-        vim.schedule(function()
-          if not result.error then
-            ctx.scanner:rescan_preserving_state(ctx.store.root_id, function()
-              vim.schedule(function()
-                refresh(ctx)
-                refresh_git(ctx)
-              end)
-            end)
-          end
-        end)
-      end)
-    end, function() end)
-  end)
-end, { desc = "Move marked nodes" })
+end, { desc = "Delete target nodes (Visual > marks > cursor)" })
 
 --- Generate a copy name for a file (e.g., "file.txt" → "file_copy.txt", ".gitignore" → ".gitignore_copy")
 ---@param name string
@@ -726,33 +743,139 @@ local function generate_copy_name(name)
   return base .. "_copy"
 end
 
+--- Resolve a unique destination path within `dir` for `name`. If `dir/name` exists,
+--- appends `_copy` (dotfile/no-extension aware) and falls back to `_2`, `_3`... counter.
+---@param dir string  Target directory (without trailing slash).
+---@param name string  Candidate filename.
+---@return string  Absolute destination path that does not currently exist.
+local function resolve_unique_dst(dir, name)
+  local dst = dir .. "/" .. name
+  if not vim.uv.fs_stat(dst) then
+    return dst
+  end
+  local copy_name = generate_copy_name(name)
+  dst = dir .. "/" .. copy_name
+  local orig_ext = name:match("%.([^%.]+)$") or ""
+  local orig_base = orig_ext ~= "" and name:sub(1, -(#orig_ext + 2)) or name
+  local is_dotfile = orig_base == "" or orig_base == "."
+  local counter = 2
+  while vim.uv.fs_stat(dst) do
+    if is_dotfile or orig_ext == "" then
+      dst = dir .. "/" .. copy_name .. "_" .. counter
+    else
+      local copy_no_ext = copy_name:sub(1, -(#orig_ext + 2))
+      dst = dir .. "/" .. copy_no_ext .. "_" .. counter .. "." .. orig_ext
+    end
+    counter = counter + 1
+  end
+  return dst
+end
+
+M._resolve_unique_dst = resolve_unique_dst
+
+--- Clear all `_marked` flags in the store (sets each to nil).
+---@param store eda.Store
+local function clear_marks(store)
+  for _, node in pairs(store.nodes) do
+    if node._marked then
+      node._marked = nil
+    end
+  end
+end
+
+M._clear_marks = clear_marks
+
+--- Duplicate action: unified mark-aware duplication.
+--- Targets are resolved with priority Visual > marks > cursor via _get_target_nodes.
+--- Each target is copied to its parent directory with `_copy` suffix (collision-aware).
+--- Directories are allowed (Fs.copy uses `cp -R`). When origin is "marks", marks for
+--- completed copies are cleared pre-rescan so failed/unattempted ops survive for retry.
 action.register("duplicate", function(ctx)
-  local node = ctx.buffer:get_cursor_node(ctx.window.winid)
-  if not node or Node.is_dir(node) then
+  -- M._get_target_nodes is used (not local get_target_nodes) because it is defined
+  -- later in the file; module-field lookup is deferred until call time.
+  local target = M._get_target_nodes(ctx)
+  if #target.nodes == 0 then
+    vim.notify("No items selected")
     return
   end
-  local new_name = generate_copy_name(node.name)
-  local dir = vim.fn.fnamemodify(node.path, ":h")
+  local from_marks = target.origin == "marks"
 
-  vim.ui.input({ prompt = "Duplicate as: ", default = new_name }, function(input)
-    if not input or input == "" then
-      return
-    end
-    local Fs = require("eda.fs")
-    Fs.copy(node.path, dir .. "/" .. input, function(err)
-      if err then
-        vim.notify(err, vim.log.levels.ERROR)
+  local Fs = require("eda.fs")
+  local util = require("eda.util")
+
+  local operations = {}
+  for _, node in ipairs(target.nodes) do
+    local parent_dir = vim.fn.fnamemodify(node.path, ":h")
+    table.insert(operations, {
+      type = "copy",
+      src = node.path,
+      dst = M._resolve_unique_dst(parent_dir, node.name),
+    })
+  end
+
+  vim.api.nvim_exec_autocmds("User", { pattern = "EdaMutationPre", data = { operations = operations } })
+
+  local remaining = #operations
+  local errors = {}
+  local completed = {}
+  local first_failed
+
+  local function finalize()
+    vim.schedule(function()
+      if not util.is_valid_buf(ctx.buffer.bufnr) then
         return
+      end
+      if from_marks then
+        for _, op in ipairs(completed) do
+          for _, n in pairs(ctx.store.nodes) do
+            if n.path == op.src then
+              n._marked = nil
+            end
+          end
+        end
       end
       ctx.scanner:rescan_preserving_state(ctx.store.root_id, function()
         vim.schedule(function()
+          if not util.is_valid_buf(ctx.buffer.bufnr) then
+            return
+          end
           refresh(ctx)
           refresh_git(ctx)
+          local result = { completed = completed, failed = first_failed, error = errors[1] }
+          vim.api.nvim_exec_autocmds(
+            "User",
+            { pattern = "EdaMutationPost", data = { operations = operations, results = result } }
+          )
+          local n_completed = #completed
+          if #errors == 0 then
+            vim.notify("Duplicated " .. n_completed .. " item(s)")
+          elseif n_completed > 0 then
+            vim.notify("Duplicated " .. n_completed .. " item(s), error: " .. errors[1], vim.log.levels.WARN)
+          else
+            vim.notify("Duplicate failed: " .. errors[1], vim.log.levels.ERROR)
+          end
         end)
       end)
     end)
-  end)
-end, { desc = "Duplicate file" })
+  end
+
+  for _, op in ipairs(operations) do
+    Fs.copy(op.src, op.dst, function(err)
+      if err then
+        table.insert(errors, err)
+        if not first_failed then
+          first_failed = op
+        end
+      else
+        table.insert(completed, op)
+      end
+      remaining = remaining - 1
+      if remaining == 0 then
+        finalize()
+      end
+    end)
+  end
+end, { desc = "Duplicate target nodes (Visual > marks > cursor)" })
 
 action.register("system_open", function(ctx)
   local node = ctx.buffer:get_cursor_node(ctx.window.winid)
@@ -807,10 +930,16 @@ action.register("inspect", function(ctx)
   end
 end, { desc = "Inspect node data" })
 
--- Helper: get nodes from visual selection or cursor node.
+---@class eda.TargetNodes
+---@field nodes eda.TreeNode[]
+---@field origin "visual"|"marks"|"cursor"|"empty"
+
+--- Resolve the target node set for mark-aware actions (cut/copy/delete/duplicate).
+--- Priority: Visual selection > marked nodes > cursor node. Root is always excluded.
+--- Returns origin info so callers can decide whether to clear marks post-operation.
 ---@param ctx eda.ActionContext
----@return eda.TreeNode[]
-local function get_selected_nodes(ctx)
+---@return eda.TargetNodes
+local function get_target_nodes(ctx)
   local mode = vim.fn.mode()
   if mode == "v" or mode == "V" then
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
@@ -827,44 +956,63 @@ local function get_selected_nodes(ctx)
         end
       end
     end
-    return nodes
-  else
-    local node = ctx.buffer:get_cursor_node(ctx.window.winid)
-    if node and node.id ~= ctx.store.root_id then
-      return { node }
-    end
-    return {}
+    return { nodes = nodes, origin = "visual" }
   end
+
+  local marked = {}
+  for _, node in pairs(ctx.store.nodes) do
+    if node._marked and node.id ~= ctx.store.root_id then
+      table.insert(marked, node)
+    end
+  end
+  if #marked > 0 then
+    return { nodes = marked, origin = "marks" }
+  end
+
+  local node = ctx.buffer:get_cursor_node(ctx.window.winid)
+  if node and node.id ~= ctx.store.root_id then
+    return { nodes = { node }, origin = "cursor" }
+  end
+  return { nodes = {}, origin = "empty" }
 end
+
+M._get_target_nodes = get_target_nodes
 
 action.register("cut", function(ctx)
   local register = require("eda.register")
-  local nodes = get_selected_nodes(ctx)
-  if #nodes == 0 then
+  local target = get_target_nodes(ctx)
+  if #target.nodes == 0 then
     return
   end
   local paths = {}
-  for _, node in ipairs(nodes) do
+  for _, node in ipairs(target.nodes) do
     table.insert(paths, node.path)
   end
   register.set(paths, "cut")
+  if target.origin == "marks" then
+    clear_marks(ctx.store)
+  end
   vim.notify("Cut " .. #paths .. " item(s)")
   refresh(ctx)
-end, { desc = "Cut selected nodes" })
+end, { desc = "Cut target nodes (Visual > marks > cursor)" })
 
 action.register("copy", function(ctx)
   local register = require("eda.register")
-  local nodes = get_selected_nodes(ctx)
-  if #nodes == 0 then
+  local target = get_target_nodes(ctx)
+  if #target.nodes == 0 then
     return
   end
   local paths = {}
-  for _, node in ipairs(nodes) do
+  for _, node in ipairs(target.nodes) do
     table.insert(paths, node.path)
   end
   register.set(paths, "copy")
+  if target.origin == "marks" then
+    clear_marks(ctx.store)
+    refresh(ctx)
+  end
   vim.notify("Copied " .. #paths .. " item(s)")
-end, { desc = "Copy selected nodes" })
+end, { desc = "Copy target nodes (Visual > marks > cursor)" })
 
 action.register("paste", function(ctx)
   local register = require("eda.register")
@@ -896,26 +1044,7 @@ action.register("paste", function(ctx)
   local errors = {}
   for _, src_path in ipairs(reg.paths) do
     local name = vim.fn.fnamemodify(src_path, ":t")
-    local dst = target_dir .. "/" .. name
-    -- Handle name collision
-    if vim.uv.fs_stat(dst) then
-      local copy_name = generate_copy_name(name)
-      dst = target_dir .. "/" .. copy_name
-      -- Determine extension from original name (with dotfile awareness)
-      local orig_ext = name:match("%.([^%.]+)$") or ""
-      local orig_base = orig_ext ~= "" and name:sub(1, -(#orig_ext + 2)) or name
-      local is_dotfile = orig_base == "" or orig_base == "."
-      local counter = 2
-      while vim.uv.fs_stat(dst) do
-        if is_dotfile or orig_ext == "" then
-          dst = target_dir .. "/" .. copy_name .. "_" .. counter
-        else
-          local copy_no_ext = copy_name:sub(1, -(#orig_ext + 2))
-          dst = target_dir .. "/" .. copy_no_ext .. "_" .. counter .. "." .. orig_ext
-        end
-        counter = counter + 1
-      end
-    end
+    local dst = resolve_unique_dst(target_dir, name)
     local function on_done(err)
       if err then
         table.insert(errors, err)
