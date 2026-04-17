@@ -987,6 +987,68 @@ T["decoration cache name_hl resolves to array when multiple groups have visual a
   vim.api.nvim_set_hl(0, "TestArrayGroupB", {})
 end
 
+T["on_line emits per-element extmarks when name_hl is an array"] = function()
+  -- Regression: Neovim's extmark does not resolve link chains inside hl_group arrays,
+  -- so link-only groups like EdaMarkedName/EdaGitIgnoredName silently lose their fg
+  -- when stacked. The fix emits one single-string extmark per array element with
+  -- stair-stepped priority so each hl_group resolves its own link chain.
+  local store, root = build_store()
+  local flat_lines = Flatten.flatten(store, root)
+  local buf = vim.api.nvim_create_buf(false, true)
+  vim.api.nvim_set_current_buf(buf)
+  local painter = Painter.new(buf)
+
+  -- Two groups with direct visual attrs so has_visual_attrs keeps both in the array.
+  vim.api.nvim_set_hl(0, "TestLayerA", { fg = 0x111111 })
+  vim.api.nvim_set_hl(0, "TestLayerB", { fg = 0x222222 })
+
+  local decorations = {}
+  decorations[2] = { name_hl = { "TestLayerA", "TestLayerB" } }
+
+  painter:paint(flat_lines, decorations)
+
+  local captured = {}
+  local orig_set_extmark = vim.api.nvim_buf_set_extmark
+  vim.api.nvim_buf_set_extmark = function(b, n, row, col, opts)
+    if b == buf and n == painter.ns_hl and opts and opts.hl_group and opts.end_col then
+      table.insert(captured, {
+        row = row,
+        col = col,
+        end_col = opts.end_col,
+        hl_group = opts.hl_group,
+        priority = opts.priority,
+      })
+    end
+    return orig_set_extmark(b, n, row, col, opts)
+  end
+
+  -- Force the decoration provider to fire so on_line runs for every visible row.
+  vim.api.nvim__redraw({ buf = buf, flush = true })
+
+  vim.api.nvim_buf_set_extmark = orig_set_extmark
+
+  -- Filter to the row that received the array decoration (flat_lines index 2 → row 1)
+  local row_captured = {}
+  for _, c in ipairs(captured) do
+    if c.row == 1 then
+      table.insert(row_captured, c)
+    end
+  end
+
+  -- Expect two single-string extmarks, not one extmark with a table hl_group.
+  MiniTest.expect.equality(#row_captured, 2)
+  MiniTest.expect.equality(type(row_captured[1].hl_group), "string")
+  MiniTest.expect.equality(type(row_captured[2].hl_group), "string")
+  MiniTest.expect.equality(row_captured[1].hl_group, "TestLayerA")
+  MiniTest.expect.equality(row_captured[2].hl_group, "TestLayerB")
+  -- Later element wins overlapping attrs → higher priority.
+  MiniTest.expect.equality(row_captured[1].priority < row_captured[2].priority, true)
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+  vim.api.nvim_set_hl(0, "TestLayerA", {})
+  vim.api.nvim_set_hl(0, "TestLayerB", {})
+end
+
 T["decoration cache name_hl filters non-visual groups from array"] = function()
   local store, root = build_store()
   local flat_lines = Flatten.flatten(store, root)

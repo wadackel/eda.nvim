@@ -95,7 +95,9 @@ local highlight_groups = {
   EdaGitConflictIcon = { link = "EdaGitConflict" },
   EdaGitIgnoredName = { link = "EdaGitIgnored" },
   EdaGitIgnoredIcon = { link = "EdaGitIgnored" },
-  EdaMarkedNode = { link = "Special" },
+  EdaMarked = { link = "Special" },
+  EdaMarkedIcon = { link = "EdaMarked" },
+  EdaMarkedName = { link = "EdaMarked" },
   EdaCut = { italic = true },
   EdaOpDeleteSign = { link = "DiagnosticError" },
   EdaOpDeletePath = { link = "DiagnosticError" },
@@ -160,22 +162,25 @@ local function setup_highlights()
       end
     end
   end
-  -- Resolve EdaMarkedNode to strip bg while preserving user attributes.
+  -- Resolve EdaMarked to strip bg while preserving user attributes.
   -- Marked nodes should highlight the filename fg (and any user-defined
   -- attributes like bold / underline / italic) without overriding CursorLine
   -- or adding bg. Unlike the git suffix groups above (which keep only fg
   -- because their sources like DiagnosticError are single-purpose),
-  -- EdaMarkedNode's default source `Special` is a general-purpose group that
+  -- EdaMarked's default source `Special` is a general-purpose group that
   -- users frequently customize with richer attributes via direct colorscheme
   -- definition or the on_highlight callback. We therefore resolve the full
-  -- attribute set and strip only bg-related fields.
+  -- attribute set and strip only bg-related fields. EdaMarkedIcon and
+  -- EdaMarkedName link to EdaMarked by default, so stripping the base is
+  -- sufficient for link-based users; users who override Icon/Name directly
+  -- keep their attributes untouched.
   do
-    local resolved = vim.api.nvim_get_hl(0, { name = "EdaMarkedNode", link = false })
+    local resolved = vim.api.nvim_get_hl(0, { name = "EdaMarked", link = false })
     if resolved and resolved.fg then
       resolved.bg = nil
       resolved.ctermbg = nil
       ---@diagnostic disable-next-line: param-type-mismatch
-      vim.api.nvim_set_hl(0, "EdaMarkedNode", resolved)
+      vim.api.nvim_set_hl(0, "EdaMarked", resolved)
     end
   end
 end

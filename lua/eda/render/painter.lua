@@ -106,13 +106,30 @@ function Painter.new(bufnr, indent_width)
       -- Note: Icon extmarks are set in paint() as non-ephemeral because
       -- Neovim does not render ephemeral inline virtual text (neovim/neovim#24797).
 
-      -- Name highlight
+      -- Name highlight.
+      -- Neovim does not resolve link chains inside hl_group arrays, so link-only
+      -- groups (e.g. EdaMarkedName, EdaGitIgnoredName) lose their attributes if
+      -- passed as an array. Emit one single-string extmark per element with
+      -- stair-stepped priority so each element resolves its own link chain; the
+      -- later element wins overlapping attrs.
       if indent_len < line_len then
-        vim.api.nvim_buf_set_extmark(buf, self.ns_hl, row, indent_len, {
-          end_col = line_len,
-          hl_group = entry.name_hl,
-          ephemeral = true,
-        })
+        local name_hl = entry.name_hl
+        if type(name_hl) == "string" then
+          vim.api.nvim_buf_set_extmark(buf, self.ns_hl, row, indent_len, {
+            end_col = line_len,
+            hl_group = name_hl,
+            ephemeral = true,
+          })
+        else
+          for i, hl in ipairs(name_hl) do
+            vim.api.nvim_buf_set_extmark(buf, self.ns_hl, row, indent_len, {
+              end_col = line_len,
+              hl_group = hl,
+              priority = 200 + i,
+              ephemeral = true,
+            })
+          end
+        end
       end
 
       -- Link suffix (symlink target path, rendered first at EOL)
@@ -295,7 +312,7 @@ local function build_cache_entry(dec, node, name_hl, separator)
   end
   return {
     prefix_text = dec.prefix and dec.prefix ~= "" and (dec.prefix .. " ") or nil,
-    prefix_hl = dec.prefix_hl or "EdaMarkedNode",
+    prefix_hl = dec.prefix_hl,
     icon_text = dec.icon and dec.icon ~= "" and (dec.icon .. separator) or nil,
     icon_hl = dec.icon_hl or (Node.is_dir(node) and "EdaDirectoryIcon") or "EdaFileIcon",
     name_hl = name_hl,

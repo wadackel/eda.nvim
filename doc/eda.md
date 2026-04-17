@@ -949,10 +949,21 @@ Directories only receive suffix highlighting (not name highlighting).
 
 ### Operations
 
-| Group           | Default Link      | Description                    |
-|-----------------|-------------------|--------------------------------|
-| `EdaMarkedNode` | `Special`         | Marked node (prefix icon and name; bg stripped, attributes preserved) |
-| `EdaCut`        | `italic = true`   | Cut node (italic, preserves git colors) |
+Marked nodes use a three-group pattern: `EdaMarked` (base), `EdaMarkedIcon`
+(applied to the prefix icon), and `EdaMarkedName` (applied to the filename).
+Both `Icon` and `Name` link to `EdaMarked` by default, so setting `EdaMarked`
+alone styles icon and name together. To differentiate, override `EdaMarkedIcon`
+or `EdaMarkedName` directly. The plugin strips `bg` / `ctermbg` from the
+resolved `EdaMarked` on setup (and on `ColorScheme`) so marks do not clobber
+`CursorLine` / `Visual`; direct overrides on `EdaMarkedIcon` / `EdaMarkedName`
+keep their user-provided attributes untouched (same as git suffix icons).
+
+| Group             | Default Link      | Description                    |
+|-------------------|-------------------|--------------------------------|
+| `EdaMarked`       | `Special`         | Marked node base. `bg` / `ctermbg` are stripped on setup (and re-stripped on `ColorScheme`) so marks do not clobber `CursorLine` / `Visual`. |
+| `EdaMarkedIcon`   | `EdaMarked`       | Prefix icon on marked nodes. Override to style the icon only. |
+| `EdaMarkedName`   | `EdaMarked`       | Filename portion on marked nodes. Override to style the name only, or set to `{}` to make it transparent (lets `EdaFileName` or any other overlay like `EdaCut` style the name instead). |
+| `EdaCut`          | `italic = true`   | Cut node (italic, preserves git colors) |
 | `EdaOpDeleteSign` | `DiagnosticError`  | Delete sign in confirm              |
 | `EdaOpDeletePath` | `DiagnosticError`  | Delete path in confirm              |
 | `EdaOpDeleteText` | `EdaOpDeleteSign`  | Delete count text in confirm title  |

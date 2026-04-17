@@ -1096,36 +1096,57 @@ names (e.g., `vim.api.nvim_set_hl(0, "EdaGitAddedName", { link = "EdaGitAdded"
 
 OPERATIONS ~
 
-  -----------------------------------------------------------------------
-  Group             Default Link        Description
-  ----------------- ------------------- ---------------------------------
-  EdaMarkedNode     Special             Marked node (prefix icon and
-                                        name; bg stripped, attributes
-                                        preserved)
+Marked nodes use a three-group pattern: `EdaMarked` (base), `EdaMarkedIcon`
+(applied to the prefix icon), and `EdaMarkedName` (applied to the filename).
+Both `Icon` and `Name` link to `EdaMarked` by default, so setting `EdaMarked`
+alone styles icon and name together. To differentiate, override `EdaMarkedIcon`
+or `EdaMarkedName` directly. The plugin strips `bg` / `ctermbg` from the
+resolved `EdaMarked` on setup (and on `ColorScheme`) so marks do not clobber
+`CursorLine` / `Visual`; direct overrides on `EdaMarkedIcon` / `EdaMarkedName`
+keep their user-provided attributes untouched (same as git suffix icons).
 
-  EdaCut            italic = true       Cut node (italic, preserves git
-                                        colors)
+  ------------------------------------------------------------------------
+  Group               Default Link        Description
+  ------------------- ------------------- --------------------------------
+  EdaMarked           Special             Marked node base. bg / ctermbg
+                                          are stripped on setup (and
+                                          re-stripped on ColorScheme) so
+                                          marks do not clobber CursorLine
+                                          / Visual.
 
-  EdaOpDeleteSign   DiagnosticError     Delete sign in confirm
+  EdaMarkedIcon       EdaMarked           Prefix icon on marked nodes.
+                                          Override to style the icon only.
 
-  EdaOpDeletePath   DiagnosticError     Delete path in confirm
+  EdaMarkedName       EdaMarked           Filename portion on marked
+                                          nodes. Override to style the
+                                          name only, or set to {} to make
+                                          it transparent (lets EdaFileName
+                                          or any other overlay like EdaCut
+                                          style the name instead).
 
-  EdaOpDeleteText   EdaOpDeleteSign     Delete count text in confirm
-                                        title
+  EdaCut              italic = true       Cut node (italic, preserves git
+                                          colors)
 
-  EdaOpCreateSign   DiagnosticOk        Create sign in confirm
+  EdaOpDeleteSign     DiagnosticError     Delete sign in confirm
 
-  EdaOpCreatePath   DiagnosticOk        Create path in confirm
+  EdaOpDeletePath     DiagnosticError     Delete path in confirm
 
-  EdaOpCreateText   EdaOpCreateSign     Create count text in confirm
-                                        title
+  EdaOpDeleteText     EdaOpDeleteSign     Delete count text in confirm
+                                          title
 
-  EdaOpMoveSign     DiagnosticWarn      Move sign in confirm
+  EdaOpCreateSign     DiagnosticOk        Create sign in confirm
 
-  EdaOpMovePath     DiagnosticWarn      Move path in confirm
+  EdaOpCreatePath     DiagnosticOk        Create path in confirm
 
-  EdaOpMoveText     EdaOpMoveSign       Move count text in confirm title
-  -----------------------------------------------------------------------
+  EdaOpCreateText     EdaOpCreateSign     Create count text in confirm
+                                          title
+
+  EdaOpMoveSign       DiagnosticWarn      Move sign in confirm
+
+  EdaOpMovePath       DiagnosticWarn      Move path in confirm
+
+  EdaOpMoveText       EdaOpMoveSign       Move count text in confirm title
+  ------------------------------------------------------------------------
 
 CONFIRMATION DIALOG ~
 

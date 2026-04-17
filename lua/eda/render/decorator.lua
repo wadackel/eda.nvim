@@ -343,7 +343,7 @@ function M.mark_decorator(node, ctx)
     return nil
   end
   local icon = ctx.config.mark and ctx.config.mark.icon or MARK_ICON
-  return { icon = icon, icon_hl = "EdaMarkedNode", name_hl = "EdaMarkedNode" }
+  return { icon = icon, icon_hl = "EdaMarkedIcon", name_hl = "EdaMarkedName" }
 end
 
 M.Chain = Chain
