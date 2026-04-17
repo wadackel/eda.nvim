@@ -297,12 +297,12 @@ require("eda").setup({
     ["[c"] = "prev_git_change",      -- Jump to previous git change
     ["]c"] = "next_git_change",      -- Jump to next git change
     ["m"] = "mark_toggle",           -- Toggle mark on node
-    ["D"] = "mark_bulk_delete",      -- Delete marked nodes
+    ["D"] = "delete",                -- Delete target nodes (Visual > marks > cursor)
     ["go"] = "system_open",          -- Open with system application
     ["K"] = "inspect",               -- Inspect node data
-    ["gd"] = "duplicate",            -- Duplicate file
-    ["gx"] = "cut",                  -- Cut selected nodes
-    ["gy"] = "copy",                 -- Copy selected nodes
+    ["gd"] = "duplicate",            -- Duplicate target nodes (Visual > marks > cursor)
+    ["gx"] = "cut",                  -- Cut target nodes (Visual > marks > cursor)
+    ["gy"] = "copy",                 -- Copy target nodes (Visual > marks > cursor)
     ["gp"] = "paste",                -- Paste from register
     ["g?"] = "help",                 -- Show keymap help
     ["ga"] = "actions",              -- Open action picker

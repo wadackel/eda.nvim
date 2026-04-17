@@ -177,8 +177,8 @@ T["toggle_gitignored flips show_gitignored"] = function()
   MiniTest.expect.equality(ctx.config.show_gitignored, false)
 end
 
--- mark_toggle: flips _marked on cursor node
-T["mark_toggle toggles _marked on cursor node"] = function()
+-- mark_toggle: cycles _marked between nil and true (2-value invariant)
+T["mark_toggle cycles _marked between nil and true"] = function()
   local ctx, store = make_ctx(3) -- cursor on file_a
 
   -- mock win/buf APIs needed by mark_toggle
@@ -193,7 +193,9 @@ T["mark_toggle toggles _marked on cursor node"] = function()
   action.dispatch("mark_toggle", ctx)
   MiniTest.expect.equality(node._marked, true)
   action.dispatch("mark_toggle", ctx)
-  MiniTest.expect.equality(node._marked, false)
+  MiniTest.expect.equality(node._marked, nil)
+  action.dispatch("mark_toggle", ctx)
+  MiniTest.expect.equality(node._marked, true)
 
   vim.api.nvim_win_close(winid, true)
   vim.api.nvim_buf_delete(bufnr, { force = true })
@@ -323,6 +325,272 @@ T["find_next_change_index: next skips cursor_index itself"] = function()
   -- When cursor is exactly on a changed line, next/prev should move past it
   MiniTest.expect.equality(find_next({ 2, 5, 8 }, 2, "next"), 5)
   MiniTest.expect.equality(find_next({ 2, 5, 8 }, 8, "prev"), 5)
+end
+
+-- ===============================================================
+-- _get_target_nodes / _clear_marks / _resolve_unique_dst tests
+-- ===============================================================
+
+-- Build a ctx with flat_lines and painter.header_lines, needed by _get_target_nodes for Visual branch.
+-- The flat_lines mirrors a fully-expanded tree:
+--   line 1: dir_a       (id=2)
+--   line 2: file_a.lua  (id=3)
+--   line 3: sub_dir     (id=4)
+--   line 4: file_b.lua  (id=5)
+--   line 5: dir_b       (id=6)
+--   line 6: file_c.lua  (id=7)
+local function make_target_ctx(cursor_node_id)
+  local ctx, store = make_ctx(cursor_node_id)
+  ctx.buffer.flat_lines = {
+    { node_id = 2 },
+    { node_id = 3 },
+    { node_id = 4 },
+    { node_id = 5 },
+    { node_id = 6 },
+    { node_id = 7 },
+  }
+  ctx.buffer.painter = { header_lines = 0 }
+  return ctx, store
+end
+
+-- Mock vim.fn.mode / vim.fn.line / nvim_feedkeys for Visual range simulation.
+local function with_visual_range(mode, start_line, end_line, fn)
+  local orig_mode = vim.fn.mode
+  local orig_line = vim.fn.line
+  local orig_feedkeys = vim.api.nvim_feedkeys
+  local orig_replace = vim.api.nvim_replace_termcodes
+  vim.fn.mode = function()
+    return mode
+  end
+  vim.fn.line = function(expr)
+    if expr == "'<" then
+      return start_line
+    end
+    if expr == "'>" then
+      return end_line
+    end
+    return orig_line(expr)
+  end
+  vim.api.nvim_feedkeys = function() end
+  vim.api.nvim_replace_termcodes = function(keys)
+    return keys
+  end
+  local ok, err = pcall(fn)
+  vim.fn.mode = orig_mode
+  vim.fn.line = orig_line
+  vim.api.nvim_feedkeys = orig_feedkeys
+  vim.api.nvim_replace_termcodes = orig_replace
+  if not ok then
+    error(err)
+  end
+end
+
+local get_target = builtin._get_target_nodes
+local clear_marks = builtin._clear_marks
+local resolve_dst = builtin._resolve_unique_dst
+
+T["_get_target_nodes: cursor single node, origin=cursor"] = function()
+  local ctx = make_target_ctx(3) -- cursor on file_a
+  local result = get_target(ctx)
+  MiniTest.expect.equality(#result.nodes, 1)
+  MiniTest.expect.equality(result.nodes[1].id, 3)
+  MiniTest.expect.equality(result.origin, "cursor")
+end
+
+T["_get_target_nodes: cursor on root returns empty"] = function()
+  local ctx, store = make_target_ctx(1)
+  ctx.buffer.get_cursor_node = function()
+    return store:get(store.root_id)
+  end
+  local result = get_target(ctx)
+  MiniTest.expect.equality(#result.nodes, 0)
+  MiniTest.expect.equality(result.origin, "empty")
+end
+
+T["_get_target_nodes: no cursor, no marks returns empty"] = function()
+  local ctx = make_target_ctx(nil)
+  local result = get_target(ctx)
+  MiniTest.expect.equality(#result.nodes, 0)
+  MiniTest.expect.equality(result.origin, "empty")
+end
+
+T["_get_target_nodes: marks return all marked nodes (root excluded)"] = function()
+  local ctx, store = make_target_ctx(nil)
+  store:get(3)._marked = true
+  store:get(5)._marked = true
+  store:get(6)._marked = true
+  store:get(store.root_id)._marked = true
+  local result = get_target(ctx)
+  MiniTest.expect.equality(#result.nodes, 3)
+  MiniTest.expect.equality(result.origin, "marks")
+  for _, n in ipairs(result.nodes) do
+    MiniTest.expect.equality(n.id ~= store.root_id, true)
+  end
+end
+
+T["_get_target_nodes: visual range returns selected lines, origin=visual"] = function()
+  local ctx = make_target_ctx(nil)
+  local result
+  with_visual_range("V", 2, 4, function()
+    result = get_target(ctx)
+  end)
+  MiniTest.expect.equality(#result.nodes, 3)
+  MiniTest.expect.equality(result.nodes[1].id, 3)
+  MiniTest.expect.equality(result.nodes[2].id, 4)
+  MiniTest.expect.equality(result.nodes[3].id, 5)
+  MiniTest.expect.equality(result.origin, "visual")
+end
+
+T["_get_target_nodes: visual takes priority over marks"] = function()
+  local ctx, store = make_target_ctx(nil)
+  store:get(6)._marked = true
+  store:get(7)._marked = true
+  local result
+  with_visual_range("v", 2, 3, function()
+    result = get_target(ctx)
+  end)
+  MiniTest.expect.equality(result.origin, "visual")
+  MiniTest.expect.equality(#result.nodes, 2)
+  MiniTest.expect.equality(result.nodes[1].id, 3)
+  MiniTest.expect.equality(result.nodes[2].id, 4)
+end
+
+T["_get_target_nodes: visual range excludes root"] = function()
+  local ctx = make_target_ctx(nil)
+  ctx.buffer.flat_lines = {
+    { node_id = 1 },
+    { node_id = 2 },
+    { node_id = 3 },
+  }
+  local result
+  with_visual_range("V", 1, 3, function()
+    result = get_target(ctx)
+  end)
+  MiniTest.expect.equality(result.origin, "visual")
+  MiniTest.expect.equality(#result.nodes, 2)
+  MiniTest.expect.equality(result.nodes[1].id, 2)
+  MiniTest.expect.equality(result.nodes[2].id, 3)
+end
+
+T["_clear_marks: resets all _marked to nil"] = function()
+  local _, store = make_target_ctx(nil)
+  store:get(3)._marked = true
+  store:get(5)._marked = true
+  store:get(6)._marked = true
+  clear_marks(store)
+  MiniTest.expect.equality(store:get(3)._marked, nil)
+  MiniTest.expect.equality(store:get(5)._marked, nil)
+  MiniTest.expect.equality(store:get(6)._marked, nil)
+end
+
+T["_clear_marks: no-op on already-clean store"] = function()
+  local _, store = make_target_ctx(nil)
+  clear_marks(store)
+  MiniTest.expect.equality(store:get(3)._marked, nil)
+end
+
+-- _resolve_unique_dst tests use a real temp directory.
+local helpers = require("helpers")
+
+T["_resolve_unique_dst: returns path unchanged if no collision"] = function()
+  local dir = helpers.create_temp_dir()
+  local dst = resolve_dst(dir, "file.txt")
+  MiniTest.expect.equality(dst, dir .. "/file.txt")
+  helpers.remove_temp_dir(dir)
+end
+
+T["_resolve_unique_dst: appends _copy on first collision"] = function()
+  local dir = helpers.create_temp_dir()
+  helpers.create_file(dir .. "/file.txt", "")
+  local dst = resolve_dst(dir, "file.txt")
+  MiniTest.expect.equality(dst, dir .. "/file_copy.txt")
+  helpers.remove_temp_dir(dir)
+end
+
+T["_resolve_unique_dst: uses _2, _3 for further collisions"] = function()
+  local dir = helpers.create_temp_dir()
+  helpers.create_file(dir .. "/file.txt", "")
+  helpers.create_file(dir .. "/file_copy.txt", "")
+  local dst1 = resolve_dst(dir, "file.txt")
+  MiniTest.expect.equality(dst1, dir .. "/file_copy_2.txt")
+
+  helpers.create_file(dir .. "/file_copy_2.txt", "")
+  local dst2 = resolve_dst(dir, "file.txt")
+  MiniTest.expect.equality(dst2, dir .. "/file_copy_3.txt")
+  helpers.remove_temp_dir(dir)
+end
+
+T["_resolve_unique_dst: dotfile handling (.gitignore → .gitignore_copy)"] = function()
+  local dir = helpers.create_temp_dir()
+  helpers.create_file(dir .. "/.gitignore", "")
+  local dst = resolve_dst(dir, ".gitignore")
+  MiniTest.expect.equality(dst, dir .. "/.gitignore_copy")
+  helpers.remove_temp_dir(dir)
+end
+
+T["_resolve_unique_dst: no-extension file (Makefile → Makefile_copy)"] = function()
+  local dir = helpers.create_temp_dir()
+  helpers.create_file(dir .. "/Makefile", "")
+  local dst = resolve_dst(dir, "Makefile")
+  MiniTest.expect.equality(dst, dir .. "/Makefile_copy")
+  helpers.remove_temp_dir(dir)
+end
+
+T["_resolve_unique_dst: no-extension counter (Makefile, Makefile_copy → Makefile_copy_2)"] = function()
+  local dir = helpers.create_temp_dir()
+  helpers.create_file(dir .. "/Makefile", "")
+  helpers.create_file(dir .. "/Makefile_copy", "")
+  local dst = resolve_dst(dir, "Makefile")
+  MiniTest.expect.equality(dst, dir .. "/Makefile_copy_2")
+  helpers.remove_temp_dir(dir)
+end
+
+-- Regression: _resolve_unique_dst must match the inline logic currently in paste
+-- (builtin.lua:901-918), which is what C1 will swap to use this helper.
+T["_resolve_unique_dst: matches paste inline behavior (regression)"] = function()
+  local dir = helpers.create_temp_dir()
+  helpers.create_file(dir .. "/file.txt", "")
+  helpers.create_file(dir .. "/file_copy.txt", "")
+
+  local function paste_inline(target_dir, name)
+    local dst = target_dir .. "/" .. name
+    if vim.uv.fs_stat(dst) then
+      local ext = name:match("%.([^%.]+)$") or ""
+      local base = ext ~= "" and name:sub(1, -(#ext + 2)) or name
+      local function gen()
+        if base == "" or base == "." then
+          return name .. "_copy"
+        end
+        if ext ~= "" then
+          return base .. "_copy." .. ext
+        end
+        return base .. "_copy"
+      end
+      local copy_name = gen()
+      dst = target_dir .. "/" .. copy_name
+      local orig_ext = name:match("%.([^%.]+)$") or ""
+      local orig_base = orig_ext ~= "" and name:sub(1, -(#orig_ext + 2)) or name
+      local is_dotfile = orig_base == "" or orig_base == "."
+      local counter = 2
+      while vim.uv.fs_stat(dst) do
+        if is_dotfile or orig_ext == "" then
+          dst = target_dir .. "/" .. copy_name .. "_" .. counter
+        else
+          local copy_no_ext = copy_name:sub(1, -(#orig_ext + 2))
+          dst = target_dir .. "/" .. copy_no_ext .. "_" .. counter .. "." .. orig_ext
+        end
+        counter = counter + 1
+      end
+    end
+    return dst
+  end
+
+  for _, name in ipairs({ "file.txt", "other.md", ".gitignore", "Makefile" }) do
+    local expected = paste_inline(dir, name)
+    local actual = resolve_dst(dir, name)
+    MiniTest.expect.equality(actual, expected)
+  end
+  helpers.remove_temp_dir(dir)
 end
 
 return T

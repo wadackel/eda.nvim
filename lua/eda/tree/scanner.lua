@@ -406,13 +406,29 @@ end
 ---@param callback fun()
 function Scanner:rescan_preserving_state(root_id, callback)
   local open_by_path = {}
+  local marked_by_path = {}
   for _, node in pairs(self.store.nodes) do
-    if Node.is_dir(node) and node.open and node.id ~= root_id then
-      open_by_path[node.path] = true
+    if node.id ~= root_id then
+      if Node.is_dir(node) and node.open then
+        open_by_path[node.path] = true
+      end
+      if node._marked then
+        marked_by_path[node.path] = true
+      end
     end
   end
   self:scan(root_id, function()
-    self:scan_open_unloaded(open_by_path, callback)
+    self:scan_open_unloaded(open_by_path, function()
+      -- Restore _marked flags for nodes that still exist after rescan.
+      if next(marked_by_path) ~= nil then
+        for _, node in pairs(self.store.nodes) do
+          if marked_by_path[node.path] then
+            node._marked = true
+          end
+        end
+      end
+      callback()
+    end)
   end)
 end
 

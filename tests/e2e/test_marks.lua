@@ -21,8 +21,7 @@ T["marks"] = MiniTest.new_set({
   },
 })
 
-T["marks"]["mark_bulk_delete deletes marked nodes after confirm"] = function()
-  -- Need confirm = true for bulk delete confirm dialog
+T["marks"]["delete action rescans tree on partial failure and clears only completed marks"] = function()
   e2e.stop(child)
   child = e2e.spawn()
   e2e.exec(
@@ -34,91 +33,26 @@ T["marks"]["mark_bulk_delete deletes marked nodes after confirm"] = function()
       window = { kind = "split_left", width = 40 },
       confirm = true,
       header = false,
+      delete_to_trash = false,
     })
   ]]
   )
 
   e2e.open_eda(child, tmp)
 
-  -- Mark first file (a.txt) with m, cursor auto-advances
+  MiniTest.expect.equality(e2e.exec(child, 'return require("eda.action").get_entry("delete") ~= nil'), true)
+
+  -- Mark a.txt and b.txt
   e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
   e2e.feed(child, "m")
-
-  -- Mark second file (b.txt) with m
   e2e.feed(child, "m")
 
-  -- Wait for marks to be applied (nvim_input is async)
-  e2e.wait_until(
-    child,
-    [[
-    local buf = require("eda").get_current().buffer
-    local count = 0
-    for _, fl in ipairs(buf.flat_lines) do
-      if fl.node._marked then count = count + 1 end
-    end
-    return count >= 2
-  ]]
-  )
-
-  -- Press D for mark_bulk_delete
-  e2e.feed(child, "D")
-
-  -- Wait for confirm dialog
-  e2e.wait_until(
-    child,
-    [[
-    local buf = vim.api.nvim_get_current_buf()
-    return vim.bo[buf].filetype == "eda_confirm"
-  ]]
-  )
-
-  -- Confirm with y
-  e2e.feed(child, "y")
-
-  -- Wait for files to be deleted
-  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) == nil", tmp .. "/a.txt"), 10000)
-  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) == nil", tmp .. "/b.txt"), 10000)
-
-  -- c.txt should still exist
-  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/c.txt"), 1)
-  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/a.txt"), 0)
-  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/b.txt"), 0)
-end
-
-T["marks"]["mark_bulk_delete rescans tree on partial failure"] = function()
-  -- Re-spawn with confirm = true
-  e2e.stop(child)
-  child = e2e.spawn()
-  e2e.exec(
-    child,
-    [[
-    require("eda").setup({
-      git = { enabled = false },
-      icon = { provider = "none" },
-      window = { kind = "split_left", width = 40 },
-      confirm = true,
-      header = false,
-    })
-  ]]
-  )
-
-  e2e.open_eda(child, tmp)
-
-  -- Mark a.txt (cursor at line 1), cursor auto-advances
-  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
-  e2e.feed(child, "m")
-
-  -- Mark b.txt (cursor at line 2), cursor auto-advances
-  e2e.feed(child, "m")
-
-  -- Monkey-patch execute_operations to simulate partial failure:
-  -- Delete only the first operation, report error for the rest.
+  -- Monkey-patch execute_operations: a.txt succeeds, b.txt fails (simulated partial failure)
   e2e.exec(
     child,
     [[
     local Fs = require("eda.fs")
     Fs.execute_operations = function(ops, opts, cb)
-      -- Find a.txt operation and delete it; report error for the other
       local a_op, other_op
       for _, op in ipairs(ops) do
         if op.path:find("a.txt", 1, true) then
@@ -135,7 +69,6 @@ T["marks"]["mark_bulk_delete rescans tree on partial failure"] = function()
   ]]
   )
 
-  -- Wait for marks to be applied (nvim_input is async)
   e2e.wait_until(
     child,
     [[
@@ -148,10 +81,8 @@ T["marks"]["mark_bulk_delete rescans tree on partial failure"] = function()
   ]]
   )
 
-  -- Press D for mark_bulk_delete
   e2e.feed(child, "D")
 
-  -- Wait for confirm dialog
   e2e.wait_until(
     child,
     [[
@@ -160,20 +91,14 @@ T["marks"]["mark_bulk_delete rescans tree on partial failure"] = function()
   ]]
   )
 
-  -- Confirm with y
   e2e.feed(child, "y")
 
-  -- a.txt should be deleted (the successful operation)
+  -- a.txt deleted (successful op); b.txt survives (failure); c.txt untouched (unmarked)
   e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) == nil", tmp .. "/a.txt"), 10000)
-
-  -- b.txt should still exist (simulated failure)
   MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/b.txt"), 1)
-
-  -- c.txt should still exist (not marked)
   MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/c.txt"), 1)
 
-  -- Tree should reflect the updated state (rescan happened even though partial failure).
-  -- Wait until eda buffer no longer shows a.txt (deleted), but still shows b.txt and c.txt.
+  -- Rescan must reflect a.txt deletion even on partial failure
   e2e.wait_until(
     child,
     [[
@@ -190,6 +115,205 @@ T["marks"]["mark_bulk_delete rescans tree on partial failure"] = function()
   ]],
     10000
   )
+
+  -- Mark bookkeeping: b.txt mark survives (failed op), a.txt's mark is cleared with it
+  local b_still_marked = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    for _, node in pairs(explorer.store.nodes) do
+      if node.name == "b.txt" and node._marked then return true end
+    end
+    return false
+  ]]
+  )
+  MiniTest.expect.equality(b_still_marked, true)
+end
+
+T["marks"]["delete action deletes marked nodes after confirm"] = function()
+  e2e.stop(child)
+  child = e2e.spawn()
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = false },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = true,
+      header = false,
+      delete_to_trash = false,
+    })
+  ]]
+  )
+
+  e2e.open_eda(child, tmp)
+
+  -- Guard: `delete` action must be registered (not just mark_bulk_delete masquerading)
+  MiniTest.expect.equality(e2e.exec(child, 'return require("eda.action").get_entry("delete") ~= nil'), true)
+
+  -- Mark a.txt then b.txt
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(child, "m")
+  e2e.feed(child, "m")
+
+  e2e.wait_until(
+    child,
+    [[
+    local buf = require("eda").get_current().buffer
+    local count = 0
+    for _, fl in ipairs(buf.flat_lines) do
+      if fl.node._marked then count = count + 1 end
+    end
+    return count >= 2
+  ]]
+  )
+
+  -- Press D (now routed to delete action)
+  e2e.feed(child, "D")
+
+  e2e.wait_until(
+    child,
+    [[
+    local buf = vim.api.nvim_get_current_buf()
+    return vim.bo[buf].filetype == "eda_confirm"
+  ]]
+  )
+
+  e2e.feed(child, "y")
+
+  -- Both marked files should be deleted, c.txt remains
+  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) == nil", tmp .. "/a.txt"), 10000)
+  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) == nil", tmp .. "/b.txt"), 10000)
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/c.txt"), 1)
+
+  -- All marks should be cleared (success path)
+  local mark_info = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local marked = {}
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then table.insert(marked, node.name .. "/" .. node.id) end
+    end
+    return table.concat(marked, ",")
+  ]]
+  )
+  MiniTest.expect.equality(mark_info, "")
+end
+
+T["marks"]["delete action deletes cursor node when no marks"] = function()
+  -- Default setup: confirm = false (skips dialog)
+  e2e.open_eda(child, tmp)
+
+  MiniTest.expect.equality(e2e.exec(child, 'return require("eda.action").get_entry("delete") ~= nil'), true)
+
+  -- No marks, cursor on a.txt
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(child, "D")
+
+  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) == nil", tmp .. "/a.txt"), 10000)
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/b.txt"), 1)
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/c.txt"), 1)
+end
+
+T["marks"]["delete action deletes hidden marked file"] = function()
+  e2e.create_file(tmp .. "/.hidden", "h")
+
+  e2e.stop(child)
+  child = e2e.spawn()
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = false },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+      show_hidden = true,
+    })
+  ]]
+  )
+
+  e2e.open_eda(child, tmp)
+
+  MiniTest.expect.equality(e2e.exec(child, 'return require("eda.action").get_entry("delete") ~= nil'), true)
+
+  -- Locate the line for .hidden and mark it
+  e2e.exec(
+    child,
+    [[
+    local buf = require("eda").get_current().buffer
+    local header_lines = buf.painter.header_lines or 0
+    for i, fl in ipairs(buf.flat_lines) do
+      if fl.node.name == ".hidden" then
+        vim.api.nvim_win_set_cursor(0, { i + header_lines, 0 })
+        break
+      end
+    end
+  ]]
+  )
+  e2e.feed(child, "m")
+
+  e2e.wait_until(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    for _, node in pairs(explorer.store.nodes) do
+      if node.name == ".hidden" and node._marked then return true end
+    end
+    return false
+  ]]
+  )
+
+  e2e.feed(child, "D")
+
+  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) == nil", tmp .. "/.hidden"), 10000)
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/a.txt"), 1)
+end
+
+T["marks"]["delete action skips dialog when confirm.delete is false"] = function()
+  e2e.stop(child)
+  child = e2e.spawn()
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = false },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = { delete = false, move = false, create = false },
+      header = false,
+    })
+  ]]
+  )
+
+  e2e.open_eda(child, tmp)
+
+  MiniTest.expect.equality(e2e.exec(child, 'return require("eda.action").get_entry("delete") ~= nil'), true)
+
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(child, "m")
+  e2e.wait_until(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then return true end
+    end
+    return false
+  ]]
+  )
+
+  e2e.feed(child, "D")
+
+  -- No confirm dialog should appear; file should be deleted directly
+  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) == nil", tmp .. "/a.txt"), 10000)
+
+  -- Current filetype must never have been "eda_confirm"
+  local ft = e2e.exec(child, "return vim.bo[vim.api.nvim_get_current_buf()].filetype")
+  MiniTest.expect.equality(ft ~= "eda_confirm", true)
 end
 
 T["marks"]["mark toggle marks and unmarks a node"] = function()
@@ -229,6 +353,275 @@ T["marks"]["mark toggle marks and unmarks a node"] = function()
   ]]
   )
   MiniTest.expect.equality(unmarked, 0)
+end
+
+-- ===============================================================
+-- A3: mark-aware cut / copy / duplicate + paste flow + Visual priority
+-- ===============================================================
+
+-- Mark the first 3 files (a.txt / b.txt / c.txt) by pressing `m` three times starting from line 1.
+-- Cursor auto-advances after each mark, so after 3 presses it's at line 4 (empty beyond c.txt).
+local function mark_first_three(c)
+  e2e.exec(c, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(c, "m")
+  e2e.feed(c, "m")
+  e2e.feed(c, "m")
+  e2e.wait_until(
+    c,
+    [[
+    local explorer = require("eda").get_current()
+    local count = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then count = count + 1 end
+    end
+    return count == 3
+  ]]
+  )
+end
+
+T["marks"]["cut action cuts all marked nodes and clears marks"] = function()
+  e2e.open_eda(child, tmp)
+  mark_first_three(child)
+
+  e2e.feed(child, "gx")
+
+  -- Wait for register to contain 3 paths
+  e2e.wait_until(
+    child,
+    [[
+    local reg = require("eda.register").get()
+    return reg ~= nil and reg.operation == "cut" and #reg.paths == 3
+  ]]
+  )
+
+  -- Marks should be cleared after cut (mark-originated)
+  local mark_count = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local count = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then count = count + 1 end
+    end
+    return count
+  ]]
+  )
+  MiniTest.expect.equality(mark_count, 0)
+end
+
+T["marks"]["copy action copies all marked nodes and clears marks"] = function()
+  e2e.open_eda(child, tmp)
+  mark_first_three(child)
+
+  e2e.feed(child, "gy")
+
+  e2e.wait_until(
+    child,
+    [[
+    local reg = require("eda.register").get()
+    return reg ~= nil and reg.operation == "copy" and #reg.paths == 3
+  ]]
+  )
+
+  local mark_count = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local count = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then count = count + 1 end
+    end
+    return count
+  ]]
+  )
+  MiniTest.expect.equality(mark_count, 0)
+end
+
+T["marks"]["duplicate action duplicates all marked nodes with _copy suffix"] = function()
+  e2e.open_eda(child, tmp)
+  mark_first_three(child)
+
+  e2e.feed(child, "gd")
+
+  -- Wait for 3 *_copy files to appear
+  e2e.wait_until(child, string.format("return vim.uv.fs_stat(%q) ~= nil", tmp .. "/a_copy.txt"), 10000)
+  e2e.wait_until(child, string.format("return vim.uv.fs_stat(%q) ~= nil", tmp .. "/b_copy.txt"), 10000)
+  e2e.wait_until(child, string.format("return vim.uv.fs_stat(%q) ~= nil", tmp .. "/c_copy.txt"), 10000)
+
+  -- Marks cleared
+  local mark_count = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local count = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then count = count + 1 end
+    end
+    return count
+  ]]
+  )
+  MiniTest.expect.equality(mark_count, 0)
+end
+
+T["marks"]["duplicate action works on a directory (recursive copy)"] = function()
+  -- Create a subdirectory with a nested file
+  e2e.create_dir(tmp .. "/subdir")
+  e2e.create_file(tmp .. "/subdir/inner.txt", "inner")
+
+  e2e.open_eda(child, tmp)
+
+  -- Locate subdir line and mark it
+  e2e.exec(
+    child,
+    [[
+    local buf = require("eda").get_current().buffer
+    local header_lines = buf.painter.header_lines or 0
+    for i, fl in ipairs(buf.flat_lines) do
+      if fl.node.name == "subdir" then
+        vim.api.nvim_win_set_cursor(0, { i + header_lines, 0 })
+        break
+      end
+    end
+  ]]
+  )
+  e2e.feed(child, "m")
+
+  e2e.wait_until(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    for _, node in pairs(explorer.store.nodes) do
+      if node.name == "subdir" and node._marked then return true end
+    end
+    return false
+  ]]
+  )
+
+  e2e.feed(child, "gd")
+
+  -- Expect subdir_copy directory with nested file copied
+  e2e.wait_until(child, string.format("return vim.uv.fs_stat(%q) ~= nil", tmp .. "/subdir_copy"), 10000)
+  e2e.wait_until(child, string.format("return vim.uv.fs_stat(%q) ~= nil", tmp .. "/subdir_copy/inner.txt"), 10000)
+end
+
+T["marks"]["mark -> cut -> navigate -> paste moves marked files (mark_bulk_move replacement)"] = function()
+  -- Create a dest dir to move marked files into
+  e2e.create_dir(tmp .. "/dest")
+  e2e.open_eda(child, tmp)
+
+  -- Mark a.txt and b.txt (locate by name; tree may sort dirs first)
+  e2e.exec(
+    child,
+    [[
+    local buf = require("eda").get_current().buffer
+    local header_lines = buf.painter.header_lines or 0
+    for i, fl in ipairs(buf.flat_lines) do
+      if fl.node.name == "a.txt" then
+        vim.api.nvim_win_set_cursor(0, { i + header_lines, 0 })
+        break
+      end
+    end
+  ]]
+  )
+  e2e.feed(child, "m")
+  e2e.feed(child, "m")
+  e2e.wait_until(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local count = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then count = count + 1 end
+    end
+    return count == 2
+  ]]
+  )
+
+  e2e.feed(child, "gx")
+  e2e.wait_until(
+    child,
+    [[
+    local reg = require("eda.register").get()
+    return reg ~= nil and reg.operation == "cut" and #reg.paths == 2
+  ]]
+  )
+
+  -- Move cursor to dest directory line (it's added after the 3 files)
+  e2e.exec(
+    child,
+    [[
+    local buf = require("eda").get_current().buffer
+    local header_lines = buf.painter.header_lines or 0
+    for i, fl in ipairs(buf.flat_lines) do
+      if fl.node.name == "dest" then
+        vim.api.nvim_win_set_cursor(0, { i + header_lines, 0 })
+        break
+      end
+    end
+  ]]
+  )
+
+  e2e.feed(child, "gp")
+
+  -- Both files should end up under dest/
+  e2e.wait_until(child, string.format("return vim.uv.fs_stat(%q) ~= nil", tmp .. "/dest/a.txt"), 10000)
+  e2e.wait_until(child, string.format("return vim.uv.fs_stat(%q) ~= nil", tmp .. "/dest/b.txt"), 10000)
+  -- Original locations gone
+  MiniTest.expect.equality(vim.uv.fs_stat(tmp .. "/a.txt"), nil)
+  MiniTest.expect.equality(vim.uv.fs_stat(tmp .. "/b.txt"), nil)
+end
+
+T["marks"]["visual selection takes priority over marks in cut"] = function()
+  e2e.open_eda(child, tmp)
+
+  -- Mark c.txt only (line 3)
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {3, 0})")
+  e2e.feed(child, "m")
+  e2e.wait_until(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    for _, node in pairs(explorer.store.nodes) do
+      if node.name == "c.txt" and node._marked then return true end
+    end
+    return false
+  ]]
+  )
+
+  -- Enter Visual-line mode on lines 1-2 (a.txt, b.txt), then cut
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(child, "Vj")
+  -- Wait for visual mode to be active
+  e2e.wait_until(child, 'return vim.fn.mode() == "V"')
+  e2e.feed(child, "gx")
+
+  -- Register should contain exactly the visual range (2 items), mark on c.txt preserved
+  e2e.wait_until(
+    child,
+    [[
+    local reg = require("eda.register").get()
+    if not reg or reg.operation ~= "cut" or #reg.paths ~= 2 then return false end
+    -- Paths must be a.txt and b.txt (visual range), not c.txt (marked)
+    local basenames = {}
+    for _, p in ipairs(reg.paths) do
+      basenames[vim.fn.fnamemodify(p, ":t")] = true
+    end
+    return basenames["a.txt"] and basenames["b.txt"] and not basenames["c.txt"]
+  ]]
+  )
+
+  -- c.txt mark should persist (visual-originated cut doesn't clear marks)
+  local c_still_marked = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    for _, node in pairs(explorer.store.nodes) do
+      if node.name == "c.txt" and node._marked then return true end
+    end
+    return false
+  ]]
+  )
+  MiniTest.expect.equality(c_still_marked, true)
 end
 
 return T
