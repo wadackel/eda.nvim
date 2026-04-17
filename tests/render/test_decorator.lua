@@ -817,8 +817,8 @@ T["mark_decorator returns icon/icon_hl/name_hl for marked node"] = function()
   local ctx = { store = {}, git_status = nil, config = config.get() }
   local dec = decorator.mark_decorator(node, ctx)
   MiniTest.expect.equality(dec.icon, ctx.config.mark.icon)
-  MiniTest.expect.equality(dec.icon_hl, "EdaMarkedNode")
-  MiniTest.expect.equality(dec.name_hl, "EdaMarkedNode")
+  MiniTest.expect.equality(dec.icon_hl, "EdaMarkedIcon")
+  MiniTest.expect.equality(dec.name_hl, "EdaMarkedName")
 end
 
 T["mark_decorator returns nil for unmarked node"] = function()
@@ -845,7 +845,7 @@ T["mark_decorator returns empty icon when mark.icon is empty string"] = function
   local ctx = { store = {}, git_status = nil, config = config.get() }
   local dec = decorator.mark_decorator(node, ctx)
   MiniTest.expect.equality(dec.icon, "")
-  MiniTest.expect.equality(dec.name_hl, "EdaMarkedNode")
+  MiniTest.expect.equality(dec.name_hl, "EdaMarkedName")
 end
 
 T["Chain decorate passes through prefix field (last-write-wins)"] = function()
@@ -882,10 +882,10 @@ T["cut + marked node accumulates name_hl and overrides icon"] = function()
   local result = chain:decorate(flat_lines, ctx)
 
   MiniTest.expect.equality(result[1].icon, config.get().mark.icon)
-  MiniTest.expect.equality(result[1].icon_hl, "EdaMarkedNode")
+  MiniTest.expect.equality(result[1].icon_hl, "EdaMarkedIcon")
   MiniTest.expect.equality(type(result[1].name_hl), "table")
   MiniTest.expect.equality(result[1].name_hl[1], "EdaCut")
-  MiniTest.expect.equality(result[1].name_hl[2], "EdaMarkedNode")
+  MiniTest.expect.equality(result[1].name_hl[2], "EdaMarkedName")
 
   register.clear()
 end
