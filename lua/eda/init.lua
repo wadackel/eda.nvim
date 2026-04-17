@@ -160,21 +160,22 @@ local function setup_highlights()
       end
     end
   end
-  -- Resolve EdaMarkedNode to fg-only (strip bg from link target).
-  -- Same pattern as git suffix groups above: marked nodes should highlight
-  -- the filename foreground without overriding CursorLine or adding bg.
-  -- NOTE: The main loop uses default=true, which silently skips groups that
-  -- were already set (e.g., a stale link to "Visual" from a prior session).
-  -- Force re-set the intended link first so the resolved fg comes from the
-  -- correct target, then strip the bg unconditionally.
+  -- Resolve EdaMarkedNode to strip bg while preserving user attributes.
+  -- Marked nodes should highlight the filename fg (and any user-defined
+  -- attributes like bold / underline / italic) without overriding CursorLine
+  -- or adding bg. Unlike the git suffix groups above (which keep only fg
+  -- because their sources like DiagnosticError are single-purpose),
+  -- EdaMarkedNode's default source `Special` is a general-purpose group that
+  -- users frequently customize with richer attributes via direct colorscheme
+  -- definition or the on_highlight callback. We therefore resolve the full
+  -- attribute set and strip only bg-related fields.
   do
-    local spec = highlight_groups.EdaMarkedNode
-    if spec and spec.link then
-      vim.api.nvim_set_hl(0, "EdaMarkedNode", { link = spec.link })
-      local resolved = vim.api.nvim_get_hl(0, { name = "EdaMarkedNode", link = false })
-      if resolved and resolved.fg then
-        vim.api.nvim_set_hl(0, "EdaMarkedNode", { fg = resolved.fg })
-      end
+    local resolved = vim.api.nvim_get_hl(0, { name = "EdaMarkedNode", link = false })
+    if resolved and resolved.fg then
+      resolved.bg = nil
+      resolved.ctermbg = nil
+      ---@diagnostic disable-next-line: param-type-mismatch
+      vim.api.nvim_set_hl(0, "EdaMarkedNode", resolved)
     end
   end
 end
@@ -357,6 +358,12 @@ end
 function M.setup(opts)
   config.setup(opts)
   setup_highlights()
+
+  -- Re-apply highlights on :colorscheme to survive :hi clear.
+  vim.api.nvim_create_autocmd("ColorScheme", {
+    group = vim.api.nvim_create_augroup("eda_highlights", { clear = true }),
+    callback = setup_highlights,
+  })
 
   local cfg = config.get()
 

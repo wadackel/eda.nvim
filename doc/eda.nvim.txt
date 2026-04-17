@@ -1042,7 +1042,8 @@ OPERATIONS ~
   Group             Default Link        Description
   ----------------- ------------------- ---------------------------------
   EdaMarkedNode     Special             Marked node (prefix icon and
-                                        name, fg-only)
+                                        name; bg stripped, attributes
+                                        preserved)
 
   EdaCut            italic = true       Cut node (italic, preserves git
                                         colors)
