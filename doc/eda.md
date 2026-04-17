@@ -935,7 +935,7 @@ Directories only receive suffix highlighting (not name highlighting).
 
 | Group           | Default Link      | Description                    |
 |-----------------|-------------------|--------------------------------|
-| `EdaMarkedNode` | `Special`         | Marked node (prefix icon and name, fg-only) |
+| `EdaMarkedNode` | `Special`         | Marked node (prefix icon and name; bg stripped, attributes preserved) |
 | `EdaCut`        | `italic = true`   | Cut node (italic, preserves git colors) |
 | `EdaOpDeleteSign` | `DiagnosticError`  | Delete sign in confirm              |
 | `EdaOpDeletePath` | `DiagnosticError`  | Delete path in confirm              |
