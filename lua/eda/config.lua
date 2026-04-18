@@ -235,6 +235,7 @@ local defaults = {
     ["[c"] = "prev_git_change",
     ["]c"] = "next_git_change",
     ["m"] = "mark_toggle",
+    ["M"] = "mark_clear_all",
     ["D"] = "delete",
     ["go"] = "system_open",
     ["K"] = "inspect",

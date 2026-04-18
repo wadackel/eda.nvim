@@ -621,6 +621,26 @@ action.register("collapse_recursive", function(ctx)
 end, { desc = "Collapse directory recursively" })
 
 action.register("mark_toggle", function(ctx)
+  -- M._get_visual_targets is used (not local get_visual_targets) because it is defined
+  -- later in the file; module-field lookup is deferred until call time. Same pattern as
+  -- M._get_target_nodes in delete/duplicate actions.
+  local visual = M._get_visual_targets(ctx)
+  if visual then
+    if #visual == 0 then
+      return
+    end
+    for _, node in ipairs(visual) do
+      -- Toggle between nil and true (avoids `false` intermediate state from `not`).
+      if node._marked then
+        node._marked = nil
+      else
+        node._marked = true
+      end
+    end
+    refresh(ctx)
+    return
+  end
+  -- Normal mode: single-node toggle + cursor advance for repeat-press UX.
   local node = ctx.buffer:get_cursor_node(ctx.window.winid)
   if not node then
     return
@@ -639,7 +659,7 @@ action.register("mark_toggle", function(ctx)
   if cursor[1] < line_count then
     vim.api.nvim_win_set_cursor(ctx.window.winid, { cursor[1] + 1, cursor[2] })
   end
-end, { desc = "Toggle mark on node" })
+end, { desc = "Mark/unmark node (Visual selection or cursor)" })
 
 --- Delete action: unified mark-aware deletion.
 --- Targets are resolved with priority Visual > marks > cursor via _get_target_nodes.
@@ -784,6 +804,22 @@ local function clear_marks(store)
 end
 
 M._clear_marks = clear_marks
+
+action.register("mark_clear_all", function(ctx)
+  -- Single-pass scan: count and clear in the same loop to avoid the two-pass
+  -- "probe then clear" pattern. Refresh is skipped when no marks existed so
+  -- the painter does not redraw for a no-op press.
+  local count = 0
+  for _, node in pairs(ctx.store.nodes) do
+    if node._marked then
+      node._marked = nil
+      count = count + 1
+    end
+  end
+  if count > 0 then
+    refresh(ctx)
+  end
+end, { desc = "Clear all marks" })
 
 --- Duplicate action: unified mark-aware duplication.
 --- Targets are resolved with priority Visual > marks > cursor via _get_target_nodes.
@@ -934,31 +970,46 @@ end, { desc = "Inspect node data" })
 ---@field nodes eda.TreeNode[]
 ---@field origin "visual"|"marks"|"cursor"|"empty"
 
+--- Return nodes under the current Visual selection, or nil when not in Visual mode.
+--- Exits Visual via <Esc> feedkeys so `'<` / `'>` are populated, matching the existing
+--- target-resolution contract used by delete/cut/copy/duplicate/quickfix.
+--- "\22" is <C-v> (blockwise Visual); all three Visual submodes are treated uniformly
+--- because eda is a read-only tree where column-level selection carries no meaning.
+---@param ctx eda.ActionContext
+---@return eda.TreeNode[]|nil
+local function get_visual_targets(ctx)
+  local mode = vim.fn.mode()
+  if mode ~= "v" and mode ~= "V" and mode ~= "\22" then
+    return nil
+  end
+  vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
+  local start_line = vim.fn.line("'<")
+  local end_line = vim.fn.line("'>")
+  local header_lines = ctx.buffer.painter.header_lines or 0
+  local nodes = {}
+  for line = start_line, end_line do
+    local fl = ctx.buffer.flat_lines[line - header_lines]
+    if fl then
+      local node = ctx.store:get(fl.node_id)
+      if node and node.id ~= ctx.store.root_id then
+        table.insert(nodes, node)
+      end
+    end
+  end
+  return nodes
+end
+
+M._get_visual_targets = get_visual_targets
+
 --- Resolve the target node set for mark-aware actions (cut/copy/delete/duplicate).
 --- Priority: Visual selection > marked nodes > cursor node. Root is always excluded.
 --- Returns origin info so callers can decide whether to clear marks post-operation.
 ---@param ctx eda.ActionContext
 ---@return eda.TargetNodes
 local function get_target_nodes(ctx)
-  local mode = vim.fn.mode()
-  -- "\22" is <C-v> (blockwise Visual). Treat all three Visual submodes uniformly
-  -- so the Visual > marks > cursor contract holds regardless of how the user entered Visual.
-  if mode == "v" or mode == "V" or mode == "\22" then
-    vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
-    local start_line = vim.fn.line("'<")
-    local end_line = vim.fn.line("'>")
-    local header_lines = ctx.buffer.painter.header_lines or 0
-    local nodes = {}
-    for line = start_line, end_line do
-      local fl = ctx.buffer.flat_lines[line - header_lines]
-      if fl then
-        local node = ctx.store:get(fl.node_id)
-        if node and node.id ~= ctx.store.root_id then
-          table.insert(nodes, node)
-        end
-      end
-    end
-    return { nodes = nodes, origin = "visual" }
+  local visual = get_visual_targets(ctx)
+  if visual then
+    return { nodes = visual, origin = "visual" }
   end
 
   local marked = {}

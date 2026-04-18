@@ -306,7 +306,8 @@ require("eda").setup({
     ["gs"] = "toggle_git_changes",   -- Toggle git-changes filter
     ["[c"] = "prev_git_change",      -- Jump to previous git change
     ["]c"] = "next_git_change",      -- Jump to next git change
-    ["m"] = "mark_toggle",           -- Toggle mark on node
+    ["m"] = "mark_toggle",           -- Mark/unmark node (Visual selection or cursor)
+    ["M"] = "mark_clear_all",        -- Clear all marks
     ["D"] = "delete",                -- Delete target nodes (Visual > marks > cursor)
     ["go"] = "system_open",          -- Open with system application
     ["K"] = "inspect",               -- Inspect node data
@@ -376,7 +377,8 @@ Target resolution is unified across `delete` / `cut` / `copy` / `duplicate`: **V
 
 | Action | Description |
 | --- | --- |
-| `mark_toggle` | Toggle mark on the current node and move cursor down |
+| `mark_toggle` | Mark/unmark target node(s). Normal mode toggles the cursor node and advances; Visual mode toggles each selected node |
+| `mark_clear_all` | Clear all marks across the tree |
 | `delete` | Delete target nodes (routes through `confirm.delete` dialog) |
 | `cut` | Move target paths into the register; `paste` later moves them |
 | `copy` | Copy target paths into the register; `paste` later duplicates them |
