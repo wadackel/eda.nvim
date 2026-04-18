@@ -49,7 +49,7 @@ Explore as a tree, edit as a buffer — a file explorer for Neovim that combines
 - **Extensible action system** — Named registry with custom actions as first-class citizens
 - **netrw replacement** — `hijack_netrw` option for seamless default browsing
 - **60+ highlight groups** — Full appearance customization across 6 categories
-- **Event hooks** — `EdaTreeOpen`, `EdaMutationPost`, etc. for plugin integration
+- **Event hooks** — `EdaTreeOpen`, `EdaTreeClose`, `EdaMutationPre`, `EdaMutationPost`, `EdaRootChanged` for plugin integration. See [`doc/eda.nvim.txt`](doc/eda.nvim.txt) for event payload details.
 
 ## Requirements
 
@@ -260,6 +260,16 @@ require("eda").setup({
     enabled = true,
   },
 
+  -- Marker icon displayed before the file/folder icon on marked nodes
+  -- Use `m` (default `mark_toggle`) to mark/unmark nodes. Marked nodes are
+  -- highlighted via EdaMarked / EdaMarkedIcon / EdaMarkedName and become the
+  -- default target for mark-aware actions (delete, cut, copy, duplicate, paste)
+  -- when no Visual selection is active.
+  mark = {
+    -- Set to "" to disable the prefix icon (name highlight still applies)
+    icon = "󰄲", -- nf-md-checkbox_marked (U+F0132)
+  },
+
   -- Header displayed above the tree (set to false to disable entirely)
   header = {
     -- Format: "short", or fun(root_path): string|false
@@ -321,6 +331,146 @@ require("eda").setup({
 
 > [!TIP]
 > See `:help eda.nvim` for detailed descriptions of each option, available actions, events, and highlight groups.
+
+## Actions
+
+All operations in eda.nvim are registered as named actions in an action registry. Built-ins and user-defined actions share the same namespace — anything registered can be bound to a key via `mappings`, dispatched programmatically, or discovered at runtime through the `actions` picker (`ga` by default).
+
+### Built-in Actions
+
+The table below groups built-ins by role. See [`:help eda-actions`](doc/eda.nvim.txt) for per-action parameters, edge cases, and target-resolution rules.
+
+#### Navigation
+
+| Action | Description |
+| --- | --- |
+| `select` | Open file in the target window or toggle directory open/closed |
+| `select_split` | Open file in a horizontal split |
+| `select_vsplit` | Open file in a vertical split |
+| `select_tab` | Open file in a new tab |
+| `parent` | Navigate to the parent directory (changes root when invoked on root) |
+| `cwd` | Change root to the current working directory |
+| `cd` | Change root to the directory under the cursor |
+
+#### Tree Manipulation
+
+| Action | Description |
+| --- | --- |
+| `collapse_all` | Collapse all directories except root |
+| `collapse_node` | Collapse current directory, or move cursor to parent if already collapsed |
+| `collapse_recursive` | Recursively collapse a directory and all its children |
+| `expand_all` | Expand every directory up to `expand_depth` |
+| `expand_recursive` | Recursively expand the directory under the cursor up to `expand_depth` |
+
+#### Yank
+
+| Action | Description |
+| --- | --- |
+| `yank_path` | Yank the relative path to the system clipboard |
+| `yank_path_absolute` | Yank the absolute path to the system clipboard |
+| `yank_name` | Yank the filename to the system clipboard |
+
+#### File Operations
+
+Target resolution is unified across `delete` / `cut` / `copy` / `duplicate`: **Visual selection > marked nodes > cursor node**. The root node is always excluded.
+
+| Action | Description |
+| --- | --- |
+| `mark_toggle` | Toggle mark on the current node and move cursor down |
+| `delete` | Delete target nodes (routes through `confirm.delete` dialog) |
+| `cut` | Move target paths into the register; `paste` later moves them |
+| `copy` | Copy target paths into the register; `paste` later duplicates them |
+| `paste` | Paste from the register into the directory under the cursor |
+| `duplicate` | Duplicate target nodes in place, appending `_copy` on name collision |
+
+#### Display
+
+| Action | Description |
+| --- | --- |
+| `toggle_hidden` | Toggle visibility of hidden files (dotfiles) |
+| `toggle_gitignored` | Toggle visibility of git-ignored files |
+| `toggle_git_changes` | Toggle filter showing only files with git changes |
+| `next_git_change` | Jump to the next git-changed file (wraps at end) |
+| `prev_git_change` | Jump to the previous git-changed file |
+| `toggle_preview` | Toggle the file preview pane |
+| `preview_scroll_down` | Scroll the preview down by half a page |
+| `preview_scroll_up` | Scroll the preview up by half a page |
+| `preview_scroll_page_down` | Scroll the preview down by a full page |
+| `preview_scroll_page_up` | Scroll the preview up by a full page |
+
+#### Misc
+
+| Action | Description |
+| --- | --- |
+| `refresh` | Rescan the filesystem and re-render the tree |
+| `close` | Close the explorer window |
+| `system_open` | Open the file with the system default application |
+| `inspect` | Print node data to the console (debug) |
+| `help` | Show keybinding help in a floating window |
+| `split` | Open the explorer in a new vertical split with the same root |
+| `vsplit` | Open the explorer in a new horizontal split with the same root |
+| `actions` | Open an action picker listing every registered action |
+
+### Defining Custom Actions
+
+Register a function under a name, then map it like any built-in. Custom actions also appear in the `actions` picker, so they remain discoverable without a dedicated keymap.
+
+```lua
+local action = require("eda.action")
+
+action.register("my_action", function(ctx)
+  local node = ctx.buffer:get_cursor_node(ctx.window.winid)
+  if node then
+    vim.notify("Selected: " .. node.path)
+  end
+end, { desc = "Show selected file path" })
+
+require("eda").setup({
+  mappings = {
+    ["<C-x>"] = "my_action",
+  },
+})
+```
+
+#### `action.register(name, fn, opts?)`
+
+- `name` `string` — Action identifier used by `mappings` and dispatched calls.
+- `fn` `fun(ctx: eda.ActionContext)` — Action body. Receives the context described below.
+- `opts.desc` `string?` — Human-readable description shown in the `actions` picker.
+
+#### `ActionContext`
+
+Every action receives a context table with handles to the running explorer state:
+
+| Field | Type | Purpose |
+| --- | --- | --- |
+| `ctx.store` | `eda.Store` | Tree node store (lookup, mutations) |
+| `ctx.buffer` | `eda.Buffer` | Explorer buffer API (cursor node, line helpers) |
+| `ctx.window` | `eda.Window` | Explorer window (`winid`, focus helpers) |
+| `ctx.scanner` | `eda.Scanner` | Filesystem scanner |
+| `ctx.config` | `eda.Config` | Resolved configuration |
+| `ctx.explorer` | `eda.Explorer` | Current explorer instance (`root_path`, `instance_id`) |
+
+See [`:help eda-api`](doc/eda.nvim.txt) for the full public API, including the `action.dispatch` / `action.list` / `action.get_entry` helpers.
+
+#### Example: open a terminal in the directory under the cursor
+
+```lua
+action.register("open_terminal", function(ctx)
+  local node = ctx.buffer:get_cursor_node(ctx.window.winid)
+  local dir = node and node.is_dir and node.path
+    or node and vim.fn.fnamemodify(node.path, ":h")
+    or ctx.explorer.root_path
+  vim.cmd("split | terminal")
+  vim.fn.chansend(vim.b.terminal_job_id, "cd " .. vim.fn.shellescape(dir) .. "\n")
+end, { desc = "Open terminal in directory" })
+
+require("eda").setup({
+  mappings = {
+    ["<C-\\>"] = "open_terminal",
+  },
+})
+```
 
 ## Recipes
 
@@ -462,33 +612,6 @@ require("eda").setup({
       end
       return "·", "EdaFileIcon"
     end,
-  },
-})
-```
-
-</details>
-
-<details>
-<summary>Register custom actions</summary>
-
-Add project-specific actions to the registry. They appear in the action picker (`ga`) and can be mapped to keys.
-
-```lua
-local action = require("eda.action")
-
-action.register("open_terminal", function(ctx)
-  local node = ctx.buffer:get_cursor_node(ctx.window.winid)
-  local dir = node and node.is_dir and node.path
-    or node and vim.fn.fnamemodify(node.path, ":h")
-    or ctx.explorer.root_path
-  vim.cmd("split | terminal")
-  vim.fn.chansend(vim.b.terminal_job_id, "cd " .. vim.fn.shellescape(dir) .. "\n")
-end, { desc = "Open terminal in directory" })
-
--- Map it
-require("eda").setup({
-  mappings = {
-    ["<C-\\>"] = "open_terminal",
   },
 })
 ```

@@ -65,15 +65,16 @@ require("eda").setup({
   git = {
     enabled = true,
     icons = {
-      untracked = "nf-oct-question",     -- U+F420
-      added = "nf-oct-plus",             -- U+F44D
-      modified = "nf-oct-diff",          -- U+F444
-      deleted = "nf-oct-circle_slash",   -- U+F474
-      renamed = "nf-oct-arrow_right",    -- U+F432
-      staged = "nf-oct-check",           -- U+F42E
-      conflict = "nf-oct-alert",         -- U+F421
+      untracked = "",     -- U+F420
+      added = "",             -- U+F44D
+      modified = "",          -- U+F444
+      deleted = "",   -- U+F474
+      renamed = "",    -- U+F432
+      staged = "",           -- U+F42E
+      conflict = "",         -- U+F421
       ignored = "◌",                     -- U+25CC
     },
+  },
 
   indent = {
     width = 2,
@@ -87,6 +88,10 @@ require("eda").setup({
 
   full_name = {
     enabled = true,
+  },
+
+  mark = {
+    icon = "󰄲",        -- nf-md-checkbox_marked (U+F0132)
   },
 
   header = {
@@ -448,7 +453,7 @@ Maximum recursion depth for `expand_all` and `expand_recursive` actions.
 
 `table`
 
-- `icon` `string` (default: `mark.icon` — nf-md-checkbox_marked)
+- `icon` `string` (default: nf-md-checkbox_marked, U+F0132)
   Prefix marker icon displayed before the file/folder icon on marked nodes.
   Set to `""` to disable the prefix icon (the name highlight still applies).
 
@@ -871,7 +876,12 @@ automatically update LSP workspace paths on file rename/move.
 Fired when the explorer's root directory changes (via `parent`, `cwd`, or `cd`
 actions).
 
-`data`: `{ root_path = string, explorer = eda.Explorer }`
+`data`: `{ root_path = string, instance_id = integer }`
+
+`instance_id` is the integer ID that identifies the Explorer instance (the same
+value returned by `require("eda").get_all()` entries). eda.nvim allows multiple
+explorer instances to coexist, so event listeners can use this field to filter
+events to a specific instance when needed.
 
 ## Highlight Groups
 

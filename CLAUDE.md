@@ -48,7 +48,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ### E2E Tests
 
 - E2E tests use `MiniTest.new_child_neovim()` for process isolation (`--listen pipe` + `vim.uv.sleep()` polling)
-- Each test case spawns a fresh child Neovim via `tests/e2e/helpers.lua` — `e2e.spawn()`, `e2e.stop()`, `e2e.exec()`, `e2e.feed()`, `e2e.wait_until()`
+- Each test case spawns a fresh child Neovim via `tests/e2e/helpers.lua` — `e2e.spawn()`, `e2e.stop()`, `e2e.exec()`, `e2e.feed()`, `e2e.feed_insert()`, `e2e.wait_until()`, `e2e.setup_eda()`, `e2e.open_eda()`, `e2e.create_git_repo()`, plus `e2e.get_buf_lines()` / `e2e.get_win_count()` / `e2e.get_tab_count()`
 - Inner Neovim config: `--clean --headless`, `split_left`, `header=false`, `git.enabled=false`, `icon.provider="none"`
 - Headless `--listen` mode limitations: `BufWinEnter`/`BufEnter` do not fire for RPC-initiated commands; `nvim_set_decoration_provider` `on_line` does not fire (no UI redraw). Use `doautocmd` workarounds or verify internal state (`_decoration_cache`) instead
 - `wait_until()` wraps multiline predicates in `(function() ... end)()` — single expressions use `return (expr)`, block statements use the function wrapper
@@ -92,11 +92,15 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - `on_win` callback (once per window per redraw) can safely call `nvim_buf_get_extmarks`, `nvim_buf_clear_namespace`, and `nvim_buf_set_extmark`. Use position comparison to skip unnecessary rebuilds (fast path)
 - Float window titles render on top of the float border: padding with spaces replaces the border horizontal character and breaks the visual frame. To right-align content in a float title (e.g., a status indicator), fill the gap with the border's horizontal char (`─` for rounded/single, `═` for double) rather than spaces. `title_pos` (center/right) additionally shifts the entire chunk array, so right-edge padding layouts only work with `title_pos = "left"` — fall back to adjacent placement for other positions
 - `nvim_win_set_config({title = {{text, hl_group}, ...}})` accepts chunk arrays for multi-highlight float titles (Neovim 0.9+). `nvim_win_get_config(winid).title` round-trips the same chunk form; plain string titles are normalized to a single-element chunk `{{text}}`
+- Mark invariant: nodes carry `_marked = true|nil` (2-state). Action target resolution across mark-aware operations (delete/cut/copy/duplicate/paste) follows `Visual > marks > cursor` priority (single source of truth in `action/builtin.lua`)
+- Mark highlight pattern: `EdaMarked` (base, `Special` link) → `EdaMarkedIcon` / `EdaMarkedName` (both linked to `EdaMarked`). On setup and `ColorScheme` events, `bg` / `ctermbg` are stripped from resolved `EdaMarked` to avoid clobbering `CursorLine` / `Visual`
+- `paint_incremental()` (`render/painter.lua`): directory expand/collapse uses a differential paint strategy driven by `_incremental_hint` (node ID of the toggled dir) set in `init.lua`. Only the affected line range is re-decorated, avoiding a full-buffer repaint
 
 ## Benchmarking
 
 - Script: `benchmarks/render.lua` — run via `nvim --headless -l benchmarks/render.lua [target_dir]`
-- 6 scenarios: root-only / all-expanded / post-toggle / re-render / window+render / window+re-render
+- 9 scenarios (1-6: baseline render pipeline — root-only / all-expanded / post-toggle / re-render / window+render / window+re-render; 7: single-toggle profiled breakdown; 8: edit-preserve capture profiled; 9: `paint_incremental` vs full paint)
 - Run before and after performance-related changes (render pipeline, store, decorator, painter) and compare results
 - Headless mode does not measure `nvim_set_decoration_provider` visible-line optimization; Scenarios 5-6 (with window) partially compensate
+- Scenario 9 is the regression gate for `paint_incremental` (used on directory toggle to avoid full-buffer repaint). Always run Scenario 9 after touching `painter.lua` or `init.lua` toggle paths
 - For large-scale benchmarking: `git clone --depth=1 https://github.com/neovim/neovim /tmp/neovim-bench` → run benchmark → `rm -rf /tmp/neovim-bench`
