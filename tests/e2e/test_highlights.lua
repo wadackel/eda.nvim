@@ -259,4 +259,82 @@ T["highlights"]["ignored + marked: decoration cache stacks git and mark name hls
   e2e.remove_temp_dir(tmp)
 end
 
+T["highlights"]["symlink + marked: decoration cache stacks symlink and mark name hls"] = function()
+  -- Regression guard: marked symlink must place EdaMarkedName after EdaSymlink in the
+  -- decoration cache array so on_line's per-element emission gives mark the highest
+  -- priority and its fg wins over Underlined's fg.
+  -- Note: headless --listen mode does not fire on_line, so this E2E verifies the
+  -- cache feeding on_line, not the final extmark calls.
+  local tmp = vim.uv.fs_realpath(e2e.create_temp_dir())
+  e2e.create_file(tmp .. "/real.txt", "content")
+  vim.uv.fs_symlink(tmp .. "/real.txt", tmp .. "/link.txt")
+
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+      git = { enabled = false },
+    })
+  ]]
+  )
+
+  e2e.open_eda(child, tmp)
+
+  e2e.exec(
+    child,
+    [[
+    local buffer = require("eda").get_current().buffer
+    for idx, fl in ipairs(buffer.flat_lines) do
+      if fl.node.name == "link.txt" then
+        vim.api.nvim_win_set_cursor(0, { idx, 0 })
+        break
+      end
+    end
+  ]]
+  )
+  e2e.feed(child, "m")
+  e2e.wait_until(
+    child,
+    [[
+    local buffer = require("eda").get_current().buffer
+    for _, fl in ipairs(buffer.flat_lines) do
+      if fl.node.name == "link.txt" and fl.node._marked then
+        return true
+      end
+    end
+    return false
+  ]]
+  )
+
+  local result = e2e.exec(
+    child,
+    [[
+    local buffer = require("eda").get_current().buffer
+    local link_id
+    for _, fl in ipairs(buffer.flat_lines) do
+      if fl.node.name == "link.txt" then
+        link_id = fl.node_id
+        break
+      end
+    end
+    local entry = buffer.painter._decoration_cache[link_id]
+    return {
+      name_hl = entry and entry.name_hl or nil,
+      type_tag = entry and type(entry.name_hl) or nil,
+    }
+  ]]
+  )
+
+  MiniTest.expect.equality(result.type_tag, "table")
+  MiniTest.expect.equality(type(result.name_hl), "table")
+  MiniTest.expect.equality(result.name_hl[1], "EdaSymlink")
+  MiniTest.expect.equality(result.name_hl[#result.name_hl], "EdaMarkedName")
+
+  e2e.remove_temp_dir(tmp)
+end
+
 return T
