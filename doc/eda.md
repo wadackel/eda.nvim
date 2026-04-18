@@ -457,6 +457,23 @@ Maximum recursion depth for `expand_all` and `expand_recursive` actions.
   Prefix marker icon displayed before the file/folder icon on marked nodes.
   Set to `""` to disable the prefix icon (the name highlight still applies).
 
+### quickfix
+
+`table`
+
+- `auto_open` `boolean` (default: `true`)
+  Open the quickfix window automatically after the `quickfix` action populates
+  the list. Set to `false` to populate the list silently; you can open the
+  window manually with `:copen`.
+
+  When the explorer is a float (`window.kind = "float"`) and `auto_open` is
+  `true`, the float is closed just before `:copen` so the quickfix window
+  becomes the sole foreground pane. Split and replace layouts do not overlap
+  the quickfix split and stay open.
+
+To remove the default `gq` mapping entirely, set
+`mappings = { ["gq"] = false }`.
+
 ### header
 
 `table|false`
@@ -624,6 +641,7 @@ configuration option.
 | `gx`    | cut                | Cut target nodes (Visual > marks > cursor) |
 | `gy`    | copy               | Copy target nodes (Visual > marks > cursor) |
 | `gp`    | paste              | Paste from register           |
+| `gq`    | quickfix           | Send target nodes to quickfix (Visual > marks > cursor) |
 | `g?`    | help               | Show help                     |
 | `ga`    | actions            | Open action picker            |
 | `<C-f>` | preview_scroll_down| Scroll preview down (half page) |
@@ -684,6 +702,13 @@ success (partial failures keep the marks for the failed/unattempted entries).
 - **duplicate** — Duplicate each target node into its parent directory with
   the same `_copy` collision-resolution as `paste`. No prompt; works on
   files and directories.
+- **quickfix** — Send target node paths to Neovim's quickfix list. Files
+  only (directories are skipped with a warning). Preserves marks
+  (non-destructive, unlike `cut`/`copy`/`delete`/`duplicate`). Opens the
+  quickfix window automatically when `quickfix.auto_open` is `true`
+  (default); when the explorer is a float, the float is closed first so
+  it does not overlap the quickfix split. Replaces the current list; use
+  `:colder` / `:cnewer` to navigate the quickfix history.
 - **mark_toggle** — Toggle mark on the current node and move cursor down.
 
 > **Note:** `mark_bulk_delete` and `mark_bulk_move` were removed in favour of

@@ -941,7 +941,9 @@ end, { desc = "Inspect node data" })
 ---@return eda.TargetNodes
 local function get_target_nodes(ctx)
   local mode = vim.fn.mode()
-  if mode == "v" or mode == "V" then
+  -- "\22" is <C-v> (blockwise Visual). Treat all three Visual submodes uniformly
+  -- so the Visual > marks > cursor contract holds regardless of how the user entered Visual.
+  if mode == "v" or mode == "V" or mode == "\22" then
     vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
     local start_line = vim.fn.line("'<")
     local end_line = vim.fn.line("'>")
@@ -1013,6 +1015,58 @@ action.register("copy", function(ctx)
   end
   vim.notify("Copied " .. #paths .. " item(s)")
 end, { desc = "Copy target nodes (Visual > marks > cursor)" })
+
+action.register("quickfix", function(ctx)
+  local target = get_target_nodes(ctx)
+  if #target.nodes == 0 then
+    vim.notify("No items selected")
+    return
+  end
+
+  local files = {}
+  local skipped = 0
+  for _, node in ipairs(target.nodes) do
+    if Node.is_dir(node) then
+      skipped = skipped + 1
+    else
+      -- lnum/col are omitted so `:copen` renders file-reference form ("path||")
+      -- rather than pinning every entry to (1, 1).
+      table.insert(files, { filename = node.path })
+    end
+  end
+
+  if #files == 0 then
+    vim.notify("No files to add to quickfix (" .. skipped .. " dir(s) skipped)", vim.log.levels.WARN)
+    return
+  end
+
+  vim.fn.setqflist({}, " ", { title = "eda marks", items = files })
+
+  local msg = "Quickfix: " .. #files .. " file(s)"
+  local level = vim.log.levels.INFO
+  if skipped > 0 then
+    msg = msg .. " (" .. skipped .. " dir(s) skipped)"
+    -- Elevate to WARN so users notice that some selected entries were skipped.
+    level = vim.log.levels.WARN
+  end
+  vim.notify(msg, level)
+
+  -- Intentionally no clear_marks / refresh: quickfix is non-destructive, tree
+  -- display is unchanged, and retained marks support iterative `gq` workflows.
+  -- Defensive guard: users may shadow the default `quickfix` table via setup()
+  -- with a non-table value (e.g. `setup({ quickfix = false })`) — honor that
+  -- as "auto_open disabled" rather than crashing on a nil index.
+  if type(ctx.config.quickfix) == "table" and ctx.config.quickfix.auto_open then
+    -- A float explorer overlaps the bottom qf split and leaves the screen in a
+    -- visually broken state once `:copen` steals focus. Close it first so the
+    -- qf window becomes the sole foreground pane. Split and replace kinds do
+    -- not overlap the qf split and stay open.
+    if ctx.window.kind == "float" then
+      get_eda().close()
+    end
+    vim.cmd("copen")
+  end
+end, { desc = "Create quickfix from target nodes (Visual > marks > cursor)" })
 
 action.register("paste", function(ctx)
   local register = require("eda.register")

@@ -223,6 +223,7 @@ end
 local visual_mode_actions = {
   cut = true,
   copy = true,
+  quickfix = true,
 }
 
 ---Set keymaps on the buffer.
