@@ -624,4 +624,92 @@ T["marks"]["visual selection takes priority over marks in cut"] = function()
   MiniTest.expect.equality(c_still_marked, true)
 end
 
+T["marks"]["quickfix action sends marked files to qflist and keeps marks"] = function()
+  e2e.stop(child)
+  child = e2e.spawn()
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = false },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+      quickfix = { auto_open = false },
+    })
+  ]]
+  )
+
+  e2e.open_eda(child, tmp)
+
+  -- Guard: quickfix action must be registered
+  MiniTest.expect.equality(e2e.exec(child, 'return require("eda.action").get_entry("quickfix") ~= nil'), true)
+
+  -- Mark a.txt and b.txt (m advances the cursor each time)
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(child, "m")
+  e2e.feed(child, "m")
+
+  e2e.wait_until(
+    child,
+    [[
+    local buf = require("eda").get_current().buffer
+    local count = 0
+    for _, fl in ipairs(buf.flat_lines) do
+      if fl.node._marked then count = count + 1 end
+    end
+    return count == 2
+  ]]
+  )
+
+  -- Reset qflist so the populated-state assertion is unambiguous
+  e2e.exec(child, 'vim.fn.setqflist({}, "f")')
+
+  -- Fire quickfix action via its default keymap
+  e2e.feed(child, "gq")
+
+  -- Wait until qflist has the two marked files
+  e2e.wait_until(child, "return #vim.fn.getqflist() == 2", 5000)
+
+  -- Title check
+  local title = e2e.exec(child, "return vim.fn.getqflist({ title = 0 }).title")
+  MiniTest.expect.equality(title, "eda marks")
+
+  -- Entries include a.txt and b.txt
+  local has_files = e2e.exec(
+    child,
+    [[
+    local items = vim.fn.getqflist()
+    local basenames = {}
+    for _, it in ipairs(items) do
+      local name = vim.fn.fnamemodify(vim.api.nvim_buf_get_name(it.bufnr), ":t")
+      basenames[name] = true
+    end
+    return basenames["a.txt"] and basenames["b.txt"]
+  ]]
+  )
+  MiniTest.expect.equality(has_files, true)
+
+  -- Marks survive (quickfix is non-destructive)
+  local marks_retained = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local count = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if (node.name == "a.txt" or node.name == "b.txt") and node._marked then
+        count = count + 1
+      end
+    end
+    return count == 2
+  ]]
+  )
+  MiniTest.expect.equality(marks_retained, true)
+
+  -- Quickfix window must stay closed with auto_open = false
+  local qf_winid = e2e.exec(child, "return vim.fn.getqflist({ winid = 0 }).winid")
+  MiniTest.expect.equality(qf_winid, 0)
+end
+
 return T

@@ -455,6 +455,19 @@ T["_get_target_nodes: visual takes priority over marks"] = function()
   MiniTest.expect.equality(result.nodes[2].id, 4)
 end
 
+T["_get_target_nodes: blockwise visual (<C-v>) also resolves as visual"] = function()
+  local ctx = make_target_ctx(nil)
+  local result
+  -- "\22" is the raw key code for CTRL-V (U+0016); vim.fn.mode() returns it for blockwise Visual.
+  with_visual_range("\22", 2, 3, function()
+    result = get_target(ctx)
+  end)
+  MiniTest.expect.equality(result.origin, "visual")
+  MiniTest.expect.equality(#result.nodes, 2)
+  MiniTest.expect.equality(result.nodes[1].id, 3)
+  MiniTest.expect.equality(result.nodes[2].id, 4)
+end
+
 T["_get_target_nodes: visual range excludes root"] = function()
   local ctx = make_target_ctx(nil)
   ctx.buffer.flat_lines = {
@@ -591,6 +604,208 @@ T["_resolve_unique_dst: matches paste inline behavior (regression)"] = function(
     MiniTest.expect.equality(actual, expected)
   end
   helpers.remove_temp_dir(dir)
+end
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- quickfix action
+-- ────────────────────────────────────────────────────────────────────────────
+
+-- Close any quickfix window and wipe the quickfix list so each case starts clean.
+local function qf_reset()
+  pcall(vim.cmd, "cclose")
+  vim.fn.setqflist({}, "f")
+end
+
+-- Entry guard: action must be registered. Falsey before Task 2 implementation.
+T["quickfix action is registered"] = function()
+  MiniTest.expect.equality(action.get_entry("quickfix") ~= nil, true)
+end
+
+-- Cursor fallback when no marks are set (unified Visual > marks > cursor rule).
+T["quickfix action sets qflist from cursor when no marks"] = function()
+  qf_reset()
+  local ctx = make_ctx(3) -- cursor on file_a (/project/dir_a/file_a.lua)
+  ctx.config.quickfix = { auto_open = false }
+  action.dispatch("quickfix", ctx)
+  local items = vim.fn.getqflist()
+  MiniTest.expect.equality(#items, 1)
+  MiniTest.expect.equality(vim.api.nvim_buf_get_name(items[1].bufnr), "/project/dir_a/file_a.lua")
+  qf_reset()
+end
+
+-- Marks include 2 files + 1 directory; directory is skipped, files go into qflist,
+-- and the user-facing notification is elevated to WARN so the skip is visible.
+T["quickfix action sends marked files (directories skipped)"] = function()
+  qf_reset()
+  local ctx, store = make_ctx(nil)
+  store:get(3)._marked = true -- file_a
+  store:get(5)._marked = true -- file_b (under sub_dir)
+  store:get(6)._marked = true -- dir_b (directory, must be skipped)
+  ctx.config.quickfix = { auto_open = false }
+
+  local notify_level
+  local notify_msg
+  local orig_notify = vim.notify
+  vim.notify = function(msg, level)
+    notify_msg = msg
+    notify_level = level
+  end
+  action.dispatch("quickfix", ctx)
+  vim.notify = orig_notify
+
+  local items = vim.fn.getqflist()
+  MiniTest.expect.equality(#items, 2)
+  local names = {
+    vim.api.nvim_buf_get_name(items[1].bufnr),
+    vim.api.nvim_buf_get_name(items[2].bufnr),
+  }
+  table.sort(names)
+  MiniTest.expect.equality(names[1], "/project/dir_a/file_a.lua")
+  MiniTest.expect.equality(names[2], "/project/dir_a/sub_dir/file_b.lua")
+  MiniTest.expect.equality(notify_level, vim.log.levels.WARN)
+  MiniTest.expect.equality(notify_msg, "Quickfix: 2 file(s) (1 dir(s) skipped)")
+  qf_reset()
+end
+
+-- All marked targets are directories: qflist must be left untouched.
+T["quickfix action leaves qflist unchanged when all targets are directories"] = function()
+  qf_reset()
+  vim.fn.setqflist({}, " ", { title = "prior list", items = {} })
+  local ctx, store = make_ctx(nil)
+  store:get(2)._marked = true -- dir_a
+  store:get(6)._marked = true -- dir_b
+  ctx.config.quickfix = { auto_open = false }
+  action.dispatch("quickfix", ctx)
+  MiniTest.expect.equality(vim.fn.getqflist({ title = 0 }).title, "prior list")
+  qf_reset()
+end
+
+-- No marks, no cursor, no visual: notify and noop; qflist unchanged.
+T["quickfix action is no-op on empty target"] = function()
+  qf_reset()
+  vim.fn.setqflist({}, " ", { title = "prior list", items = {} })
+  local ctx = make_ctx(nil) -- no cursor node
+  ctx.config.quickfix = { auto_open = false }
+  action.dispatch("quickfix", ctx)
+  MiniTest.expect.equality(vim.fn.getqflist({ title = 0 }).title, "prior list")
+  qf_reset()
+end
+
+-- Title is set to "eda marks".
+T["quickfix action sets title to 'eda marks'"] = function()
+  qf_reset()
+  local ctx = make_ctx(3)
+  ctx.config.quickfix = { auto_open = false }
+  action.dispatch("quickfix", ctx)
+  MiniTest.expect.equality(vim.fn.getqflist({ title = 0 }).title, "eda marks")
+  qf_reset()
+end
+
+-- auto_open = true opens the quickfix window (observable via winid lookup).
+T["quickfix action opens quickfix window when auto_open is true"] = function()
+  qf_reset()
+  local ctx = make_ctx(3)
+  ctx.config.quickfix = { auto_open = true }
+  action.dispatch("quickfix", ctx)
+  local winid = vim.fn.getqflist({ winid = 0 }).winid
+  MiniTest.expect.equality(winid ~= 0, true)
+  qf_reset()
+end
+
+-- auto_open = false leaves the quickfix window closed.
+T["quickfix action does not open window when auto_open is false"] = function()
+  qf_reset()
+  local ctx = make_ctx(3)
+  ctx.config.quickfix = { auto_open = false }
+  action.dispatch("quickfix", ctx)
+  MiniTest.expect.equality(vim.fn.getqflist({ winid = 0 }).winid, 0)
+  qf_reset()
+end
+
+-- Defensive: malformed user config (`quickfix = false`) must not crash the action.
+T["quickfix action tolerates quickfix config replaced with a non-table"] = function()
+  qf_reset()
+  local ctx = make_ctx(3)
+  ctx.config.quickfix = false -- simulates `setup({ quickfix = false })`
+  action.dispatch("quickfix", ctx)
+  -- qflist still populated, copen suppressed (no crash)
+  MiniTest.expect.equality(#vim.fn.getqflist(), 1)
+  MiniTest.expect.equality(vim.fn.getqflist({ winid = 0 }).winid, 0)
+  qf_reset()
+end
+
+-- Marks are preserved after quickfix dispatch (non-destructive semantics).
+T["quickfix action does not clear marks"] = function()
+  qf_reset()
+  local ctx, store = make_ctx(nil)
+  store:get(3)._marked = true
+  store:get(5)._marked = true
+  ctx.config.quickfix = { auto_open = false }
+  action.dispatch("quickfix", ctx)
+  MiniTest.expect.equality(store:get(3)._marked, true)
+  MiniTest.expect.equality(store:get(5)._marked, true)
+  qf_reset()
+end
+
+-- Helper: stub eda.close and restore it after `fn` runs. Returns the invocation count.
+local function with_eda_close_stub(fn)
+  local eda = require("eda")
+  local orig_close = eda.close
+  local calls = 0
+  eda.close = function()
+    calls = calls + 1
+  end
+  local ok, err = pcall(fn)
+  eda.close = orig_close
+  if not ok then
+    error(err)
+  end
+  return calls
+end
+
+-- Float + auto_open=true: close the float explorer before opening the quickfix
+-- window to prevent the float from visually overlapping the qf split.
+T["quickfix action closes float explorer before opening quickfix"] = function()
+  qf_reset()
+  local ctx = make_ctx(3)
+  ctx.window.kind = "float"
+  ctx.config.quickfix = { auto_open = true }
+  local close_calls = with_eda_close_stub(function()
+    action.dispatch("quickfix", ctx)
+  end)
+  MiniTest.expect.equality(close_calls, 1)
+  MiniTest.expect.equality(vim.fn.getqflist({ winid = 0 }).winid ~= 0, true)
+  qf_reset()
+end
+
+-- Non-float window kinds must NOT auto-close the explorer — split_left/split_right/replace
+-- do not visually overlap the bottom qf split.
+T["quickfix action does not close explorer for non-float window kinds"] = function()
+  for _, kind in ipairs({ "split_left", "split_right", "replace" }) do
+    qf_reset()
+    local ctx = make_ctx(3)
+    ctx.window.kind = kind
+    ctx.config.quickfix = { auto_open = true }
+    local close_calls = with_eda_close_stub(function()
+      action.dispatch("quickfix", ctx)
+    end)
+    MiniTest.expect.equality(close_calls, 0)
+    qf_reset()
+  end
+end
+
+-- Float + auto_open=false: neither close nor :copen should fire.
+T["quickfix action does not close float when auto_open is false"] = function()
+  qf_reset()
+  local ctx = make_ctx(3)
+  ctx.window.kind = "float"
+  ctx.config.quickfix = { auto_open = false }
+  local close_calls = with_eda_close_stub(function()
+    action.dispatch("quickfix", ctx)
+  end)
+  MiniTest.expect.equality(close_calls, 0)
+  MiniTest.expect.equality(vim.fn.getqflist({ winid = 0 }).winid, 0)
+  qf_reset()
 end
 
 return T

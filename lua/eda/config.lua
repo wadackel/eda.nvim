@@ -43,6 +43,7 @@ local M = {}
 ---@field preview eda.PreviewConfig
 ---@field full_name eda.FullNameConfig
 ---@field mark eda.MarkConfig
+---@field quickfix eda.QuickfixConfig
 ---@field header eda.HeaderConfig|false
 ---@field expand_depth integer
 ---@field update_focused_file eda.UpdateFocusedFileConfig
@@ -99,6 +100,9 @@ local M = {}
 
 ---@class eda.MarkConfig
 ---@field icon string
+
+---@class eda.QuickfixConfig
+---@field auto_open boolean
 
 ---@alias eda.HeaderPosition "left" | "center" | "right"
 
@@ -196,6 +200,10 @@ local defaults = {
     icon = string.char(0xf3, 0xb0, 0x84, 0xb2),
   },
 
+  quickfix = {
+    auto_open = true,
+  },
+
   header = {
     format = "short",
     position = "left",
@@ -234,6 +242,7 @@ local defaults = {
     ["gx"] = "cut",
     ["gy"] = "copy",
     ["gp"] = "paste",
+    ["gq"] = "quickfix",
     ["g?"] = "help",
     ["ga"] = "actions",
     ["<C-f>"] = "preview_scroll_down",
