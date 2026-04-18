@@ -808,4 +808,58 @@ T["quickfix action does not close float when auto_open is false"] = function()
   qf_reset()
 end
 
+-- ===============================================================
+-- _get_visual_targets (extracted from _get_target_nodes) + mark_clear_all
+-- ===============================================================
+
+local get_visual = builtin._get_visual_targets
+
+T["_get_visual_targets: returns nil outside Visual mode"] = function()
+  local ctx = make_target_ctx(nil)
+  -- Default vim.fn.mode() returns "n" in headless tests
+  local result = get_visual(ctx)
+  MiniTest.expect.equality(result, nil)
+end
+
+T["_get_visual_targets: returns visual range nodes (root excluded)"] = function()
+  local ctx = make_target_ctx(nil)
+  ctx.buffer.flat_lines = {
+    { node_id = 1 }, -- root
+    { node_id = 2 },
+    { node_id = 3 },
+  }
+  local result
+  with_visual_range("V", 1, 3, function()
+    result = get_visual(ctx)
+  end)
+  MiniTest.expect.equality(#result, 2)
+  MiniTest.expect.equality(result[1].id, 2)
+  MiniTest.expect.equality(result[2].id, 3)
+end
+
+T["mark_clear_all: clears all _marked to nil"] = function()
+  local ctx, store = make_target_ctx(nil)
+  store:get(3)._marked = true
+  store:get(5)._marked = true
+  store:get(6)._marked = true
+
+  action.dispatch("mark_clear_all", ctx)
+
+  MiniTest.expect.equality(store:get(3)._marked, nil)
+  MiniTest.expect.equality(store:get(5)._marked, nil)
+  MiniTest.expect.equality(store:get(6)._marked, nil)
+  -- refresh must run when at least one mark was cleared
+  MiniTest.expect.equality(ctx._render_called(), true)
+end
+
+T["mark_clear_all: no-op (no refresh) when no marks exist"] = function()
+  local ctx, store = make_target_ctx(nil)
+  -- No _marked set on any node
+  action.dispatch("mark_clear_all", ctx)
+  -- Store state unchanged
+  MiniTest.expect.equality(store:get(3)._marked, nil)
+  -- refresh must be skipped to avoid a pointless repaint
+  MiniTest.expect.equality(ctx._render_called(), false)
+end
+
 return T

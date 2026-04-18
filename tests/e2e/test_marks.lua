@@ -624,6 +624,162 @@ T["marks"]["visual selection takes priority over marks in cut"] = function()
   MiniTest.expect.equality(c_still_marked, true)
 end
 
+-- ===============================================================
+-- Visual mode mark_toggle + mark_clear_all
+-- ===============================================================
+
+T["marks"]["visual mark_toggle marks all nodes in selection when none marked"] = function()
+  e2e.open_eda(child, tmp)
+
+  -- Select a.txt (line 1), b.txt (line 2), c.txt (line 3) with Visual-line
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(child, "Vjj")
+  e2e.wait_until(child, 'return vim.fn.mode() == "V"')
+
+  -- Toggle mark on the whole selection
+  e2e.feed(child, "m")
+
+  -- All 3 files should be marked after one `m` press
+  e2e.wait_until(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local count = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then count = count + 1 end
+    end
+    return count == 3
+  ]]
+  )
+
+  local final_count = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local count = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then count = count + 1 end
+    end
+    return count
+  ]]
+  )
+  MiniTest.expect.equality(final_count, 3)
+end
+
+T["marks"]["visual mark_toggle inverts mixed state per-node"] = function()
+  e2e.open_eda(child, tmp)
+
+  -- Pre-mark b.txt (line 2) so the Visual selection contains a mixed state
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {2, 0})")
+  e2e.feed(child, "m")
+  e2e.wait_until(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    for _, node in pairs(explorer.store.nodes) do
+      if node.name == "b.txt" and node._marked then return true end
+    end
+    return false
+  ]]
+  )
+
+  -- Visual-line select all 3 files (a.txt, b.txt, c.txt)
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(child, "Vjj")
+  e2e.wait_until(child, 'return vim.fn.mode() == "V"')
+  e2e.feed(child, "m")
+
+  -- Expect: a.txt = true, b.txt = nil (was true, flipped), c.txt = true
+  e2e.wait_until(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local by_name = {}
+    for _, node in pairs(explorer.store.nodes) do
+      by_name[node.name] = node._marked
+    end
+    return by_name["a.txt"] == true and by_name["b.txt"] == nil and by_name["c.txt"] == true
+  ]]
+  )
+
+  local state = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local by_name = {}
+    for _, node in pairs(explorer.store.nodes) do
+      by_name[node.name] = node._marked
+    end
+    return {
+      a = by_name["a.txt"],
+      b = by_name["b.txt"],
+      c = by_name["c.txt"],
+    }
+  ]]
+  )
+  MiniTest.expect.equality(state.a, true)
+  MiniTest.expect.equality(state.b, nil)
+  MiniTest.expect.equality(state.c, true)
+end
+
+T["marks"]["mark_clear_all clears all marks"] = function()
+  e2e.open_eda(child, tmp)
+  mark_first_three(child)
+
+  -- Trigger mark_clear_all via the default `M` keymap
+  e2e.feed(child, "M")
+
+  e2e.wait_until(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local count = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then count = count + 1 end
+    end
+    return count == 0
+  ]]
+  )
+
+  local final_count = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local count = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then count = count + 1 end
+    end
+    return count
+  ]]
+  )
+  MiniTest.expect.equality(final_count, 0)
+end
+
+T["marks"]["mark_clear_all is no-op when no marks exist"] = function()
+  e2e.open_eda(child, tmp)
+
+  -- No marks initially; `M` should neither error nor mutate state
+  e2e.feed(child, "M")
+
+  -- Confirm state remains unmarked (nothing to clear)
+  local count = e2e.exec(
+    child,
+    [[
+    local explorer = require("eda").get_current()
+    local n = 0
+    for _, node in pairs(explorer.store.nodes) do
+      if node._marked then n = n + 1 end
+    end
+    return n
+  ]]
+  )
+  MiniTest.expect.equality(count, 0)
+
+  -- Buffer must still be the eda explorer (no crash / no filetype switch)
+  local ft = e2e.exec(child, "return vim.bo.filetype")
+  MiniTest.expect.equality(ft, "eda")
+end
+
 T["marks"]["quickfix action sends marked files to qflist and keeps marks"] = function()
   e2e.stop(child)
   child = e2e.spawn()

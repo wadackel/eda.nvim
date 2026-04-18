@@ -633,7 +633,8 @@ configuration option.
 | `gs`    | toggle_git_changes | Toggle git-changes filter     |
 | `[c`    | prev_git_change    | Jump to previous git change   |
 | `]c`    | next_git_change    | Jump to next git change       |
-| `m`     | mark_toggle        | Mark/unmark node              |
+| `m`     | mark_toggle        | Mark/unmark node (Visual selection or cursor) |
+| `M`     | mark_clear_all     | Clear all marks               |
 | `D`     | delete             | Delete target nodes (Visual > marks > cursor) |
 | `go`    | system_open        | Open with system default app  |
 | `K`     | inspect            | Print node details            |
@@ -709,7 +710,11 @@ success (partial failures keep the marks for the failed/unattempted entries).
   (default); when the explorer is a float, the float is closed first so
   it does not overlap the quickfix split. Replaces the current list; use
   `:colder` / `:cnewer` to navigate the quickfix history.
-- **mark_toggle** — Toggle mark on the current node and move cursor down.
+- **mark_toggle** — Mark/unmark target node(s). In Normal mode toggles the
+  node under the cursor and moves the cursor down. In Visual mode toggles
+  each node in the selection independently (no cursor advance).
+- **mark_clear_all** — Clear all marks across the tree. No-op when no nodes
+  are marked.
 
 > **Note:** `mark_bulk_delete` and `mark_bulk_move` were removed in favour of
 > the unified `delete` and the cut-paste flow. To move marked files to a new
