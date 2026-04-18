@@ -699,15 +699,18 @@ T["symlink_decorator returns link_suffix for file symlink"] = function()
   MiniTest.expect.equality(dec ~= nil, true)
   MiniTest.expect.equality(dec.link_suffix, "→ ../other/target.txt")
   MiniTest.expect.equality(dec.link_suffix_hl, "EdaSymlinkTarget")
+  MiniTest.expect.equality(dec.name_hl, "EdaSymlink")
 end
 
-T["symlink_decorator returns nil for broken symlink"] = function()
+T["symlink_decorator contributes name_hl EdaBrokenSymlink for broken symlink without target"] = function()
   config.setup()
   local store = make_store_with_root("/project")
   local node = Node.create({ id = 2, name = "broken", path = "/project/broken", type = "link", link_broken = true })
   local ctx = { store = store, git_status = nil, config = config.get() }
   local dec = decorator.symlink_decorator(node, ctx)
-  MiniTest.expect.equality(dec, nil)
+  MiniTest.expect.equality(dec ~= nil, true)
+  MiniTest.expect.equality(dec.name_hl, "EdaBrokenSymlink")
+  MiniTest.expect.equality(dec.link_suffix, nil)
 end
 
 T["symlink_decorator returns nil for non-symlink node"] = function()
@@ -763,6 +766,7 @@ T["symlink_decorator appends / for directory symlinks"] = function()
   local ctx = { store = store, git_status = nil, config = config.get() }
   local dec = decorator.symlink_decorator(node, ctx)
   MiniTest.expect.equality(dec.link_suffix, "→ ../other/lib/")
+  MiniTest.expect.equality(dec.name_hl, "EdaSymlink")
 end
 
 -- =============================================
@@ -888,6 +892,66 @@ T["cut + marked node accumulates name_hl and overrides icon"] = function()
   MiniTest.expect.equality(result[1].name_hl[2], "EdaMarkedName")
 
   register.clear()
+end
+
+T["Chain: marked symlink → {EdaSymlink, EdaMarkedName} array (mark wins priority)"] = function()
+  vim.api.nvim_set_hl(0, "EdaSymlink", { fg = 0x8080ff, underline = true })
+  vim.api.nvim_set_hl(0, "EdaMarkedName", { fg = 0xff00ff })
+
+  config.setup()
+  local store = make_store_with_root("/project")
+  local node = Node.create({
+    id = 2,
+    name = "link.txt",
+    path = "/project/link.txt",
+    type = "link",
+    link_target = "/project/target.txt",
+  })
+  node._marked = true
+  local ctx = { store = store, git_status = nil, config = config.get() }
+
+  local chain = decorator.Chain.new()
+  chain:add(decorator.symlink_decorator)
+  chain:add(decorator.mark_decorator)
+
+  local result = chain:decorate({ { node_id = 2, depth = 0, node = node } }, ctx)
+
+  MiniTest.expect.equality(type(result[1].name_hl), "table")
+  MiniTest.expect.equality(result[1].name_hl[1], "EdaSymlink")
+  MiniTest.expect.equality(result[1].name_hl[2], "EdaMarkedName")
+
+  vim.api.nvim_set_hl(0, "EdaSymlink", { link = "Underlined" })
+  vim.api.nvim_set_hl(0, "EdaMarkedName", { link = "EdaMarked" })
+end
+
+T["Chain: marked broken symlink → {EdaBrokenSymlink, EdaMarkedName}"] = function()
+  vim.api.nvim_set_hl(0, "EdaBrokenSymlink", { fg = 0xff0000 })
+  vim.api.nvim_set_hl(0, "EdaMarkedName", { fg = 0xff00ff })
+
+  config.setup()
+  local store = make_store_with_root("/project")
+  local node = Node.create({
+    id = 2,
+    name = "broken",
+    path = "/project/broken",
+    type = "link",
+    link_broken = true,
+  })
+  node._marked = true
+  local ctx = { store = store, git_status = nil, config = config.get() }
+
+  local chain = decorator.Chain.new()
+  chain:add(decorator.symlink_decorator)
+  chain:add(decorator.mark_decorator)
+
+  local result = chain:decorate({ { node_id = 2, depth = 0, node = node } }, ctx)
+
+  MiniTest.expect.equality(type(result[1].name_hl), "table")
+  MiniTest.expect.equality(result[1].name_hl[1], "EdaBrokenSymlink")
+  MiniTest.expect.equality(result[1].name_hl[2], "EdaMarkedName")
+
+  vim.api.nvim_set_hl(0, "EdaBrokenSymlink", { link = "DiagnosticError" })
+  vim.api.nvim_set_hl(0, "EdaMarkedName", { link = "EdaMarked" })
 end
 
 return T

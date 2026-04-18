@@ -224,9 +224,9 @@ end
 ---(no visual attributes), the default name highlight is used instead. This allows
 ---EdaGit*Name groups to be transparent by default while still supporting user
 ---customization via colorschemes or nvim_set_hl.
----When multiple decorators contribute name_hl (e.g., git + cut), the result is a
----string[] for Neovim 0.11's hl_group array support. Only groups with visual
----attributes are included; base_hl is used as a fallback when none qualify.
+---When multiple decorators contribute name_hl (e.g., symlink + mark, git + cut),
+---the result is a string[] for Neovim 0.11's hl_group array support. Only groups
+---with visual attributes are included; base_hl is used as a fallback when none qualify.
 ---@param node eda.TreeNode
 ---@param dec eda.Decoration?
 ---@return string|string[]
@@ -241,49 +241,17 @@ local function resolve_name_hl(node, dec)
   elseif Node.is_link(node) then
     base_hl = "EdaSymlink"
   end
-  -- Determine symlink highlight to compose (nil for non-symlink nodes).
-  -- Uses node.link_target (not Node.is_link) because follow_symlinks=true
-  -- converts directory symlinks to type="directory" while retaining link_target.
-  local symlink_hl = nil
-  if node.link_broken then
-    symlink_hl = "EdaBrokenSymlink"
-  elseif node.link_target then
-    symlink_hl = "EdaSymlink"
-  end
-
-  -- Helper: append symlink_hl to a result (bypasses has_visual_attrs gating)
-  local function with_symlink(result)
-    if not symlink_hl then
-      return result
-    end
-    if type(result) == "string" then
-      if result == symlink_hl then
-        return result
-      end
-      return { result, symlink_hl }
-    end
-    -- Array: append if not already present
-    for _, hl in ipairs(result) do
-      if hl == symlink_hl then
-        return result
-      end
-    end
-    result[#result + 1] = symlink_hl
-    return result
-  end
 
   if not dec or not dec.name_hl then
-    return with_symlink(base_hl)
+    return base_hl
   end
-  -- Single string path (most common)
   if type(dec.name_hl) == "string" then
     local name_hl_str = dec.name_hl --[[@as string]]
     if has_visual_attrs(name_hl_str) then
-      return with_symlink(name_hl_str)
+      return name_hl_str
     end
-    return with_symlink(base_hl)
+    return base_hl
   end
-  -- Array path: filter to groups with visual attributes
   local visual = {}
   local name_hl_arr = dec.name_hl --[[@as string[] ]]
   for _, hl in ipairs(name_hl_arr) do
@@ -292,12 +260,12 @@ local function resolve_name_hl(node, dec)
     end
   end
   if #visual == 0 then
-    return with_symlink(base_hl)
+    return base_hl
   end
   if #visual == 1 then
-    return with_symlink(visual[1])
+    return visual[1]
   end
-  return with_symlink(visual)
+  return visual
 end
 
 ---Build a cache entry for a decoration.

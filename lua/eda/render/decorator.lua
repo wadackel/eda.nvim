@@ -300,23 +300,31 @@ function M.dotgit_decorator(node, ctx)
   return { suffix = icon, suffix_hl = "EdaGitIgnoredIcon", name_hl = "EdaGitIgnoredName" }
 end
 
----Symlink decorator: shows link target as suffix.
+---Symlink decorator: contributes EdaSymlink / EdaBrokenSymlink name_hl and link target suffix.
 ---@param node eda.TreeNode
 ---@param ctx eda.DecoratorContext
 ---@return eda.Decoration?
 function M.symlink_decorator(node, ctx)
-  if not node.link_target then
+  if not node.link_target and not node.link_broken then
     return nil
+  end
+  local name_hl = node.link_broken and "EdaBrokenSymlink" or "EdaSymlink"
+  if not node.link_target then
+    return { name_hl = name_hl }
   end
   local root_node = ctx.store:get(ctx.store.root_id)
   if not root_node then
-    return nil
+    return { name_hl = name_hl }
   end
   local rel = relative_path(root_node.path, node.link_target)
   if Node.is_dir(node) then
     rel = rel .. "/"
   end
-  return { link_suffix = "→ " .. rel, link_suffix_hl = "EdaSymlinkTarget" }
+  return {
+    name_hl = name_hl,
+    link_suffix = "→ " .. rel,
+    link_suffix_hl = "EdaSymlinkTarget",
+  }
 end
 
 ---Cut decorator: dims nodes that are in the cut register.

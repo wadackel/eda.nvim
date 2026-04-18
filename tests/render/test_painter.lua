@@ -1076,46 +1076,15 @@ T["decoration cache name_hl filters non-visual groups from array"] = function()
 end
 
 -- =============================================
--- resolve_name_hl symlink composition tests
+-- resolve_name_hl fallback for link-type nodes
 -- =============================================
 
-T["resolve_name_hl composes EdaSymlink for directory symlink"] = function()
-  local Node = require("eda.tree.node")
-  local store, root = build_store()
-  local flat_lines = Flatten.flatten(store, root)
-  local buf = vim.api.nvim_create_buf(false, true)
-  local painter = Painter.new(buf)
-
-  -- Simulate a directory symlink (follow_symlinks=true: type=directory, link_target set)
-  local dir_node = flat_lines[1].node
-  dir_node.link_target = "/other/dir"
-
-  -- Provide minimal decoration so build_cache_entry creates a cache entry
-  local decorations = {}
-  for i = 1, #flat_lines do
-    decorations[i] = {}
-  end
-
-  painter:paint(flat_lines, decorations)
-
-  local entry = painter._decoration_cache[flat_lines[1].node_id]
-  MiniTest.expect.equality(entry ~= nil, true)
-  -- Should be array: { "EdaOpenedDirectoryName", "EdaSymlink" }
-  MiniTest.expect.equality(type(entry.name_hl), "table")
-  MiniTest.expect.equality(entry.name_hl[1], "EdaOpenedDirectoryName")
-  MiniTest.expect.equality(entry.name_hl[2], "EdaSymlink")
-
-  -- Cleanup
-  dir_node.link_target = nil
-  vim.api.nvim_buf_delete(buf, { force = true })
-end
-
-T["resolve_name_hl returns EdaSymlink for type=link without decorator"] = function()
+T["resolve_name_hl falls back to EdaSymlink for link-type node when decorator returns nil"] = function()
   local Node = require("eda.tree.node")
   local buf = vim.api.nvim_create_buf(false, true)
   local painter = Painter.new(buf)
 
-  local link_node = Node.create({ id = 99, name = "lnk", path = "/lnk", type = "link", link_target = "/target" })
+  local link_node = Node.create({ id = 99, name = "lnk", path = "/lnk", type = "link" })
   local flat_lines = { { node_id = 99, depth = 0, node = link_node } }
   local decorations = { [1] = {} }
 
@@ -1123,54 +1092,9 @@ T["resolve_name_hl returns EdaSymlink for type=link without decorator"] = functi
 
   local entry = painter._decoration_cache[99]
   MiniTest.expect.equality(entry ~= nil, true)
-  -- type=link with link_target: base_hl=EdaSymlink, symlink_hl=EdaSymlink → deduplicated to string
   MiniTest.expect.equality(entry.name_hl, "EdaSymlink")
 
   vim.api.nvim_buf_delete(buf, { force = true })
-end
-
-T["resolve_name_hl composes EdaSymlink with decorator name_hl"] = function()
-  local Node = require("eda.tree.node")
-  local buf = vim.api.nvim_create_buf(false, true)
-  local painter = Painter.new(buf)
-
-  vim.api.nvim_set_hl(0, "TestSymlinkDecHl", { fg = 0xaabbcc })
-
-  local link_node = Node.create({ id = 99, name = "lnk", path = "/lnk", type = "link", link_target = "/target" })
-  local flat_lines = { { node_id = 99, depth = 0, node = link_node } }
-  local decorations = { [1] = { name_hl = "TestSymlinkDecHl" } }
-
-  painter:paint(flat_lines, decorations)
-
-  local entry = painter._decoration_cache[99]
-  MiniTest.expect.equality(type(entry.name_hl), "table")
-  MiniTest.expect.equality(entry.name_hl[1], "TestSymlinkDecHl")
-  MiniTest.expect.equality(entry.name_hl[2], "EdaSymlink")
-
-  vim.api.nvim_buf_delete(buf, { force = true })
-  vim.api.nvim_set_hl(0, "TestSymlinkDecHl", {})
-end
-
-T["resolve_name_hl composes EdaBrokenSymlink for broken symlink with decorator"] = function()
-  local Node = require("eda.tree.node")
-  local buf = vim.api.nvim_create_buf(false, true)
-  local painter = Painter.new(buf)
-
-  vim.api.nvim_set_hl(0, "TestBrokenDecHl", { fg = 0xaabbcc })
-
-  local broken_node = Node.create({ id = 99, name = "broken", path = "/broken", type = "link", link_broken = true })
-  local flat_lines = { { node_id = 99, depth = 0, node = broken_node } }
-  local decorations = { [1] = { name_hl = "TestBrokenDecHl" } }
-
-  painter:paint(flat_lines, decorations)
-
-  local entry = painter._decoration_cache[99]
-  MiniTest.expect.equality(type(entry.name_hl), "table")
-  MiniTest.expect.equality(entry.name_hl[1], "TestBrokenDecHl")
-  MiniTest.expect.equality(entry.name_hl[2], "EdaBrokenSymlink")
-
-  vim.api.nvim_buf_delete(buf, { force = true })
-  vim.api.nvim_set_hl(0, "TestBrokenDecHl", {})
 end
 
 T["cache entry includes both link_suffix and suffix"] = function()
