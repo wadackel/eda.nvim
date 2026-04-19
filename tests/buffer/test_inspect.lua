@@ -623,4 +623,265 @@ T["close keymap q closes the inspect float when focused"] = function()
   helpers.remove_temp_dir(tmp)
 end
 
+-- ===== build_lines directory size branches =====
+
+---Locate the Size line text in a build result.
+---@param build eda.InspectBuild
+---@return string? text
+local function find_size_line(build)
+  for _, line in ipairs(build.lines) do
+    if line:match("^%s%sSize%s+") then
+      return line
+    end
+  end
+  return nil
+end
+
+---Find the extmark covering the main-value column of the Size row.
+---Size labels land on the second row of the body after Path and Type.
+local function find_size_main_hl(build)
+  local size_row
+  for i, line in ipairs(build.lines) do
+    if line:match("^%s%sSize%s+") then
+      size_row = i - 1 -- 0-indexed
+      break
+    end
+  end
+  if not size_row then
+    return nil
+  end
+  -- push_kv renders "  Size" padded to column 16 before the main value.
+  for _, mark in ipairs(build.extmarks) do
+    if mark.row == size_row and mark.col_start == 16 then
+      return mark.hl
+    end
+  end
+  return nil
+end
+
+T["build_lines directory Size falls back to '-' when dir_size_info is nil"] = function()
+  local node = { name = "d", path = "/tmp/d", type = "directory" }
+  local build = Inspect._build_lines(node, mock_lstat({ type = "directory" }), nil, nil, nil, 1700000000, nil, nil)
+  local line = find_size_line(build)
+  MiniTest.expect.equality(line ~= nil, true)
+  MiniTest.expect.equality(line:match("Size%s+(.*)$"), "-")
+end
+
+T["build_lines directory Size renders cached bytes with muted byte count"] = function()
+  local node = { name = "d", path = "/tmp/d", type = "directory" }
+  local build = Inspect._build_lines(
+    node,
+    mock_lstat({ type = "directory" }),
+    nil,
+    nil,
+    nil,
+    1700000000,
+    { state = "cached", bytes = 12345678 },
+    1
+  )
+  local line = find_size_line(build)
+  MiniTest.expect.equality(line ~= nil, true)
+  MiniTest.expect.equality(line:find("11.77 MiB", 1, true) ~= nil, true)
+  MiniTest.expect.equality(line:find("(12,345,678 bytes)", 1, true) ~= nil, true)
+end
+
+T["build_lines directory Size renders spinner frame with EdaInspectSpinner highlight"] = function()
+  local node = { name = "d", path = "/tmp/d", type = "directory" }
+  local build = Inspect._build_lines(
+    node,
+    mock_lstat({ type = "directory" }),
+    nil,
+    nil,
+    nil,
+    1700000000,
+    { state = "computing" },
+    1
+  )
+  local line = find_size_line(build)
+  MiniTest.expect.equality(line ~= nil, true)
+  MiniTest.expect.equality(line:find(Inspect._SPINNER_FRAMES[1], 1, true) ~= nil, true)
+  MiniTest.expect.equality(line:find("calculating...", 1, true) ~= nil, true)
+  MiniTest.expect.equality(find_size_main_hl(build), "EdaInspectSpinner")
+end
+
+T["build_lines directory Size advances with spinner_frame index"] = function()
+  local node = { name = "d", path = "/tmp/d", type = "directory" }
+  local build = Inspect._build_lines(
+    node,
+    mock_lstat({ type = "directory" }),
+    nil,
+    nil,
+    nil,
+    1700000000,
+    { state = "computing" },
+    5
+  )
+  local line = find_size_line(build)
+  MiniTest.expect.equality(line ~= nil, true)
+  MiniTest.expect.equality(line:find(Inspect._SPINNER_FRAMES[5], 1, true) ~= nil, true)
+end
+
+-- ===== spinner timer + dir_size integration =====
+
+---Run `body()` with `DirSize.ensure` stubbed to `stub`, restoring the original
+---function even when an assertion inside `body` fails.
+---@param stub fun(path: string): { state: "cached"|"computing", bytes: integer? }
+---@param body fun()
+local function with_stubbed_ensure(stub, body)
+  local DirSize = require("eda.buffer.dir_size")
+  local orig = DirSize.ensure
+  DirSize.ensure = stub
+  local ok, err = pcall(body)
+  DirSize.ensure = orig
+  if not ok then
+    error(err)
+  end
+end
+
+T["spinner_tick advances frame and re-renders while computing"] = function()
+  require("eda").setup({ inspect = { dir_size = { cache_ttl_ms = 30000 } } })
+  require("eda.buffer.dir_size")._clear_cache()
+
+  local tmp = vim.uv.fs_realpath(helpers.create_temp_dir())
+  helpers.create_file(tmp .. "/a.txt", "x")
+  local node = { name = vim.fn.fnamemodify(tmp, ":t"), path = tmp, type = "directory" }
+
+  with_stubbed_ensure(function()
+    return { state = "computing" }
+  end, function()
+    Inspect._reset_spinner_frame()
+    Inspect.show(nil, node)
+
+    Inspect._spinner_tick()
+    local _, buf = find_inspect_window()
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local has_frame_1 = false
+    for _, line in ipairs(lines) do
+      if line:find(Inspect._SPINNER_FRAMES[1], 1, true) then
+        has_frame_1 = true
+        break
+      end
+    end
+    MiniTest.expect.equality(has_frame_1, true)
+
+    Inspect._spinner_tick()
+    lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local has_frame_2 = false
+    for _, line in ipairs(lines) do
+      if line:find(Inspect._SPINNER_FRAMES[2], 1, true) then
+        has_frame_2 = true
+        break
+      end
+    end
+    MiniTest.expect.equality(has_frame_2, true)
+    Inspect.close()
+  end)
+
+  helpers.remove_temp_dir(tmp)
+end
+
+T["spinner_tick renders final size and stops timer when state transitions to cached"] = function()
+  require("eda").setup({ inspect = { dir_size = { cache_ttl_ms = 30000 } } })
+  require("eda.buffer.dir_size")._clear_cache()
+  local tmp = vim.uv.fs_realpath(helpers.create_temp_dir())
+  helpers.create_file(tmp .. "/a.txt", "x")
+  local node = { name = vim.fn.fnamemodify(tmp, ":t"), path = tmp, type = "directory" }
+
+  local state_to_return = { state = "computing" }
+  with_stubbed_ensure(function()
+    return state_to_return
+  end, function()
+    Inspect.show(nil, node)
+    MiniTest.expect.equality(Inspect._has_spinner_timer(), true)
+
+    state_to_return = { state = "cached", bytes = 2048 }
+    Inspect._spinner_tick()
+
+    local _, buf = find_inspect_window()
+    local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+    local has_size = false
+    for _, line in ipairs(lines) do
+      if line:find("2.00 KiB", 1, true) then
+        has_size = true
+        break
+      end
+    end
+    MiniTest.expect.equality(has_size, true)
+    MiniTest.expect.equality(Inspect._has_spinner_timer(), false)
+    Inspect.close()
+  end)
+
+  helpers.remove_temp_dir(tmp)
+end
+
+T["close stops the spinner timer"] = function()
+  require("eda").setup({})
+  require("eda.buffer.dir_size")._clear_cache()
+  local tmp = vim.uv.fs_realpath(helpers.create_temp_dir())
+  helpers.create_file(tmp .. "/a.txt", "x")
+  local node = { name = vim.fn.fnamemodify(tmp, ":t"), path = tmp, type = "directory" }
+
+  with_stubbed_ensure(function()
+    return { state = "computing" }
+  end, function()
+    Inspect.show(nil, node)
+    MiniTest.expect.equality(Inspect._has_spinner_timer(), true)
+    Inspect.close()
+    MiniTest.expect.equality(Inspect._has_spinner_timer(), false)
+  end)
+
+  helpers.remove_temp_dir(tmp)
+end
+
+T["spinner_tick does not re-invoke fs_lstat (uses cached meta)"] = function()
+  require("eda").setup({})
+  require("eda.buffer.dir_size")._clear_cache()
+  local tmp = vim.uv.fs_realpath(helpers.create_temp_dir())
+  helpers.create_file(tmp .. "/a.txt", "x")
+  local node = { name = vim.fn.fnamemodify(tmp, ":t"), path = tmp, type = "directory" }
+
+  with_stubbed_ensure(function()
+    return { state = "computing" }
+  end, function()
+    Inspect.show(nil, node)
+
+    local lstat_calls = 0
+    local orig_lstat = vim.uv.fs_lstat
+    ---@diagnostic disable-next-line: duplicate-set-field
+    vim.uv.fs_lstat = function(...)
+      lstat_calls = lstat_calls + 1
+      return orig_lstat(...)
+    end
+    local ok, err = pcall(function()
+      Inspect._spinner_tick()
+      Inspect._spinner_tick()
+      Inspect._spinner_tick()
+      MiniTest.expect.equality(lstat_calls, 0)
+    end)
+    vim.uv.fs_lstat = orig_lstat
+    if not ok then
+      error(err)
+    end
+    Inspect.close()
+  end)
+
+  helpers.remove_temp_dir(tmp)
+end
+
+T["build_lines file Size unaffected by dir_size_info"] = function()
+  local node = { name = "a.txt", path = "/tmp/a.txt", type = "file" }
+  local build = Inspect._build_lines(
+    node,
+    mock_lstat({ size = 2048, type = "file" }),
+    nil,
+    nil,
+    nil,
+    1700000000,
+    { state = "computing" }, -- should be ignored for files
+    1
+  )
+  local line = find_size_line(build)
+  MiniTest.expect.equality(line:find("2.00 KiB", 1, true) ~= nil, true)
+end
+
 return T

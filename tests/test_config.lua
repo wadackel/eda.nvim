@@ -215,6 +215,37 @@ T["normalize_confirm"]["create 0 becomes false"] = function()
   })
 end
 
+T["setup"]["inspect.dir_size has defaults"] = function()
+  config.setup()
+  local c = config.get()
+  MiniTest.expect.equality(type(c.inspect), "table")
+  MiniTest.expect.equality(type(c.inspect.dir_size), "table")
+  MiniTest.expect.equality(c.inspect.dir_size.enabled, true)
+  MiniTest.expect.equality(c.inspect.dir_size.cache_ttl_ms, 30000)
+end
+
+T["setup"]["inspect.dir_size merges user override"] = function()
+  config.setup({ inspect = { dir_size = { cache_ttl_ms = 5000 } } })
+  local c = config.get()
+  MiniTest.expect.equality(c.inspect.dir_size.enabled, true) -- default preserved
+  MiniTest.expect.equality(c.inspect.dir_size.cache_ttl_ms, 5000)
+end
+
+T["setup"]["inspect.dir_size can be disabled"] = function()
+  config.setup({ inspect = { dir_size = { enabled = false } } })
+  local c = config.get()
+  MiniTest.expect.equality(c.inspect.dir_size.enabled, false)
+  MiniTest.expect.equality(c.inspect.dir_size.cache_ttl_ms, 30000)
+end
+
+T["setup"]["eda.setup propagates inspect.dir_size to dir_size module"] = function()
+  require("eda").setup({ inspect = { dir_size = { cache_ttl_ms = 5000 } } })
+  local dir_size = require("eda.buffer.dir_size")
+  MiniTest.expect.equality(dir_size._get_config().cache_ttl_ms, 5000)
+  -- Restore defaults so later tests start from a known state.
+  require("eda").setup({})
+end
+
 T["get"] = MiniTest.new_set()
 
 T["get"]["returns config table"] = function()
