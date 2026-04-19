@@ -20,9 +20,11 @@ Explore as a tree, edit as a buffer — a file explorer for Neovim that combines
 
 ![Split Operation](./docs/assets/vhs/split-operation.gif)
 
-### Git Changes Filter
+### Filter & Inspect
 
-![Git Changes Filter](./docs/assets/vhs/git-filter.png)
+| Git Changes Filter | Inspect Float |
+|--------------------|---------------|
+| ![Git Changes Filter](./docs/assets/vhs/git-filter.png) | ![Inspect Float](./docs/assets/vhs/inspect-float.png) |
 
 ### Layouts
 
@@ -310,7 +312,8 @@ require("eda").setup({
     ["M"] = "mark_clear_all",        -- Clear all marks
     ["D"] = "delete",                -- Delete target nodes (Visual > marks > cursor)
     ["go"] = "system_open",          -- Open with system application
-    ["K"] = "inspect",               -- Inspect node data
+    ["K"] = "debug",                 -- Print node data for debugging
+    ["<leader>i"] = "inspect",       -- Show node stat in a floating window
     ["gd"] = "duplicate",            -- Duplicate target nodes (Visual > marks > cursor)
     ["gx"] = "cut",                  -- Cut target nodes (Visual > marks > cursor)
     ["gy"] = "copy",                 -- Copy target nodes (Visual > marks > cursor)
@@ -407,7 +410,8 @@ Target resolution is unified across `delete` / `cut` / `copy` / `duplicate`: **V
 | `refresh` | Rescan the filesystem and re-render the tree |
 | `close` | Close the explorer window |
 | `system_open` | Open the file with the system default application |
-| `inspect` | Print node data to the console (debug) |
+| `debug` | Print node data to the console (developer API) |
+| `inspect` | Show node stat (size, permissions, timestamps, etc.) in a floating window |
 | `help` | Show keybinding help in a floating window |
 | `split` | Open the explorer in a new vertical split with the same root |
 | `vsplit` | Open the explorer in a new horizontal split with the same root |

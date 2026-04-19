@@ -114,6 +114,12 @@ local highlight_groups = {
   EdaHelpBorder = { link = "FloatBorder" },
   EdaHelpTitle = { link = "FloatTitle" },
   EdaHelpFooter = { link = "Comment" },
+  EdaInspectBorder = { link = "FloatBorder" },
+  EdaInspectFooter = { link = "Comment" },
+  EdaInspectLabel = { link = "Special" },
+  EdaInspectValue = { link = "Normal" },
+  EdaInspectValueMuted = { link = "Comment" },
+  EdaInspectError = { link = "DiagnosticError" },
   EdaFullNameNormal = { link = "EdaCursorLine" },
 }
 
@@ -747,21 +753,43 @@ function M.open(opts)
     M._handle_write(explorer)
   end)
 
-  -- Setup CursorMoved for preview and full-name popup
+  -- Setup CursorMoved for preview, full-name popup, and inspect-float sticky update.
+  -- Sticky mode: when the inspect float is visible, each cursor move refreshes its
+  -- content and position to the node under the new cursor — so the user can browse
+  -- nodes without re-pressing <leader>i. If there is no node (e.g. root header line),
+  -- the float closes.
   vim.api.nvim_create_autocmd("CursorMoved", {
     buffer = buffer.bufnr,
     callback = function()
       local node = buffer:get_cursor_node(window.winid)
       preview:update(node)
       full_name:update(window.winid, buffer.painter, buffer.flat_lines)
+      local inspect = require("eda.buffer.inspect")
+      if inspect.is_visible() then
+        inspect.update(make_ctx(explorer), node)
+      end
     end,
   })
 
-  -- Close full-name popup when leaving the eda buffer
+  -- Close full-name popup and inspect float when leaving the eda buffer.
+  -- BufLeave fires before the destination is active, so defer the inspect
+  -- close: if the user is deliberately moving INTO the inspect float (safety
+  -- net via <C-w>w), keep it open; otherwise close the stale info.
   vim.api.nvim_create_autocmd("BufLeave", {
     buffer = buffer.bufnr,
     callback = function()
       full_name:close()
+      vim.schedule(function()
+        local inspect = require("eda.buffer.inspect")
+        if not inspect.is_visible() then
+          return
+        end
+        local cur_buf = vim.api.nvim_get_current_buf()
+        if vim.bo[cur_buf].filetype == "eda_inspect" then
+          return
+        end
+        inspect.close()
+      end)
     end,
   })
 
@@ -803,6 +831,7 @@ function M.open(opts)
       refresh_float_title(explorer)
       require("eda.buffer.help").reposition()
       require("eda.buffer.confirm").reposition()
+      require("eda.buffer.inspect").reposition()
       preview:reposition()
       full_name:close()
     end,
