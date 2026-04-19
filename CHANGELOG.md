@@ -23,5 +23,3 @@
 * defer action dispatch until initial render completes ([#22](https://github.com/wadackel/eda.nvim/issues/22)) ([6e47144](https://github.com/wadackel/eda.nvim/commit/6e47144260b9381eb20604a27b17a3ff3a378986))
 * mark highlight wins priority over symlink ([#16](https://github.com/wadackel/eda.nvim/issues/16)) ([4aef650](https://github.com/wadackel/eda.nvim/commit/4aef65046f252b7fea76201db321f42aefb89410))
 * preserve user attributes on EdaMarkedNode and re-apply on :colorscheme ([#13](https://github.com/wadackel/eda.nvim/issues/13)) ([b0962a1](https://github.com/wadackel/eda.nvim/commit/b0962a1eaed7e3d283d75ba154fc77c44aad49e8))
-
-## Changelog
