@@ -120,6 +120,7 @@ local highlight_groups = {
   EdaInspectValue = { link = "Normal" },
   EdaInspectValueMuted = { link = "Comment" },
   EdaInspectError = { link = "DiagnosticError" },
+  EdaInspectSpinner = { link = "Comment" },
   EdaFullNameNormal = { link = "EdaCursorLine" },
 }
 
@@ -368,6 +369,7 @@ end
 ---@param opts? table
 function M.setup(opts)
   config.setup(opts)
+  require("eda.buffer.dir_size").setup(config.get().inspect.dir_size)
   setup_highlights()
 
   -- Re-apply highlights on :colorscheme to survive :hi clear.

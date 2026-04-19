@@ -79,6 +79,11 @@ T["inspect float"] = MiniTest.new_set({
       e2e.create_file(tmp .. "/sample.txt", string.rep("x", 2048))
       e2e.create_file(tmp .. "/other.txt", "hi")
       e2e.create_dir(tmp .. "/subdir")
+      -- Known-total dir contents (100 + 200 + 300 = 600 bytes) for the async
+      -- dir-size walk assertion in case K.
+      e2e.create_file(tmp .. "/subdir/a.bin", string.rep("a", 100))
+      e2e.create_file(tmp .. "/subdir/b.bin", string.rep("b", 200))
+      e2e.create_file(tmp .. "/subdir/c.bin", string.rep("c", 300))
       -- sample.link -> sample.txt
       vim.uv.fs_symlink(tmp .. "/sample.txt", tmp .. "/sample.link")
       -- dangling.link -> /nonexistent
@@ -345,6 +350,44 @@ T["inspect float"]["I: focus stays in the eda buffer after open"] = function()
 
   local current_ft = e2e.exec(child, "return vim.bo[vim.api.nvim_get_current_buf()].filetype")
   MiniTest.expect.no_equality(current_ft, "eda_inspect")
+end
+
+T["inspect float"]["K: directory inspect resolves to real size via async walk"] = function()
+  cursor_to(child, "subdir")
+  e2e.feed(child, "\\i")
+
+  local count_predicate = [[(function()
+    local n = 0
+    for _, win in ipairs(vim.api.nvim_list_wins()) do
+      local buf = vim.api.nvim_win_get_buf(win)
+      if vim.bo[buf].filetype == "eda_inspect" then n = n + 1 end
+    end
+    return n
+  end)()]]
+  e2e.wait_until(child, string.format("return (%s) == 1", count_predicate))
+
+  -- Wait for Size line to transition from "-" (legacy) / spinner ("calculating") to
+  -- resolved bytes. subdir contains exactly 600 bytes (100+200+300).
+  e2e.wait_until(
+    child,
+    [[
+    return (function()
+      for _, win in ipairs(vim.api.nvim_list_wins()) do
+        local buf = vim.api.nvim_win_get_buf(win)
+        if vim.bo[buf].filetype == "eda_inspect" then
+          local text = table.concat(vim.api.nvim_buf_get_lines(buf, 0, -1, false), "\n")
+          return text:find("600 B", 1, true) ~= nil
+        end
+      end
+      return false
+    end)()
+  ]],
+    3000
+  )
+
+  local text = inspect_buf_text(child)
+  MiniTest.expect.no_equality(text, nil)
+  MiniTest.expect.equality(text:find("600 B", 1, true) ~= nil, true)
 end
 
 T["inspect float"]["H: K triggers debug action (no inspect float opened)"] = function()

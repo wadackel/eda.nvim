@@ -6,11 +6,24 @@ local M = {}
 ---@field winid integer
 ---@field bufnr integer
 ---@field node_path string
+---@field node eda.TreeNode cached for spinner-tick re-render
+---@field ctx table? cached for spinner-tick re-render
+---@field lstat table? cached fs_lstat result (spinner tick reuses this)
+---@field target_stat table? cached fs_stat for symlink targets
+---@field dir_count table? cached scan_direct_children result
 
 ---@type eda.InspectState?
 local _state = nil
 
 local _ns_hl = vim.api.nvim_create_namespace("eda_inspect_hl")
+
+-- Braille spinner frames rendered in the Size field while an async directory
+-- size walk is in progress. Plain BMP characters (U+2800-U+28FF) so panvimdoc
+-- and fixed-width renderers handle them correctly.
+local _SPINNER_FRAMES = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
+local _SPINNER_INTERVAL_MS = 100
+local _spinner_timer = nil
+local _spinner_frame = 1
 
 -- ========== Pure helpers ==========
 
@@ -233,8 +246,10 @@ end
 ---@param dir_count table? scan_direct_children result (directories only)
 ---@param root_path string?
 ---@param now integer? epoch seconds for relative-time rendering (default: os.time())
+---@param dir_size_info { state: "cached"|"computing", bytes: integer? }? optional directory size snapshot
+---@param spinner_frame integer? 1-based index into `_SPINNER_FRAMES` (default: 1)
 ---@return eda.InspectBuild
-local function build_lines(node, lstat, target_stat, dir_count, root_path, now)
+local function build_lines(node, lstat, target_stat, dir_count, root_path, now, dir_size_info, spinner_frame)
   now = now or os.time()
   local lines = {}
   local extmarks = {}
@@ -281,7 +296,15 @@ local function build_lines(node, lstat, target_stat, dir_count, root_path, now)
   push_kv("Path", format_relative_path(node.path, root_path))
   push_kv("Type", format_type(node))
   if node.type == "directory" then
-    push_kv("Size", "-")
+    if dir_size_info and dir_size_info.state == "cached" then
+      local size_main, size_muted = format_size(dir_size_info.bytes)
+      push_kv("Size", size_main, size_muted)
+    elseif dir_size_info and dir_size_info.state == "computing" then
+      local frame = _SPINNER_FRAMES[spinner_frame or 1] or _SPINNER_FRAMES[1]
+      push_kv("Size", frame .. " calculating...", nil, "EdaInspectSpinner")
+    else
+      push_kv("Size", "-")
+    end
   else
     local size_main, size_muted = format_size(lstat.size)
     push_kv("Size", size_main, size_muted)
@@ -407,31 +430,66 @@ function M.is_visible()
   return _state ~= nil and vim.api.nvim_win_is_valid(_state.winid)
 end
 
+local function _stop_spinner_timer()
+  if _spinner_timer then
+    _spinner_timer:stop()
+    _spinner_timer:close()
+    _spinner_timer = nil
+  end
+end
+
 ---Close the inspect float (no-op if not visible).
 function M.close()
+  _stop_spinner_timer()
   if _state and util.is_valid_win(_state.winid) then
     vim.api.nvim_win_close(_state.winid, true)
   end
   _state = nil
 end
 
+---@class eda.InspectMeta
+---@field lstat table?
+---@field target_stat table?
+---@field dir_count table?
+---@field dir_size_info { state: "cached"|"computing", bytes: integer? }?
+
 ---Build the content for a node: stat + extra + rendered lines/extmarks.
+---Optionally reuse cached fs results (spinner tick path) to avoid synchronous IO.
 ---@param ctx table?
 ---@param node eda.TreeNode
----@return eda.InspectBuild
-local function build_for_node(ctx, node)
-  ---@diagnostic disable-next-line: param-type-mismatch
-  local lstat = vim.uv.fs_lstat(node.path)
-  local target_stat = lstat
-  if node.type == "link" and not node.link_broken then
-    target_stat = vim.uv.fs_stat(node.path)
+---@param opts { cached_lstat: table?, cached_target_stat: table?, cached_dir_count: table? }?
+---@return eda.InspectBuild build
+---@return eda.InspectMeta meta
+local function build_for_node(ctx, node, opts)
+  opts = opts or {}
+  local lstat = opts.cached_lstat
+  if lstat == nil then
+    ---@diagnostic disable-next-line: param-type-mismatch
+    lstat = vim.uv.fs_lstat(node.path)
   end
-  local dir_count = nil
-  if node.type == "directory" then
+  local target_stat = opts.cached_target_stat
+  if target_stat == nil then
+    target_stat = lstat
+    if node.type == "link" and not node.link_broken then
+      target_stat = vim.uv.fs_stat(node.path)
+    end
+  end
+  local dir_count = opts.cached_dir_count
+  if dir_count == nil and node.type == "directory" then
     dir_count = scan_direct_children(node.path)
   end
+
+  local dir_size_info
+  if node.type == "directory" then
+    local cfg = require("eda.config").get()
+    if cfg and cfg.inspect and cfg.inspect.dir_size and cfg.inspect.dir_size.enabled then
+      dir_size_info = require("eda.buffer.dir_size").ensure(node.path)
+    end
+  end
+
   local root_path = root_path_from_ctx(ctx)
-  return build_lines(node, lstat, target_stat, dir_count, root_path)
+  local build = build_lines(node, lstat, target_stat, dir_count, root_path, nil, dir_size_info, _spinner_frame)
+  return build, { lstat = lstat, target_stat = target_stat, dir_count = dir_count, dir_size_info = dir_size_info }
 end
 
 ---Current editor layout context (for compute_inspect_layout).
@@ -445,13 +503,15 @@ local function current_editor_ctx()
   }
 end
 
+local _ensure_spinner_timer -- forward declared; definition below _spinner_tick.
+
 ---Open an inspect float for the given node.
 ---@param ctx table?
 ---@param node eda.TreeNode
 function M.show(ctx, node)
   M.close()
 
-  local build = build_for_node(ctx, node)
+  local build, meta = build_for_node(ctx, node)
   local layout = compute_inspect_layout(build, current_editor_ctx())
 
   local buf = vim.api.nvim_create_buf(false, true)
@@ -473,12 +533,21 @@ function M.show(ctx, node)
     winid = win,
     bufnr = buf,
     node_path = node.path,
+    node = node,
+    ctx = ctx,
+    lstat = meta.lstat,
+    target_stat = meta.target_stat,
+    dir_count = meta.dir_count,
   }
 
   local map_opts = { buffer = buf, nowait = true, silent = true }
   vim.keymap.set("n", "q", M.close, map_opts)
   vim.keymap.set("n", "<Esc>", M.close, map_opts)
   vim.keymap.set("n", "<leader>i", M.close, map_opts)
+
+  if meta.dir_size_info and meta.dir_size_info.state == "computing" then
+    _ensure_spinner_timer()
+  end
 end
 
 ---Update the currently-open inspect float for a new node. No-op if hidden;
@@ -494,7 +563,7 @@ function M.update(ctx, node)
     return
   end
   ---@cast _state eda.InspectState
-  local build = build_for_node(ctx, node)
+  local build, meta = build_for_node(ctx, node)
   local layout = compute_inspect_layout(build, current_editor_ctx())
 
   vim.bo[_state.bufnr].modifiable = true
@@ -503,12 +572,67 @@ function M.update(ctx, node)
   apply_extmarks(_state.bufnr, build.extmarks)
 
   _state.node_path = node.path
+  _state.node = node
+  _state.ctx = ctx
+  _state.lstat = meta.lstat
+  _state.target_stat = meta.target_stat
+  _state.dir_count = meta.dir_count
 
   if layout.width < 10 or layout.height < 3 then
     M.close()
     return
   end
   vim.api.nvim_win_set_config(_state.winid, layout)
+
+  if meta.dir_size_info and meta.dir_size_info.state == "computing" then
+    _ensure_spinner_timer()
+  end
+end
+
+---Re-render the inspect float using cached meta from `_state` (no fresh IO).
+---Used by the spinner tick to advance the frame or render final size when the
+---async walk completes.
+function M._render_with_cached_meta()
+  if not M.is_visible() or not _state or not _state.node then
+    return
+  end
+  ---@cast _state eda.InspectState
+  local build = build_for_node(_state.ctx, _state.node, {
+    cached_lstat = _state.lstat,
+    cached_target_stat = _state.target_stat,
+    cached_dir_count = _state.dir_count,
+  })
+  vim.bo[_state.bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(_state.bufnr, 0, -1, false, build.lines)
+  vim.bo[_state.bufnr].modifiable = false
+  apply_extmarks(_state.bufnr, build.extmarks)
+end
+
+---Advance the spinner frame and re-render. Stops the timer when there is no
+---directory still computing for the currently-shown node.
+---Exposed for unit tests.
+function M._spinner_tick()
+  _spinner_frame = (_spinner_frame % #_SPINNER_FRAMES) + 1
+
+  if not M.is_visible() or not _state or not _state.node or _state.node.type ~= "directory" then
+    _stop_spinner_timer()
+    return
+  end
+
+  local info = require("eda.buffer.dir_size").ensure(_state.node_path)
+  M._render_with_cached_meta()
+  if info.state ~= "computing" then
+    _stop_spinner_timer()
+  end
+end
+
+_ensure_spinner_timer = function()
+  if _spinner_timer then
+    return
+  end
+  local timer = assert(vim.uv.new_timer(), "failed to create spinner timer")
+  _spinner_timer = timer
+  timer:start(_SPINNER_INTERVAL_MS, _SPINNER_INTERVAL_MS, vim.schedule_wrap(M._spinner_tick))
 end
 
 ---Toggle the inspect float for a node (close if visible, else show).
@@ -550,5 +674,18 @@ M._format_relative_time = format_relative_time
 M._build_lines = build_lines
 M._scan_direct_children = scan_direct_children
 M._compute_inspect_layout = compute_inspect_layout
+M._SPINNER_FRAMES = _SPINNER_FRAMES
+M._SPINNER_INTERVAL_MS = _SPINNER_INTERVAL_MS
+
+---Whether the spinner timer is currently active. Test-only.
+---@return boolean
+function M._has_spinner_timer()
+  return _spinner_timer ~= nil
+end
+
+---Reset the spinner frame counter so tests start from a known index.
+function M._reset_spinner_frame()
+  _spinner_frame = 0
+end
 
 return M

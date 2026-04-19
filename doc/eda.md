@@ -90,6 +90,13 @@ require("eda").setup({
     enabled = true,
   },
 
+  inspect = {
+    dir_size = {
+      enabled = true,
+      cache_ttl_ms = 30000,
+    },
+  },
+
   mark = {
     icon = "󰄲",        -- nf-md-checkbox_marked (U+F0132)
   },
@@ -450,6 +457,33 @@ Maximum recursion depth for `expand_all` and `expand_recursive` actions.
   in a narrow window. The popup displays the full line content (indent, icon,
   filename, and suffixes) with identical highlights.
 
+### inspect
+
+`table`
+
+- `dir_size` `table` — Async directory size calculation shown by the `inspect`
+  action. When a directory node is inspected, a background recursive walk
+  computes the total byte count without blocking the UI, and an animated
+  spinner is shown in the `Size` field until the walk completes. Results are
+  cached per path for `cache_ttl_ms` and reused when sticky-mode cursor moves
+  re-visit the same directory within TTL. Cursor moves do NOT cancel in-flight
+  walks; they run to completion and populate the cache. Closing the float
+  stops the spinner UI but lets the walk complete in the background.
+  There is no entry-count cap and no per-walk timeout: very large trees may
+  take a long time to resolve.
+  - `enabled` `boolean` (default: `true`) — Disable to restore the legacy
+    placeholder (`Size -`) with no async walk.
+  - `cache_ttl_ms` `integer` (default: `30000`) — Cache lifetime in
+    milliseconds. Raising this extends reuse across sticky-mode browsing at
+    the cost of freshness after filesystem changes.
+
+  Example display while a walk is in progress (the spinner cycles through
+  10 Braille frames at 100 ms per step):
+
+  ```
+  Size          ⠋ calculating...
+  ```
+
 ### mark
 
 `table`
@@ -769,7 +803,10 @@ success (partial failures keep the marks for the failed/unattempted entries).
   re-pressing the key. Pressing `<leader>i` again toggles the float
   closed. Leaving the explorer buffer closes the float as well, except
   when you deliberately focus the float via `<C-w>w` (in which case
-  `q` / `<Esc>` close it).
+  `q` / `<Esc>` close it). Directory size is resolved asynchronously
+  (see `inspect.dir_size`); an animated spinner appears in the `Size`
+  field until the walk completes, and the result is cached briefly
+  for sticky re-visits.
   Default mapping: `<leader>i`
 - **help** — Show keybinding help in a floating window.
 - **split** — Open a new explorer split pane with the same root.
@@ -1053,6 +1090,7 @@ keep their user-provided attributes untouched (same as git suffix icons).
 | `EdaInspectValue`      | `Normal`          | Row value (main portion)                          |
 | `EdaInspectValueMuted` | `Comment`         | Muted secondary value (e.g. `(1,024 bytes)`, `(~3 hours)`, symlink target path) |
 | `EdaInspectError`      | `DiagnosticError` | Error value (e.g. `(stat failed)`, broken symlink) |
+| `EdaInspectSpinner`    | `Comment`         | Animated spinner frame in the `Size` row while an async directory-size walk is running |
 
 ### Full Name Popup
 

@@ -42,6 +42,7 @@ local M = {}
 ---@field indent eda.IndentConfig
 ---@field preview eda.PreviewConfig
 ---@field full_name eda.FullNameConfig
+---@field inspect eda.InspectConfig
 ---@field mark eda.MarkConfig
 ---@field quickfix eda.QuickfixConfig
 ---@field header eda.HeaderConfig|false
@@ -97,6 +98,13 @@ local M = {}
 
 ---@class eda.FullNameConfig
 ---@field enabled boolean
+
+---@class eda.DirSizeConfig
+---@field enabled boolean
+---@field cache_ttl_ms integer
+
+---@class eda.InspectConfig
+---@field dir_size eda.DirSizeConfig
 
 ---@class eda.MarkConfig
 ---@field icon string
@@ -192,6 +200,13 @@ local defaults = {
 
   full_name = {
     enabled = true,
+  },
+
+  inspect = {
+    dir_size = {
+      enabled = true,
+      cache_ttl_ms = 30000,
+    },
   },
 
   mark = {
