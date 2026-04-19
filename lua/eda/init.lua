@@ -38,6 +38,8 @@ local next_instance_id = 0
 ---@field _refresh_for_navigation fun()?
 ---@field _empty_state_rendered? boolean
 ---@field _no_repo_notified? boolean
+---@field _initial_scan_complete boolean
+---@field _pending_dispatch? { name: string, ctx: eda.ActionContext }
 
 ---@type eda.Explorer?
 M._current = nil
@@ -301,6 +303,23 @@ local function make_ctx(explorer)
   }
 end
 
+---Flip the pre-render dispatch gate to "complete" and dispatch any parked
+---action. Idempotent: a second call after the gate is already true is a no-op,
+---which keeps both async lifecycles (`open()` initial scan and `_change_root()`
+---rescan) symmetric without duplicating the drain logic.
+---@param explorer eda.Explorer
+local function drain_pending_dispatch(explorer)
+  if explorer._initial_scan_complete then
+    return
+  end
+  local pending = explorer._pending_dispatch
+  explorer._pending_dispatch = nil
+  explorer._initial_scan_complete = true
+  if pending then
+    action.dispatch(pending.name, pending.ctx)
+  end
+end
+
 ---@class eda.PublicContext
 ---@field get_node fun(): eda.TreeNode?
 ---@field get_root fun(): eda.TreeNode?
@@ -512,6 +531,8 @@ function M.open(opts)
     full_name = full_name,
     _render_gen = 0,
     _last_painted_gen = -1,
+    _initial_scan_complete = false,
+    _pending_dispatch = nil,
   }
 
   M._current = explorer
@@ -743,9 +764,17 @@ function M.open(opts)
   end
   explorer._refresh_for_navigation = refresh_for_navigation
 
-  -- Setup keymaps via action dispatch
+  -- Setup keymaps via action dispatch. When the user presses a mapped key in
+  -- the same tick as open() (cold start), the tree is still scanning and
+  -- `get_cursor_node` would resolve to nil. Park the dispatch in a single
+  -- slot and drain it in `on_initial_scan_complete` below; latest-write wins.
   buffer:set_mappings(cfg.mappings, function(action_name)
-    action.dispatch(action_name, make_ctx(explorer))
+    local ctx = make_ctx(explorer)
+    if not explorer._initial_scan_complete then
+      explorer._pending_dispatch = { name = action_name, ctx = ctx }
+      return
+    end
+    action.dispatch(action_name, ctx)
   end, function()
     return make_public_ctx(explorer)
   end)
@@ -885,6 +914,8 @@ function M.open(opts)
 
       mark_render_dirty()
       render_with_decorators()
+
+      drain_pending_dispatch(explorer)
 
       -- Restore cached state (directory open/close and cursor position)
       local cached = state_cache[root_path]
@@ -1136,6 +1167,12 @@ function M._change_root(explorer, new_path, opts)
   -- Increment generation to invalidate stale callbacks
   explorer.generation = explorer.generation + 1
 
+  -- Reset the pre-render dispatch gate: after a root change, the new scan is
+  -- in flight and `flat_lines` is empty until `on_scan_complete` below. Treat
+  -- it like a cold open for dispatch-parking purposes.
+  explorer._initial_scan_complete = false
+  explorer._pending_dispatch = nil
+
   -- Unwatch old root
   explorer.watcher:unwatch_all()
 
@@ -1175,6 +1212,8 @@ function M._change_root(explorer, new_path, opts)
       end
 
       explorer.buffer:render(explorer.store)
+
+      drain_pending_dispatch(explorer)
 
       -- Expand path from parent action
       if expand_path then
