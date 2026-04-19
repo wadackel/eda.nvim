@@ -127,7 +127,8 @@ require("eda").setup({
     ["m"] = "mark_toggle",
     ["D"] = "delete",
     ["go"] = "system_open",
-    ["K"] = "inspect",
+    ["K"] = "debug",
+    ["<leader>i"] = "inspect",
     ["gd"] = "duplicate",
     ["gx"] = "cut",
     ["gy"] = "copy",
@@ -637,7 +638,8 @@ configuration option.
 | `M`     | mark_clear_all     | Clear all marks               |
 | `D`     | delete             | Delete target nodes (Visual > marks > cursor) |
 | `go`    | system_open        | Open with system default app  |
-| `K`     | inspect            | Print node details            |
+| `K`     | debug              | Print node data for debugging |
+| `<leader>i` | inspect        | Show node stat in a floating window |
 | `gd`    | duplicate          | Duplicate target nodes (Visual > marks > cursor) |
 | `gx`    | cut                | Cut target nodes (Visual > marks > cursor) |
 | `gy`    | copy               | Copy target nodes (Visual > marks > cursor) |
@@ -757,7 +759,18 @@ success (partial failures keep the marks for the failed/unattempted entries).
 - **close** — Close the explorer window.
 - **system_open** — Open the file with the system default application
   (`open` on macOS, `xdg-open` on Linux).
-- **inspect** — Print the node data to the console (debug).
+- **debug** — Print the node data to the console (developer API).
+  Default mapping: `K`
+- **inspect** — Show node stat (size, permissions, timestamps, symlink
+  target, directory entry count, etc.) in a cursor-anchored floating
+  window. Focus stays in the explorer, and the float is sticky: while
+  open, moving the cursor refreshes the content and position to the
+  node under the new cursor, so you can skim many files without
+  re-pressing the key. Pressing `<leader>i` again toggles the float
+  closed. Leaving the explorer buffer closes the float as well, except
+  when you deliberately focus the float via `<C-w>w` (in which case
+  `q` / `<Esc>` close it).
+  Default mapping: `<leader>i`
 - **help** — Show keybinding help in a floating window.
 - **split** — Open a new explorer split pane with the same root.
   Default mapping: `<C-w>v`
@@ -1029,6 +1042,17 @@ keep their user-provided attributes untouched (same as git suffix icons).
 | `EdaHelpBorder` | `FloatBorder` | Help dialog border  |
 | `EdaHelpTitle`  | `FloatTitle`  | Help dialog title   |
 | `EdaHelpFooter` | `Comment`     | Help dialog footer  |
+
+### Inspect Float
+
+| Group                  | Default Link      | Description                                       |
+|------------------------|-------------------|---------------------------------------------------|
+| `EdaInspectBorder`     | `FloatBorder`     | Inspect float border                              |
+| `EdaInspectFooter`     | `Comment`         | Inspect float footer                              |
+| `EdaInspectLabel`      | `Special`         | Row label (e.g. `Path`, `Size`, `Created`)        |
+| `EdaInspectValue`      | `Normal`          | Row value (main portion)                          |
+| `EdaInspectValueMuted` | `Comment`         | Muted secondary value (e.g. `(1,024 bytes)`, `(~3 hours)`, symlink target path) |
+| `EdaInspectError`      | `DiagnosticError` | Error value (e.g. `(stat failed)`, broken symlink) |
 
 ### Full Name Popup
 

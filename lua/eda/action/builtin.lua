@@ -959,12 +959,21 @@ action.register("preview_scroll_page_up", function(ctx)
   preview:scroll_page_up()
 end, { desc = "Scroll preview up (full page)" })
 
-action.register("inspect", function(ctx)
+action.register("debug", function(ctx)
   local node = ctx.buffer:get_cursor_node(ctx.window.winid)
   if node then
     vim.print(node)
   end
-end, { desc = "Inspect node data" })
+end, { desc = "Print node data (debug)" })
+
+action.register("inspect", function(ctx)
+  local node = ctx.buffer:get_cursor_node(ctx.window.winid)
+  if not node then
+    vim.notify("eda: no target at cursor", vim.log.levels.WARN)
+    return
+  end
+  require("eda.buffer.inspect").toggle(ctx, node)
+end, { desc = "Show node stat in a floating window" })
 
 ---@class eda.TargetNodes
 ---@field nodes eda.TreeNode[]
