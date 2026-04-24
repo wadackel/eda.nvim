@@ -293,6 +293,161 @@ T["navigation"]["parent at filesystem root does not navigate further"] = functio
   MiniTest.expect.equality(root_path, "/")
 end
 
+T["navigation"]["parent preserves deep expansion"] = function()
+  -- Build nested fixtures: tmp/x/a/b/deep/deep2/leaf.txt
+  local old_root = tmp .. "/x"
+  e2e.create_dir(old_root .. "/a/b/deep/deep2")
+  e2e.create_file(old_root .. "/a/b/deep/deep2/leaf.txt", "leaf")
+
+  -- Open eda at the old root and expand all nested directories
+  e2e.open_eda(child, old_root)
+  e2e.feed(child, "gE")
+
+  -- leaf.txt visible proves a/, a/b/, a/b/deep/, a/b/deep/deep2/ are open
+  e2e.wait_until(
+    child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for _, l in ipairs(lines) do
+      if l:find("leaf.txt") then return true end
+    end
+    return false
+  ]],
+    10000
+  )
+
+  -- Move cursor to the root line and parent-up
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(child, "^")
+
+  -- Root should change to tmp
+  e2e.wait_until(child, string.format([[require("eda").get_all()[1].root_path == %q]], tmp), 10000)
+
+  -- Wait for the new tree to render with sibling fixtures (root.txt from pre_case)
+  -- so we know _expand_path processing has completed and the old buffer is replaced.
+  e2e.wait_until(
+    child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for _, l in ipairs(lines) do
+      if l:find("root%.txt") then return true end
+    end
+    return false
+  ]],
+    10000
+  )
+
+  -- Verify deep expansion is preserved: the deepest directory node exists
+  -- in the new store and is marked open. Without the fix, /tmp/.../x/a is
+  -- neither scanned nor open, so this node lookup returns nil.
+  e2e.wait_until(
+    child,
+    string.format(
+      [[
+    local explorer = require("eda").get_all()[1]
+    local n = explorer.store:get_by_path(%q .. "/x/a/b/deep/deep2")
+    return n ~= nil and n.type == "directory" and n.open == true
+  ]],
+      tmp
+    ),
+    10000
+  )
+
+  -- leaf.txt should now appear in the buffer (children of the deepest open dir)
+  e2e.wait_until(
+    child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for _, l in ipairs(lines) do
+      if l:find("leaf%.txt") then return true end
+    end
+    return false
+  ]],
+    10000
+  )
+
+  -- Cursor should be on the old root (x/) — _expand_path cursor behavior preserved
+  e2e.wait_until(
+    child,
+    [[
+    local row = vim.api.nvim_win_get_cursor(0)[1]
+    local line = vim.api.nvim_buf_get_lines(0, row - 1, row, false)[1]
+    return line ~= nil and line:find("x/") ~= nil
+  ]],
+    10000
+  )
+end
+
+T["navigation"]["cwd round-trip restores cached expansion state"] = function()
+  -- Two disjoint trees under tmp
+  local work = tmp .. "/work"
+  local other = tmp .. "/other"
+  e2e.create_dir(work .. "/a/b")
+  e2e.create_file(work .. "/a/b/file.txt", "f")
+  e2e.create_dir(other)
+  e2e.create_file(other .. "/stuff.txt", "s")
+
+  -- cd into work and open eda there
+  e2e.exec(child, string.format("vim.cmd('cd %s')", work))
+  e2e.open_eda(child, work)
+
+  -- Expand all (a/ and a/b/ open)
+  e2e.feed(child, "gE")
+  e2e.wait_until(
+    child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for _, l in ipairs(lines) do
+      if l:find("file.txt") then return true end
+    end
+    return false
+  ]],
+    10000
+  )
+
+  -- Switch cwd to an unrelated tree, then invoke cwd action
+  e2e.exec(child, string.format("vim.cmd('cd %s')", other))
+  e2e.feed(child, "~")
+  e2e.wait_until(child, string.format([[require("eda").get_all()[1].root_path == %q]], other), 10000)
+
+  -- stuff.txt should appear under the new root
+  e2e.wait_until(
+    child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for _, l in ipairs(lines) do
+      if l:find("stuff.txt") then return true end
+    end
+    return false
+  ]],
+    10000
+  )
+
+  -- Sanity: file.txt from the previous tree must not leak into the new root
+  local lines_other = e2e.exec(child, [[return vim.api.nvim_buf_get_lines(0, 0, -1, false)]])
+  for _, l in ipairs(lines_other) do
+    MiniTest.expect.equality(l:find("file%.txt") == nil, true)
+  end
+
+  -- cd back to work and invoke cwd again
+  e2e.exec(child, string.format("vim.cmd('cd %s')", work))
+  e2e.feed(child, "~")
+  e2e.wait_until(child, string.format([[require("eda").get_all()[1].root_path == %q]], work), 10000)
+
+  -- Cached state should restore: file.txt visible again without manual re-expand
+  e2e.wait_until(
+    child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for _, l in ipairs(lines) do
+      if l:find("file.txt") then return true end
+    end
+    return false
+  ]],
+    10000
+  )
+end
+
 T["navigation"]["cwd returns to original directory after parent navigation"] = function()
   -- Set CWD to sub directory
   local sub_dir = tmp .. "/sub"
