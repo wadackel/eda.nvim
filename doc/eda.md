@@ -703,6 +703,11 @@ can be mapped to keys, dispatched programmatically, or discovered via the
 - **cwd** — Change root to the current working directory.
 - **cd** — Change root to the directory under the cursor.
 
+Directory expansion state is preserved across `parent` / `cwd` / `cd` root
+changes: directories that were expanded in the previous tree stay expanded in
+the new one when their absolute paths remain visible, and returning to a
+previously visited root restores its prior expansion.
+
 ### Tree Manipulation
 
 - **collapse_all** — Collapse all directories except root.

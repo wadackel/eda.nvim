@@ -1164,6 +1164,30 @@ function M._change_root(explorer, new_path, opts)
     return
   end
 
+  -- Snapshot current tree state into state_cache BEFORE reinit so a
+  -- subsequent root transition (or re-visit) can restore expanded directories.
+  -- Skips split instances, matching close() semantics.
+  local old_path = explorer.root_path
+  if not explorer.is_split then
+    local open_dirs = {}
+    for _, node in pairs(explorer.store.nodes) do
+      if node.type == "directory" and node.open and node.id ~= explorer.store.root_id then
+        open_dirs[node.path] = true
+      end
+    end
+    local cursor_path = nil
+    if util.is_valid_win(explorer.window.winid) then
+      local cursor_node = explorer.buffer:get_cursor_node(explorer.window.winid)
+      if cursor_node then
+        cursor_path = cursor_node.path
+      end
+    end
+    state_cache[old_path] = {
+      open_dirs = open_dirs,
+      cursor_path = cursor_path,
+    }
+  end
+
   -- Increment generation to invalidate stale callbacks
   explorer.generation = explorer.generation + 1
 
@@ -1215,7 +1239,35 @@ function M._change_root(explorer, new_path, opts)
 
       drain_pending_dispatch(explorer)
 
-      -- Expand path from parent action
+      -- Merge cached open_dirs from old and new roots. Paths are absolute, so
+      -- parent-up (new ⊃ old), cd-descent (new ⊂ old), and revisits all
+      -- funnel through a single union. `scan_open_unloaded` silently skips
+      -- paths that do not resolve in the new store's index.
+      local merged_open_dirs = {}
+      for _, key in ipairs({ old_path, new_path }) do
+        local cached = state_cache[key]
+        if cached and cached.open_dirs then
+          for p in pairs(cached.open_dirs) do
+            merged_open_dirs[p] = true
+          end
+        end
+      end
+
+      local function restore_open_dirs_then_render()
+        explorer.scanner:scan_open_unloaded(merged_open_dirs, function()
+          vim.schedule(function()
+            if explorer.generation ~= gen then
+              return
+            end
+            if not util.is_valid_buf(explorer.buffer.bufnr) then
+              return
+            end
+            explorer.buffer:render(explorer.store)
+          end)
+        end)
+      end
+
+      -- Expand path (parent action) → scan_open_unloaded → final render.
       if expand_path then
         explorer.scanner:scan_ancestors(expand_path, function()
           vim.schedule(function()
@@ -1241,9 +1293,11 @@ function M._change_root(explorer, new_path, opts)
               end
               explorer.buffer.target_node_id = ep_node.id
             end
-            explorer.buffer:render(explorer.store)
+            restore_open_dirs_then_render()
           end)
         end)
+      else
+        restore_open_dirs_then_render()
       end
 
       -- Fetch git status
