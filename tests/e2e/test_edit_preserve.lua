@@ -76,21 +76,10 @@ T["edit preserving repaint"]["select toggle preserves inserted line"] = function
   -- Verify buffer is modified
   MiniTest.expect.equality(e2e.exec(child, "return vim.bo.modified"), true)
 
-  -- Toggle dir_b (a different directory) open via select
+  -- Toggle dir_b (a different directory) open via select; wait for the full
+  -- edit-preserve cycle (paint + replay) to complete.
   move_to_line(child, "dir_b/")
-  e2e.feed(child, "<CR>")
-
-  -- Wait for dir_b's child to appear (toggle succeeded)
-  e2e.wait_until(
-    child,
-    [[
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    for _, l in ipairs(lines) do
-      if l:find("file_b.txt") then return true end
-    end
-    return false
-  ]]
-  )
+  e2e.expand_and_wait_for_render(child)
 
   -- The inserted new_entry.txt line should still exist
   MiniTest.expect.equality(buf_has_line(child, "new_entry.txt"), true)
@@ -109,21 +98,9 @@ T["edit preserving repaint"]["multiple consecutive creates preserve order"] = fu
   e2e.feed(child, "o")
   e2e.feed_insert(child, "second.txt")
 
-  -- Toggle dir_b open
+  -- Toggle dir_b open; wait for the full edit-preserve cycle (paint + replay).
   move_to_line(child, "dir_b/")
-  e2e.feed(child, "<CR>")
-
-  -- Wait for toggle to complete
-  e2e.wait_until(
-    child,
-    [[
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    for _, l in ipairs(lines) do
-      if l:find("file_b.txt") then return true end
-    end
-    return false
-  ]]
-  )
+  e2e.expand_and_wait_for_render(child)
 
   -- Both lines should exist
   MiniTest.expect.equality(buf_has_line(child, "first.txt"), true)
@@ -156,21 +133,9 @@ T["edit preserving repaint"]["select toggle preserves renamed line"] = function(
   e2e.feed(child, "ciw")
   e2e.feed_insert(child, "renamed.txt")
 
-  -- Toggle dir_b open
+  -- Toggle dir_b open; wait for the full edit-preserve cycle (paint + replay).
   move_to_line(child, "dir_b/")
-  e2e.feed(child, "<CR>")
-
-  -- Wait for dir_b's child to appear
-  e2e.wait_until(
-    child,
-    [[
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    for _, l in ipairs(lines) do
-      if l:find("file_b.txt") then return true end
-    end
-    return false
-  ]]
-  )
+  e2e.expand_and_wait_for_render(child)
 
   -- renamed.txt should still exist (not reverted to root.txt)
   MiniTest.expect.equality(buf_has_line(child, "renamed.txt"), true)
@@ -184,21 +149,9 @@ T["edit preserving repaint"]["select toggle preserves deleted line"] = function(
   move_to_line(child, "root.txt")
   e2e.feed(child, "dd")
 
-  -- Toggle dir_b open
+  -- Toggle dir_b open; wait for the full edit-preserve cycle (paint + replay).
   move_to_line(child, "dir_b/")
-  e2e.feed(child, "<CR>")
-
-  -- Wait for dir_b's child to appear
-  e2e.wait_until(
-    child,
-    [[
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    for _, l in ipairs(lines) do
-      if l:find("file_b.txt") then return true end
-    end
-    return false
-  ]]
-  )
+  e2e.expand_and_wait_for_render(child)
 
   -- root.txt should NOT reappear
   MiniTest.expect.equality(buf_has_line(child, "root.txt"), false)
@@ -215,21 +168,9 @@ T["edit preserving repaint"]["save after toggle works correctly"] = function()
   e2e.feed(child, "o")
   e2e.feed_insert(child, "created.txt")
 
-  -- Toggle a directory to trigger edit-preserving repaint
+  -- Toggle a directory to trigger edit-preserving repaint; wait for the full cycle.
   move_to_line(child, "dir_b/")
-  e2e.feed(child, "<CR>")
-
-  -- Wait for toggle to complete
-  e2e.wait_until(
-    child,
-    [[
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    for _, l in ipairs(lines) do
-      if l:find("file_b.txt") then return true end
-    end
-    return false
-  ]]
-  )
+  e2e.expand_and_wait_for_render(child)
 
   -- Save — should create the file on disk
   e2e.feed(child, ":w<CR>")
@@ -247,21 +188,9 @@ T["edit preserving repaint"]["insert after collapsed dir then expand that dir pl
   e2e.feed(child, "o")
   e2e.feed_insert(child, "new_entry.txt")
 
-  -- Expand dir_a/ by moving back to it and pressing <CR>
+  -- Expand dir_a/; wait for the full edit-preserve cycle (paint + replay).
   move_to_line(child, "dir_a/")
-  e2e.feed(child, "<CR>")
-
-  -- Wait for dir_a's child to appear (expansion succeeded)
-  e2e.wait_until(
-    child,
-    [[
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    for _, l in ipairs(lines) do
-      if l:find("file_a.txt") then return true end
-    end
-    return false
-  ]]
-  )
+  e2e.expand_and_wait_for_render(child)
 
   -- new_entry.txt should still exist
   MiniTest.expect.equality(buf_has_line(child, "new_entry.txt"), true)
@@ -296,6 +225,7 @@ T["edit preserving repaint"]["clean buffer operations work as before"] = functio
   e2e.feed(child, "<CR>")
 
   -- file_a.txt should appear
+  e2e.wait_for_node_loaded(child, tmp .. "/dir_a")
   e2e.wait_until(
     child,
     [[
@@ -311,16 +241,20 @@ T["edit preserving repaint"]["clean buffer operations work as before"] = functio
   move_to_line(child, "dir_a/")
   e2e.feed(child, "<CR>")
 
-  -- file_a.txt should disappear
+  -- file_a.txt should disappear from the rendered snapshot (dir_a now collapsed).
   e2e.wait_until(
     child,
-    [[
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    for _, l in ipairs(lines) do
-      if l:find("file_a.txt") then return false end
+    string.format(
+      [[
+    local explorer = require("eda").get_current()
+    local snap = explorer.buffer.painter:get_snapshot()
+    for _, entry in pairs(snap.entries or {}) do
+      if entry.path == %q then return false end
     end
     return true
-  ]]
+  ]],
+      tmp .. "/dir_a/file_a.txt"
+    )
   )
 end
 

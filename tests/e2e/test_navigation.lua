@@ -285,8 +285,7 @@ T["navigation"]["parent at filesystem root does not navigate further"] = functio
   -- Press ^ -- should stay at / since there is no parent
   e2e.feed(child, "^")
 
-  -- Small wait to ensure nothing breaks
-  vim.uv.sleep(500)
+  vim.uv.sleep(500) -- e2e-sleep-allowed: negative-assertion guard (parent at fs root must not change root_path)
 
   -- root_path should still be /
   local root_path = e2e.exec(child, [[return require("eda").get_all()[1].root_path]])

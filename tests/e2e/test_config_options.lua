@@ -366,8 +366,7 @@ T["follow_symlinks"]["follow_symlinks=false shows symlink as non-directory"] = f
   )
 
   e2e.feed(sym_child, "<CR>")
-  -- Brief wait to let any expansion attempt settle
-  vim.uv.sleep(200)
+  vim.uv.sleep(200) -- e2e-sleep-allowed: negative-assertion guard (symlink <CR> must not expand in eda buffer)
 
   -- Line count should remain the same (no expansion occurred in eda buffer)
   local eda_line_count = e2e.exec(

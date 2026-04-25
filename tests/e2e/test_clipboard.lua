@@ -296,8 +296,11 @@ T["clipboard"]["paste does not overwrite existing _copy file"] = function()
   -- Paste with gp — collision should NOT overwrite source_copy.txt
   e2e.feed(child, "gp")
 
-  -- Wait for paste to complete (some file is created)
-  vim.uv.sleep(3000)
+  -- Wait for the paste to complete by observing register.clear() at the end of
+  -- the on_done chain (lua/eda/action/builtin.lua:1169 — only runs after all
+  -- copy callbacks land with no errors). This is more deterministic than a
+  -- fixed sleep and avoids fs_stat (the renamed dst path is not predictable).
+  e2e.wait_until(child, [[return require("eda.register").get() == nil]], 5000)
 
   -- The original source_copy.txt should still have "original_copy" content
   local content = vim.fn.readfile(tmp .. "/dest/source_copy.txt")

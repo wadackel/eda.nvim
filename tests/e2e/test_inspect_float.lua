@@ -394,8 +394,7 @@ T["inspect float"]["H: K triggers debug action (no inspect float opened)"] = fun
   cursor_to(child, "sample%.txt")
   -- K should run the debug action, which calls vim.print but does NOT open the inspect float.
   e2e.feed(child, "K")
-  -- Brief sleep to allow any opening to have occurred; then assert count stays at 0.
-  e2e.exec(child, "vim.uv.sleep(50)")
+  e2e.exec(child, "vim.uv.sleep(50)") -- e2e-sleep-allowed: negative-assertion guard (K must not open inspect float)
   MiniTest.expect.equality(inspect_win_count(child), 0)
 end
 
