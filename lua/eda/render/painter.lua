@@ -45,6 +45,7 @@ end
 ---@field _replaying boolean?
 ---@field paint fun(self: eda.Painter, flat_lines: eda.FlatLine[], decorations?: eda.Decoration[], opts?: table)
 ---@field paint_incremental fun(self: eda.Painter, flat_lines: eda.FlatLine[], decorations?: eda.Decoration[], opts?: table, hint: { toggled_node_id: integer }): boolean
+---@field reset fun(self: eda.Painter)
 ---@field get_snapshot fun(self: eda.Painter): eda.RenderSnapshot
 ---@field resync_highlights fun(self: eda.Painter)
 
@@ -155,6 +156,22 @@ function Painter.new(bufnr, indent_width)
   })
 
   return self
+end
+
+---Reset painter state and clear all owned extmark namespaces.
+---Use when reusing the same Painter on a buffer that should be repainted from
+---scratch (e.g. preview switching between file and directory render modes).
+---ns_hl is ephemeral and reset by the decoration provider on each redraw.
+function Painter:reset()
+  vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_icon, 0, -1)
+  vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_ids, 0, -1)
+  vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_header, 0, -1)
+  self._flat_lines = {}
+  self._line_lengths = {}
+  self._row_to_fl = {}
+  self._decoration_cache = {}
+  self.snapshot = { entries = {} }
+  self.header_lines = 0
 end
 
 ---Build header text from root_path and format setting.

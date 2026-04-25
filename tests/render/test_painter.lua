@@ -1239,4 +1239,40 @@ T["paint_incremental returns false for invalid state"] = function()
   vim.api.nvim_buf_delete(buf, { force = true })
 end
 
+-- PT-R1: Painter:reset clears all internal state and namespace extmarks.
+T["PT-R1 reset clears state and namespaces"] = function()
+  local store, root = build_store()
+  local flat_lines = Flatten.flatten(store, root)
+  local buf = vim.api.nvim_create_buf(false, true)
+  local painter = Painter.new(buf)
+
+  painter:paint(flat_lines, nil, {
+    root_path = "/project",
+    header = { format = "short", divider = false },
+    kind = "split_left",
+  })
+
+  -- Sanity: paint populated state
+  MiniTest.expect.equality(#painter._flat_lines > 0, true)
+  MiniTest.expect.equality(painter._decoration_cache ~= nil, true)
+  MiniTest.expect.equality(painter.header_lines >= 1, true)
+
+  painter:reset()
+
+  -- Internal Lua tables emptied
+  MiniTest.expect.equality(next(painter._flat_lines), nil)
+  MiniTest.expect.equality(next(painter._line_lengths), nil)
+  MiniTest.expect.equality(next(painter._row_to_fl), nil)
+  MiniTest.expect.equality(next(painter._decoration_cache), nil)
+  MiniTest.expect.equality(next(painter.snapshot.entries), nil)
+  MiniTest.expect.equality(painter.header_lines, 0)
+
+  -- Namespace extmarks cleared (ns_hl is ephemeral; not asserted here).
+  MiniTest.expect.equality(#vim.api.nvim_buf_get_extmarks(buf, painter.ns_ids, 0, -1, {}), 0)
+  MiniTest.expect.equality(#vim.api.nvim_buf_get_extmarks(buf, painter.ns_icon, 0, -1, {}), 0)
+  MiniTest.expect.equality(#vim.api.nvim_buf_get_extmarks(buf, painter.ns_header, 0, -1, {}), 0)
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
 return T

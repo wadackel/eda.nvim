@@ -8,6 +8,7 @@ local Node = require("eda.tree.node")
 ---@field _max_concurrent_fds integer
 ---@field _node_gen table<integer, integer>
 ---@field _pending_scans { node_id: integer, callback: fun(err?: string), gen: integer }[]
+---@field _waiters table<integer, fun(err?: string)[]>
 local Scanner = {}
 Scanner.__index = Scanner
 
@@ -24,6 +25,7 @@ function Scanner.new(store, config)
     _active_fds = 0,
     _max_concurrent_fds = 32,
     _pending_scans = {},
+    _waiters = {},
   }, Scanner)
 end
 
@@ -70,8 +72,10 @@ function Scanner:scan(node_id, callback)
   end
 
   if self._scanning[node_id] then
+    -- Coalesce: queue callback so it fires when the in-flight scan settles.
     if callback then
-      callback("already scanning")
+      self._waiters[node_id] = self._waiters[node_id] or {}
+      table.insert(self._waiters[node_id], callback)
     end
     return
   end
@@ -87,6 +91,24 @@ function Scanner:scan(node_id, callback)
     self:_do_scan_io(node_id, callback, gen)
   else
     table.insert(self._pending_scans, { node_id = node_id, callback = callback, gen = gen })
+  end
+end
+
+---Settle a scan: invoke the original callback, then drain any coalesced waiters.
+---Waiters always fire even on abandoned (gen-mismatch) scans so callers cannot wait forever.
+---@private
+---@param node_id integer
+---@param callback fun(err?: string)?
+function Scanner:_settle(node_id, callback)
+  if callback then
+    callback()
+  end
+  local waiters = self._waiters[node_id]
+  if waiters then
+    self._waiters[node_id] = nil
+    for _, w in ipairs(waiters) do
+      w()
+    end
   end
 end
 
@@ -108,9 +130,7 @@ function Scanner:_do_scan_io(node_id, callback, gen)
         self:_release_fd()
         self._scanning[node_id] = nil
         if self._node_gen[node_id] ~= gen then
-          if callback then
-            callback()
-          end
+          self:_settle(node_id, callback)
           return
         end
         node.children_state = "loaded"
@@ -123,9 +143,7 @@ function Scanner:_do_scan_io(node_id, callback, gen)
           parent_id = node_id,
           error = "permission_denied",
         })
-        if callback then
-          callback()
-        end
+        self:_settle(node_id, callback)
       end)
       return
     end
@@ -140,15 +158,11 @@ function Scanner:_do_scan_io(node_id, callback, gen)
               self:_release_fd()
               self._scanning[node_id] = nil
               if self._node_gen[node_id] ~= gen then
-                if callback then
-                  callback()
-                end
+                self:_settle(node_id, callback)
                 return
               end
               self:_apply_entries(node_id, entries)
-              if callback then
-                callback()
-              end
+              self:_settle(node_id, callback)
             end)
           end)
           return

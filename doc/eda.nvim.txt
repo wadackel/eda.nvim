@@ -466,6 +466,12 @@ PREVIEW ~
         },
     <
 
+When the cursor sits on a directory, the preview pane shows that directory’s
+contents using eda’s tree rendering style (icons, git status, marks, etc.). A
+closed directory previews its direct children only; an open directory mirrors
+its expanded subtree from the main tree. `max_file_size` and binary detection
+do not apply to directory previews.
+
 
 FULL_NAME ~
 
