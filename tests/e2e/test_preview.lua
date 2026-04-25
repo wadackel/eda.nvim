@@ -168,6 +168,174 @@ T["preview"]["cursor move updates preview content"] = function()
   )
 end
 
+-- Directory preview tests
+local dir_child, dir_tmp
+
+T["dir_preview"] = MiniTest.new_set({
+  hooks = {
+    pre_case = function()
+      dir_child = e2e.spawn()
+      dir_tmp = vim.uv.fs_realpath(e2e.create_temp_dir())
+      e2e.create_dir(dir_tmp .. "/sub")
+      e2e.create_file(dir_tmp .. "/sub/x.txt", "hello dir preview")
+      e2e.create_file(dir_tmp .. "/top.txt", "root level")
+    end,
+    post_case = function()
+      e2e.stop(dir_child)
+      e2e.remove_temp_dir(dir_tmp)
+    end,
+  },
+})
+
+T["dir_preview"]["PR-D-E1 cursor on closed dir shows children"] = function()
+  e2e.exec(
+    dir_child,
+    [[
+    require("eda").setup({
+      git = { enabled = false },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+      preview = { enabled = true, debounce = 0 },
+    })
+  ]]
+  )
+
+  e2e.open_eda(dir_child, dir_tmp)
+
+  -- Move cursor to the line containing "sub" (closed by default)
+  e2e.wait_until(
+    dir_child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for i, l in ipairs(lines) do
+      if l:find("sub", 1, true) then
+        vim.api.nvim_win_set_cursor(0, {i, 0})
+        return true
+      end
+    end
+    return false
+  ]]
+  )
+
+  -- Preview should appear and contain x.txt (1-level child of sub)
+  e2e.wait_until(
+    dir_child,
+    [[
+    local wins = vim.api.nvim_list_wins()
+    for _, w in ipairs(wins) do
+      local buf = vim.api.nvim_win_get_buf(w)
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      for _, l in ipairs(lines) do
+        if l:find("x.txt", 1, true) then return true end
+      end
+    end
+    return false
+  ]],
+    5000
+  )
+end
+
+T["dir_preview"]["PR-D-E2 open dir mirror after expand"] = function()
+  e2e.exec(
+    dir_child,
+    [[
+    require("eda").setup({
+      git = { enabled = false },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+      preview = { enabled = true, debounce = 0 },
+    })
+  ]]
+  )
+
+  e2e.open_eda(dir_child, dir_tmp)
+
+  -- Move cursor to "sub" line and expand via select action
+  e2e.wait_until(
+    dir_child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for i, l in ipairs(lines) do
+      if l:find("sub", 1, true) then
+        vim.api.nvim_win_set_cursor(0, {i, 0})
+        return true
+      end
+    end
+    return false
+  ]]
+  )
+
+  e2e.exec(
+    dir_child,
+    [[
+    local action = require("eda.action")
+    local eda = require("eda")
+    local explorer = eda.get_current()
+    local ctx = {
+      store = explorer.store,
+      buffer = explorer.buffer,
+      window = explorer.window,
+      scanner = explorer.scanner,
+      config = require("eda.config").get(),
+      explorer = explorer,
+    }
+    action.dispatch("select", ctx)
+  ]]
+  )
+
+  -- Wait for sub to be open in main buffer (its child x.txt becomes visible there)
+  e2e.wait_until(
+    dir_child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for _, l in ipairs(lines) do
+      if l:find("x.txt", 1, true) then return true end
+    end
+    return false
+  ]],
+    5000
+  )
+
+  -- Re-position cursor onto "sub" (still open) so preview targets the sub node
+  e2e.wait_until(
+    dir_child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for i, l in ipairs(lines) do
+      if l:find("sub", 1, true) and not l:find("x.txt", 1, true) then
+        vim.api.nvim_win_set_cursor(0, {i, 0})
+        return true
+      end
+    end
+    return false
+  ]]
+  )
+
+  -- Preview window should show the expanded subtree (x.txt visible)
+  e2e.wait_until(
+    dir_child,
+    [[
+    local main_buf = vim.api.nvim_get_current_buf()
+    local wins = vim.api.nvim_list_wins()
+    for _, w in ipairs(wins) do
+      local buf = vim.api.nvim_win_get_buf(w)
+      if buf ~= main_buf then
+        local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+        for _, l in ipairs(lines) do
+          if l:find("x.txt", 1, true) then return true end
+        end
+      end
+    end
+    return false
+  ]],
+    5000
+  )
+end
+
 -- max_file_size tests
 local mfs_child, mfs_tmp
 

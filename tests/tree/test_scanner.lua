@@ -1,5 +1,6 @@
 local Store = require("eda.tree.store")
 local Scanner = require("eda.tree.scanner")
+local helpers = require("helpers")
 
 local T = MiniTest.new_set()
 
@@ -21,16 +22,65 @@ T["scan rejects non-directory"] = function()
   MiniTest.expect.equality(err_msg, "not a directory")
 end
 
-T["scan rejects already scanning"] = function()
+T["scan coalesces callback when already scanning"] = function()
   local store = Store.new()
   local id = store:add({ name = "d", path = "/nonexistent_dir_for_test", type = "directory" })
   local scanner = Scanner.new(store)
   scanner._scanning[id] = true
-  local err_msg
-  scanner:scan(id, function(err)
-    err_msg = err
+  local fired = false
+  scanner:scan(id, function()
+    fired = true
   end)
-  MiniTest.expect.equality(err_msg, "already scanning")
+  -- Callback must NOT fire synchronously when a scan is already in flight.
+  -- It is queued in the waiter list and would fire when the original scan settles.
+  MiniTest.expect.equality(fired, false)
+  MiniTest.expect.equality(type(scanner._waiters), "table")
+  MiniTest.expect.equality(#scanner._waiters[id], 1)
+end
+
+-- SC-W1: two parallel scan calls on the same node both observe completion.
+T["SC-W1 two parallel scans both observe completion"] = function()
+  local tmp = vim.uv.fs_realpath(helpers.create_temp_dir())
+  helpers.create_dir(tmp .. "/dir")
+  helpers.create_file(tmp .. "/dir/a.txt", "a")
+  helpers.create_file(tmp .. "/dir/b.txt", "b")
+
+  local store = Store.new()
+  store:set_root(tmp)
+  local scanner = Scanner.new(store)
+
+  -- Scan root first so the dir node exists in the store
+  local root_done = false
+  scanner:scan(store.root_id, function()
+    root_done = true
+  end)
+  helpers.wait_for(2000, function()
+    return root_done
+  end)
+
+  local dir_node = store:get_by_path(tmp .. "/dir")
+  MiniTest.expect.no_equality(dir_node, nil)
+
+  -- Two parallel scan calls before settle. The second is queued as a waiter and
+  -- must observe completion after the first scan settles.
+  local first_fired = false
+  local second_fired = false
+  scanner:scan(dir_node.id, function()
+    first_fired = true
+  end)
+  scanner:scan(dir_node.id, function()
+    second_fired = true
+  end)
+
+  helpers.wait_for(5000, function()
+    return first_fired and second_fired
+  end)
+
+  MiniTest.expect.equality(first_fired, true)
+  MiniTest.expect.equality(second_fired, true)
+  MiniTest.expect.equality(dir_node.children_state, "loaded")
+
+  helpers.remove_temp_dir(tmp)
 end
 
 T["_apply_entries populates store"] = function()
@@ -78,8 +128,6 @@ T["_apply_entries replaces old children"] = function()
   MiniTest.expect.equality(#store:children(root_id), 2)
   MiniTest.expect.equality(store:get_by_path("/tmp/test_replace/old.lua"), nil)
 end
-
-local helpers = require("helpers")
 
 T["scan_open_unloaded iteratively scans 3-level nested directories"] = function()
   local tmp = vim.uv.fs_realpath(helpers.create_temp_dir())

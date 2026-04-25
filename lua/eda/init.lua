@@ -837,7 +837,7 @@ function M.open(opts)
 
   -- Open window
   window:open(buffer.bufnr)
-  preview:attach(window)
+  preview:attach(window, { store = store, scanner = scanner, decorator_chain = chain })
 
   -- Register WinClosed handler for float windows
   if kind == "float" then
