@@ -287,18 +287,13 @@ T["dir_preview"]["PR-D-E2 open dir mirror after expand"] = function()
   ]]
   )
 
-  -- Wait for sub to be open in main buffer (its child x.txt becomes visible there)
-  e2e.wait_until(
-    dir_child,
-    [[
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    for _, l in ipairs(lines) do
-      if l:find("x.txt", 1, true) then return true end
-    end
-    return false
-  ]],
-    5000
-  )
+  -- Wait for sub's scan to complete and its child x.txt to be rendered.
+  -- Two-stage observation: scan completion (children_state == "loaded") and render
+  -- completion (snapshot entry for the child path) — both are required because
+  -- refresh_preserving runs through vim.schedule, leaving a window where the scan
+  -- is done but the buffer has not yet been repainted.
+  e2e.wait_for_node_loaded(dir_child, dir_tmp .. "/sub")
+  e2e.wait_for_path_in_snapshot(dir_child, dir_tmp .. "/sub/x.txt")
 
   -- Re-position cursor onto "sub" (still open) so preview targets the sub node
   e2e.wait_until(

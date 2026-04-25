@@ -172,13 +172,24 @@ function Buffer:get_cursor_node(winid)
   end
 
   -- Buffer is modified: use extmarks to find the node at the cursor row.
-  -- Extmarks track line shifts from insert/delete operations.
-  local marks = vim.api.nvim_buf_get_extmarks(self.bufnr, self.painter.ns_ids, { row - 1, 0 }, { row - 1, 0 }, {})
-  if #marks > 0 then
-    local node_id = marks[1][1]
-    for _, f in ipairs(self.flat_lines) do
-      if f.node_id == node_id then
-        return f.node
+  -- Extmarks track line shifts from insert/delete operations. We must request
+  -- `details = true` so we can skip extmarks whose underlying line was replaced
+  -- (those report `invalid = true` per the same convention used in
+  -- Painter:_resync_on_redraw).
+  local marks = vim.api.nvim_buf_get_extmarks(
+    self.bufnr,
+    self.painter.ns_ids,
+    { row - 1, 0 },
+    { row - 1, 0 },
+    { details = true }
+  )
+  for _, m in ipairs(marks) do
+    if not (m[4] and m[4].invalid) then
+      local node_id = m[1]
+      for _, f in ipairs(self.flat_lines) do
+        if f.node_id == node_id then
+          return f.node
+        end
       end
     end
   end

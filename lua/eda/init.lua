@@ -748,6 +748,11 @@ function M.open(opts)
       edit_preserve.replay(buf.bufnr, buf.painter, capture, st)
       buf.flat_lines = buf.painter._flat_lines
     end
+    -- Fire after the full edit-preserve cycle (paint + optional replay) so
+    -- consumers can wait for the FINAL post-replay buffer state. Without this
+    -- signal, observing the snapshot or buffer mid-cycle yields inconsistent
+    -- views (e.g., new children visible but user-deleted lines not yet replayed).
+    fire_event("EdaRenderComplete", { mode = "preserving" })
   end
   explorer._render_preserving_edits = render_preserving_edits
 

@@ -356,11 +356,32 @@ T["git"]["next_git_change wraps around on repeated presses"] = function()
   end
 
   local seen = {}
+  local prev_name = ""
   for _ = 1, 3 do
     dispatch(child, "next_git_change")
-    local name = wait_for_changed()
+    -- Wait until cursor lands on a changed file AND moves off the previous one.
+    -- Replaces a 100ms post-dispatch sleep — observing the transition itself
+    -- removes the race where the old cursor position is sampled before the
+    -- next dispatch resolves.
+    e2e.wait_until(
+      child,
+      string.format(
+        [[
+      local explorer = require("eda").get_current()
+      local node = explorer.buffer:get_cursor_node(explorer.window.winid)
+      if not node then return false end
+      local on_changed = node.name == "tracked.txt"
+        or node.name == "changed.txt"
+        or node.name == "untracked.txt"
+      return on_changed and node.name ~= %q
+    ]],
+        prev_name
+      ),
+      10000
+    )
+    local name = get_cursor_node_name(child)
     seen[#seen + 1] = name
-    vim.uv.sleep(100)
+    prev_name = name
   end
 
   -- Verify 3 distinct changed files were visited
@@ -421,10 +442,27 @@ T["git"]["next_git_change auto-expands closed dir to reach changed file"] = func
   -- (the target may be tracked.txt or untracked.txt depending on tree order; we just
   -- verify that after enough presses, we land on changed.txt).
   local reached_changed = false
+  local prev_name = get_cursor_node_name(child) or ""
   for _ = 1, 5 do
     e2e.feed(child, "]c")
-    vim.uv.sleep(100)
+    -- Wait until cursor name actually changes (covers both the normal advance
+    -- and the auto-expand-then-advance path). Replaces a 100ms sleep that
+    -- often fired before the auto-expand finished.
+    e2e.wait_until(
+      child,
+      string.format(
+        [[
+      local explorer = require("eda").get_current()
+      local node = explorer.buffer:get_cursor_node(explorer.window.winid)
+      if not node then return false end
+      return node.name ~= %q
+    ]],
+        prev_name
+      ),
+      5000
+    )
     local name = get_cursor_node_name(child)
+    prev_name = name or ""
     if name == "changed.txt" then
       reached_changed = true
       break
@@ -527,7 +565,7 @@ T["git"]["toggle_git_changes rejects non-git directory"] = function()
 
   -- Dispatch toggle_git_changes directly — should be a no-op (filter stays false)
   dispatch(child, "toggle_git_changes")
-  vim.uv.sleep(200)
+  vim.uv.sleep(200) -- e2e-sleep-allowed: negative-assertion guard (no-op toggle in no_repo case must not change show_only_git_changes)
   local is_filter_on = e2e.exec(child, [[return require("eda.config").get().show_only_git_changes]])
   MiniTest.expect.equality(is_filter_on, false)
 
