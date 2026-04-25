@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/wadackel/eda.nvim/compare/v1.0.0...v1.1.0) (2026-04-25)
+
+
+### Features
+
+* preserve directory open state across root changes ([#24](https://github.com/wadackel/eda.nvim/issues/24)) ([b41952b](https://github.com/wadackel/eda.nvim/commit/b41952b31f64e0d6eb030b6cc82bd46106dbcdb4))
+
 ## 1.0.0 (2026-04-19)
 
 
