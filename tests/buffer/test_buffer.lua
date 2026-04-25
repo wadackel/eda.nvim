@@ -9,7 +9,24 @@ T["new creates buffer with correct options"] = function()
   local buf = Buffer.new("/tmp/test_project", config.get())
   MiniTest.expect.equality(vim.bo[buf.bufnr].filetype, "eda")
   MiniTest.expect.equality(vim.bo[buf.bufnr].buftype, "acwrite")
+  MiniTest.expect.equality(vim.bo[buf.bufnr].swapfile, false)
   buf:destroy()
+end
+
+T["new disables swapfile even if user sets buf_opts.swapfile=true"] = function()
+  config.setup({
+    window = {
+      buf_opts = {
+        filetype = "eda",
+        buftype = "acwrite",
+        swapfile = true,
+      },
+    },
+  })
+  local buf = Buffer.new("/tmp/test_project_swap_override", config.get())
+  MiniTest.expect.equality(vim.bo[buf.bufnr].swapfile, false)
+  buf:destroy()
+  config.setup()
 end
 
 T["new sets buffer name"] = function()
