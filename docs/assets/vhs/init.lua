@@ -32,6 +32,7 @@ require("mini.icons").setup()
 
 local kind = vim.env.EDA_SCREENSHOT_KIND or "float"
 local git_enabled = vim.env.EDA_SCREENSHOT_GIT == "1"
+local preview_enabled = vim.env.EDA_SCREENSHOT_PREVIEW == "1"
 local target_dir = vim.env.EDA_SCREENSHOT_DIR or "/tmp/eda-screenshot-project"
 
 require("eda").setup({
@@ -40,6 +41,7 @@ require("eda").setup({
   show_hidden = false,
   expand_depth = 5,
   header = { format = "minimal", position = "left", divider = true },
+  preview = { enabled = preview_enabled },
 })
 
 vim.api.nvim_create_autocmd("VimEnter", {
