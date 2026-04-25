@@ -20,6 +20,12 @@ Explore as a tree, edit as a buffer — a file explorer for Neovim that combines
 
 ![Split Operation](./docs/assets/vhs/split-operation.gif)
 
+### Preview
+
+| File Preview | Directory Preview |
+|--------------|-------------------|
+| ![File Preview](./docs/assets/vhs/preview-file.png) | ![Directory Preview](./docs/assets/vhs/preview-directory.png) |
+
 ### Filter & Inspect
 
 | Git Changes Filter | Inspect Float |
