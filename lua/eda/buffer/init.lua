@@ -20,6 +20,10 @@ Buffer.__index = Buffer
 ---@return eda.Buffer
 function Buffer.new(root_path, config, instance_id)
   local bufnr = vim.api.nvim_create_buf(false, false)
+  -- Disable swap before set_name: prevents E325/E95 when another nvim has the same
+  -- eda://<path> buffer active, or when a stale swap file remains on disk from a crash.
+  vim.bo[bufnr].swapfile = false
+
   local name = "eda://" .. root_path
   if instance_id then
     name = name .. "#" .. instance_id
@@ -31,6 +35,8 @@ function Buffer.new(root_path, config, instance_id)
   for k, v in pairs(config.window.buf_opts) do
     vim.bo[bufnr][k] = v
   end
+  -- Re-enforce after buf_opts: a user-supplied swapfile=true must not re-enable swap.
+  vim.bo[bufnr].swapfile = false
 
   -- Sync Neovim indent options with tree indent width so that native
   -- indent operations (>>, <<, <Tab>) match the visual tree indentation.
