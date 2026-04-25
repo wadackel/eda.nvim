@@ -1,5 +1,18 @@
 # Changelog
 
+## [1.2.0](https://github.com/wadackel/eda.nvim/compare/v1.1.0...v1.2.0) (2026-04-25)
+
+
+### Features
+
+* directory preview with eda tree rendering ([#26](https://github.com/wadackel/eda.nvim/issues/26)) ([7bfaa06](https://github.com/wadackel/eda.nvim/commit/7bfaa06e2c19efdfb378dcfeba55c8a093fe5205))
+
+
+### Bug Fixes
+
+* disable swapfile on eda buffer to prevent E325/E95 conflict ([#28](https://github.com/wadackel/eda.nvim/issues/28)) ([9c7f2d0](https://github.com/wadackel/eda.nvim/commit/9c7f2d0fff692db78c0f35796a625a77acb27806))
+* **e2e:** stabilize flaky tests with deterministic observation helpers ([#30](https://github.com/wadackel/eda.nvim/issues/30)) ([c246914](https://github.com/wadackel/eda.nvim/commit/c2469148af1e38d0eb19b0064107295c599e94b4))
+
 ## [1.1.0](https://github.com/wadackel/eda.nvim/compare/v1.0.0...v1.1.0) (2026-04-25)
 
 
