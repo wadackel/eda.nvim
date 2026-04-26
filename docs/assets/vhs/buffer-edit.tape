@@ -1,4 +1,4 @@
-Output docs/assets/vhs/buffer-edit.gif
+Output docs/assets/buffer-edit.gif
 
 Set Shell "bash"
 Set FontSize 28

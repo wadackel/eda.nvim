@@ -10,33 +10,33 @@ Explore as a tree, edit as a buffer — a file explorer for Neovim that combines
 
 ### Tree View
 
-![Tree View](./docs/assets/vhs/tree-basic.png)
+![Tree View](./docs/assets/tree-basic.png)
 
 ### Buffer Editing
 
-![Buffer Editing](./docs/assets/vhs/buffer-edit.gif)
+![Buffer Editing](./docs/assets/buffer-edit.gif)
 
 ### Split Operation
 
-![Split Operation](./docs/assets/vhs/split-operation.gif)
+![Split Operation](./docs/assets/split-operation.gif)
 
 ### Preview
 
 | File Preview | Directory Preview |
 |--------------|-------------------|
-| ![File Preview](./docs/assets/vhs/preview-file.png) | ![Directory Preview](./docs/assets/vhs/preview-directory.png) |
+| ![File Preview](./docs/assets/preview-file.png) | ![Directory Preview](./docs/assets/preview-directory.png) |
 
 ### Filter & Inspect
 
 | Git Changes Filter | Inspect Float |
 |--------------------|---------------|
-| ![Git Changes Filter](./docs/assets/vhs/git-filter.png) | ![Inspect Float](./docs/assets/vhs/inspect-float.png) |
+| ![Git Changes Filter](./docs/assets/git-filter.png) | ![Inspect Float](./docs/assets/inspect-float.png) |
 
 ### Layouts
 
 | Split | Replace |
 |-------|---------|
-| ![Split](./docs/assets/vhs/layout-split.png) | ![Replace](./docs/assets/vhs/layout-replace.png) |
+| ![Split](./docs/assets/layout-split.png) | ![Replace](./docs/assets/layout-replace.png) |
 
 ## Why eda.nvim?
 

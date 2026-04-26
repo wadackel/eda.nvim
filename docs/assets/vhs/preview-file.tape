@@ -27,4 +27,4 @@ Type "gg"
 Sleep 300ms
 Type "4j"
 Sleep 1500ms
-Screenshot docs/assets/vhs/preview-file.png
+Screenshot docs/assets/preview-file.png

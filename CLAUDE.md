@@ -69,7 +69,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Screenshots
 
-- `nix develop --command just demo-all` — Regenerate all screenshots (PNG/GIF) in `docs/assets/vhs/`
+- `nix develop --command just demo-all` — Regenerate all screenshots (PNG/GIF) in `docs/assets/`
 - `nix develop --command just demo <name>` — Regenerate a single screenshot (e.g., `just demo tree-basic`)
 - When changing user-facing visuals (window layout, icons, highlight groups, git status display, tree rendering, header format), regenerate screenshots after implementation by running `nix develop --command just demo-all`
 - Tape files (`docs/assets/vhs/*.tape`) define VHS recording scenarios; `docs/assets/vhs/setup.sh` creates fixture directories; `docs/assets/vhs/init.lua` is the minimal Neovim config for recordings
