@@ -29,4 +29,4 @@ Sleep 300ms
 # Open file with Enter (select action)
 Enter
 Sleep 2s
-Screenshot docs/assets/vhs/layout-split.png
+Screenshot docs/assets/layout-split.png

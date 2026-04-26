@@ -29,4 +29,4 @@ Enter
 Sleep 300ms
 Type "j"
 Sleep 1500ms
-Screenshot docs/assets/vhs/preview-directory.png
+Screenshot docs/assets/preview-directory.png

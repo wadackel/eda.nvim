@@ -30,7 +30,7 @@ Sleep 300ms
 # Open the inspect float: <leader>i (default mapleader is backslash)
 Type "\i"
 Sleep 1s
-Screenshot docs/assets/vhs/inspect-float.png
+Screenshot docs/assets/inspect-float.png
 # Toggle the float closed (focus stays in the explorer, so we re-press <leader>i)
 Type "\i"
 Sleep 200ms

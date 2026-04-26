@@ -24,4 +24,4 @@ Sleep 2s
 # Move cursor to top
 Type "gg"
 Sleep 500ms
-Screenshot docs/assets/vhs/layout-replace.png
+Screenshot docs/assets/layout-replace.png

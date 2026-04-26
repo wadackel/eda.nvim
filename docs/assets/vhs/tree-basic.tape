@@ -24,4 +24,4 @@ Sleep 2s
 # Move cursor to top
 Type "gg"
 Sleep 500ms
-Screenshot docs/assets/vhs/tree-basic.png
+Screenshot docs/assets/tree-basic.png

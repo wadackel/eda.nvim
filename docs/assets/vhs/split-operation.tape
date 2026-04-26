@@ -1,4 +1,4 @@
-Output docs/assets/vhs/split-operation.gif
+Output docs/assets/split-operation.gif
 
 Set Shell "bash"
 Set FontSize 28

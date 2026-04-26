@@ -25,4 +25,4 @@ Sleep 2s
 # Move cursor to top for a clean screenshot
 Type "gg"
 Sleep 500ms
-Screenshot docs/assets/vhs/git-filter.png
+Screenshot docs/assets/git-filter.png
