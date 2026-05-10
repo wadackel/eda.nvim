@@ -262,6 +262,7 @@ local defaults = {
     ["gq"] = "quickfix",
     ["g?"] = "help",
     ["ga"] = "actions",
+    ["!"] = "open_replace",
     ["<C-f>"] = "preview_scroll_down",
     ["<C-b>"] = "preview_scroll_up",
     ["<C-w>v"] = "split",

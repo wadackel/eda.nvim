@@ -1198,6 +1198,10 @@ action.register("vsplit", function(ctx)
   get_eda().open_vsplit(ctx.explorer.root_path)
 end, { desc = "Open horizontal split pane" })
 
+action.register("open_replace", function(ctx)
+  get_eda().open_replace(ctx.explorer)
+end, { desc = "Reopen float explorer in replace mode" })
+
 action.register("actions", function(ctx)
   local items = {}
   for _, name in ipairs(action.list()) do

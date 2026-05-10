@@ -479,11 +479,14 @@ function M.open(opts)
 
   if M._current and not opts._new_instance then
     if M._current.window:is_visible() then
-      M._current.window:focus()
-      return
+      if opts._focus_existing ~= false then
+        M._current.window:focus()
+        return
+      end
+    else
+      -- Window was closed externally; clean up stale state
+      M.close()
     end
-    -- Window was closed externally; clean up stale state
-    M.close()
   end
 
   local cfg = config.get()
@@ -1506,6 +1509,45 @@ function M.open_vsplit(root_path)
   end
   vim.cmd("split")
   M.open({ dir = root_path, kind = "replace", _new_instance = true })
+end
+
+---Reopen the current float explorer in the target window using replace layout.
+---@param explorer eda.Explorer
+function M.open_replace(explorer)
+  if not explorer or M._current ~= explorer then
+    vim.notify("eda: cannot reopen stale explorer", vim.log.levels.WARN)
+    return
+  end
+  if explorer.window.kind ~= "float" then
+    vim.notify("eda: open_replace is only available from float windows", vim.log.levels.WARN)
+    return
+  end
+  if vim.bo[explorer.buffer.bufnr].modified then
+    vim.notify("eda: save or discard changes before reopening in replace mode", vim.log.levels.WARN)
+    return
+  end
+
+  local root_path = explorer.root_path
+  local target_win = explorer.window:get_target_winid()
+  if not root_path or target_win == nil then
+    vim.notify("eda: no target window available for replace mode", vim.log.levels.WARN)
+    return
+  end
+  ---@cast target_win integer
+  if not util.is_valid_win(target_win) then
+    vim.notify("eda: no target window available for replace mode", vim.log.levels.WARN)
+    return
+  end
+
+  M.close()
+  if util.is_valid_win(target_win) then
+    vim.api.nvim_set_current_win(target_win)
+  end
+
+  local ok, err = pcall(M.open, { dir = root_path, kind = "replace", _focus_existing = false })
+  if not ok then
+    vim.notify("eda: failed to reopen in replace mode: " .. tostring(err), vim.log.levels.ERROR)
+  end
 end
 
 return M

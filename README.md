@@ -326,6 +326,7 @@ require("eda").setup({
     ["gp"] = "paste",                -- Paste from register
     ["g?"] = "help",                 -- Show keymap help
     ["ga"] = "actions",              -- Open action picker
+    ["!"] = "open_replace",          -- Reopen float explorer in replace mode
     ["<C-f>"] = "preview_scroll_down", -- Scroll preview down (half page)
     ["<C-b>"] = "preview_scroll_up",   -- Scroll preview up (half page)
     ["<C-w>v"] = "split",            -- Open split pane
@@ -421,6 +422,7 @@ Target resolution is unified across `delete` / `cut` / `copy` / `duplicate`: **V
 | `help` | Show keybinding help in a floating window |
 | `split` | Open the explorer in a new vertical split with the same root |
 | `vsplit` | Open the explorer in a new horizontal split with the same root |
+| `open_replace` | Reopen a float explorer in the previous window using replace layout |
 | `actions` | Open an action picker listing every registered action |
 
 ### Defining Custom Actions
