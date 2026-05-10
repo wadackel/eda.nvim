@@ -142,6 +142,7 @@ require("eda").setup({
     ["gp"] = "paste",
     ["g?"] = "help",
     ["ga"] = "actions",
+    ["!"] = "open_replace",
     ["<C-f>"] = "preview_scroll_down",
     ["<C-b>"] = "preview_scroll_up",
     ["<C-w>v"] = "split",
@@ -687,6 +688,7 @@ configuration option.
 | `gq`    | quickfix           | Send target nodes to quickfix (Visual > marks > cursor) |
 | `g?`    | help               | Show help                     |
 | `ga`    | actions            | Open action picker            |
+| `!`     | open_replace       | Reopen float in replace mode  |
 | `<C-f>` | preview_scroll_down| Scroll preview down (half page) |
 | `<C-b>` | preview_scroll_up  | Scroll preview up (half page)   |
 | `<C-w>v`| split              | Open explorer in vertical split |
@@ -824,6 +826,11 @@ success (partial failures keep the marks for the failed/unattempted entries).
   Default mapping: `<C-w>v`
 - **vsplit** — Open a new explorer in a horizontal split pane with the same root.
   Default mapping: `<C-w>s`
+- **open_replace** — Reopen a float explorer in the previous window using the
+  `replace` layout. This is useful when you start in a temporary float and want
+  to switch into buffer-native editing for more involved file operations. The
+  action refuses to run if the explorer buffer has unsaved edits.
+  Default mapping: `!`
 - **actions** — Open an action picker via `vim.ui.select` showing all
   registered actions with descriptions.
 
