@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/wadackel/eda.nvim/compare/v1.2.0...v1.3.0) (2026-05-10)
+
+
+### Features
+
+* reopen float explorer in replace mode ([#33](https://github.com/wadackel/eda.nvim/issues/33)) ([f59b9f5](https://github.com/wadackel/eda.nvim/commit/f59b9f55217a4055840071908310b1aa6c616e2e))
+
 ## [1.2.0](https://github.com/wadackel/eda.nvim/compare/v1.1.0...v1.2.0) (2026-04-25)
 
 
