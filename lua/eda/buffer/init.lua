@@ -8,6 +8,7 @@ local util = require("eda.util")
 ---@field config eda.Config
 ---@field flat_lines eda.FlatLine[]
 ---@field target_node_id integer?
+---@field focus_node_id integer?
 ---@field _augroup integer
 ---@field _write_handler fun()?
 local Buffer = {}
@@ -52,6 +53,7 @@ function Buffer.new(root_path, config, instance_id)
     config = config,
     flat_lines = {},
     target_node_id = nil,
+    focus_node_id = nil,
     _augroup = vim.api.nvim_create_augroup("eda_buffer_" .. bufnr, { clear = true }),
     _write_handler = nil,
   }, Buffer)
@@ -126,21 +128,36 @@ function Buffer:save_cursor(winid)
   end
 end
 
----Restore cursor to target_node_id position.
+---Restore cursor to the navigation target.
+---`focus_node_id` (set by external navigation events that jump to a possibly-far
+---node) wins over `target_node_id` (set by save_cursor for in-place preserve).
+---When `focus_node_id` is the source, the viewport is centered with `zz` so the
+---target line lands at the middle of the window instead of the edge — Neovim's
+---auto-center on large jumps clamps near EOF and pushes the cursor to the
+---bottom, which is the symptom this branch fixes.
 function Buffer:restore_cursor()
-  if not self.target_node_id then
+  local node_id = self.focus_node_id or self.target_node_id
+  if not node_id then
     return
   end
+  local should_center = self.focus_node_id ~= nil
   local header_lines = self.painter.header_lines or 0
   for i, fl in ipairs(self.flat_lines) do
-    if fl.node_id == self.target_node_id then
-      -- Find the window displaying this buffer
+    if fl.node_id == node_id then
       local target_row = i + header_lines
       for _, win in ipairs(vim.api.nvim_list_wins()) do
         if vim.api.nvim_win_get_buf(win) == self.bufnr then
+          if not vim.api.nvim_win_is_valid(win) then
+            return
+          end
           local line_count = vim.api.nvim_buf_line_count(self.bufnr)
           if target_row <= line_count then
             vim.api.nvim_win_set_cursor(win, { target_row, 0 })
+            if should_center then
+              vim.api.nvim_win_call(win, function()
+                vim.cmd("normal! zz")
+              end)
+            end
           end
           return
         end

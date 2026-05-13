@@ -203,6 +203,79 @@ T["save_cursor and restore_cursor preserve position by node ID"] = function()
   buf:destroy()
 end
 
+---Build a Buffer with `count` flat children under a unique root, plus a tall
+---window suitable for observing scroll position. The unique root avoids E95
+---(buffer name collision) when a prior test fails before its `buf:destroy()`
+---runs. Returns buf, winid, and a list of node IDs in flat-line order.
+local _scroll_fixture_seq = 0
+local function setup_scroll_fixture(count)
+  config.setup()
+  _scroll_fixture_seq = _scroll_fixture_seq + 1
+  local root_path = "/scroll_fixture_" .. _scroll_fixture_seq
+  local store = Store.new()
+  local root = store:set_root(root_path)
+  local node_ids = {}
+  for i = 1, count do
+    local name = string.format("f%03d.lua", i)
+    node_ids[i] = store:add({ name = name, path = root_path .. "/" .. name, type = "file", parent_id = root })
+  end
+  store:get(root).children_state = "loaded"
+
+  local cfg = config.get()
+  cfg.header = false
+  local buf = Buffer.new(root_path, cfg)
+  buf:render(store)
+
+  local winid =
+    vim.api.nvim_open_win(buf.bufnr, true, { relative = "editor", width = 40, height = 10, row = 0, col = 0 })
+
+  -- Deterministic viewport math: disable scrolloff on THIS window only so cursor
+  -- lands exactly on the last visible line when scrolled minimally. Window-local
+  -- avoids leaking the option into subsequent tests sharing the nvim process.
+  vim.wo[winid].scrolloff = 0
+
+  return buf, winid, node_ids, store
+end
+
+-- Both tests target the last row of an 80-line buffer in a 10-line window.
+-- Neovim's auto-center on a big jump clamps near EOF (viewport pinned to buffer
+-- end → cursor at viewport bottom). Explicit `zz` allows tildes past EOL → true
+-- center. The distinction shows up in `line("w0", winid)`:
+--   - centered (zz):  topline = cursor - 4 = 76 (cursor at viewport row 5)
+--   - preserve only:  topline = 80 - 9 = 71 (cursor at viewport row 10 = bottom)
+T["restore_cursor centers viewport when focus_node_id is set"] = function()
+  local buf, winid, node_ids, store = setup_scroll_fixture(80)
+  local target_row = 80
+  local target_id = node_ids[target_row]
+
+  buf.focus_node_id = target_id
+  buf:render(store)
+
+  local cursor = vim.api.nvim_win_get_cursor(winid)
+  MiniTest.expect.equality(cursor[1], target_row)
+  MiniTest.expect.equality(vim.fn.line("w0", winid), target_row - 4)
+
+  vim.api.nvim_win_close(winid, true)
+  buf:destroy()
+end
+
+T["restore_cursor does not center when only target_node_id is set"] = function()
+  local buf, winid, node_ids, store = setup_scroll_fixture(80)
+  local target_row = 80
+  local target_id = node_ids[target_row]
+
+  buf.target_node_id = target_id
+  buf:render(store)
+
+  local cursor = vim.api.nvim_win_get_cursor(winid)
+  MiniTest.expect.equality(cursor[1], target_row)
+  -- Auto-center clamps near EOF → cursor at viewport bottom (line 10), topline = 71.
+  MiniTest.expect.equality(vim.fn.line("w0", winid), target_row - 9)
+
+  vim.api.nvim_win_close(winid, true)
+  buf:destroy()
+end
+
 T["get_cursor_node returns correct node"] = function()
   config.setup()
   local store = Store.new()
