@@ -567,7 +567,7 @@ function M.open(opts)
     if explorer._render_gen == explorer._last_painted_gen then
       return
     end
-    if not buf.target_node_id then
+    if not (buf.target_node_id or buf.focus_node_id) then
       buf:save_cursor(win.winid)
     end
     local git_status = git.get_cached(rp)
@@ -601,6 +601,7 @@ function M.open(opts)
         explorer._incremental_hint = nil
         explorer._empty_state_rendered = true
         buf.target_node_id = nil
+        buf.focus_node_id = nil
         -- Sync float title on this early-return path so toggling `gs` during
         -- loading still updates the indicator instead of waiting for the next
         -- full render.
@@ -696,6 +697,7 @@ function M.open(opts)
     end
     buf:restore_cursor()
     buf.target_node_id = nil
+    buf.focus_node_id = nil
     explorer._last_painted_gen = explorer._render_gen
     if k == "float" then
       refresh_float_title(explorer)
@@ -898,7 +900,7 @@ function M.open(opts)
       if target_path then
         local node = store:get_by_path(target_path)
         if node then
-          buffer.target_node_id = node.id
+          buffer.focus_node_id = node.id
         else
           -- Fallback: resolve real path through symlink nodes
           local resolved = store:resolve_symlink_path(target_path)
@@ -910,7 +912,7 @@ function M.open(opts)
                 end
                 local resolved_node = store:get_by_path(resolved)
                 if resolved_node then
-                  buffer.target_node_id = resolved_node.id
+                  buffer.focus_node_id = resolved_node.id
                 end
                 mark_render_dirty()
                 schedule_render()
@@ -945,7 +947,7 @@ function M.open(opts)
             if not target_path and cached.cursor_path then
               local cursor_node = store:get_by_path(cached.cursor_path)
               if cursor_node then
-                buffer.target_node_id = cursor_node.id
+                buffer.focus_node_id = cursor_node.id
               end
             end
             mark_render_dirty()
@@ -1432,7 +1434,7 @@ function M.navigate(path)
       end
       local node = explorer.store:get_by_path(path)
       if node then
-        explorer.buffer.target_node_id = node.id
+        explorer.buffer.focus_node_id = node.id
       end
       if explorer._refresh_for_navigation then
         explorer._refresh_for_navigation()
