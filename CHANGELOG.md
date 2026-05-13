@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/wadackel/eda.nvim/compare/v1.3.0...v1.4.0) (2026-05-13)
+
+
+### Features
+
+* center viewport on float explorer reopen ([#35](https://github.com/wadackel/eda.nvim/issues/35)) ([935bd0f](https://github.com/wadackel/eda.nvim/commit/935bd0f24fdc8d5a6fe964291f92ea6a04dedee5))
+
 ## [1.3.0](https://github.com/wadackel/eda.nvim/compare/v1.2.0...v1.3.0) (2026-05-10)
 
 
