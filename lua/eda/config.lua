@@ -242,6 +242,7 @@ local defaults = {
     ["yp"] = "yank_path",
     ["yP"] = "yank_path_absolute",
     ["yn"] = "yank_name",
+    ["yt"] = "yank_tree",
     ["<C-l>"] = "refresh",
     ["<C-h>"] = "collapse_node",
     ["g."] = "toggle_hidden",

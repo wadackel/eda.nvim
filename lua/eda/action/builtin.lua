@@ -1076,6 +1076,26 @@ action.register("copy", function(ctx)
   vim.notify("Copied " .. #paths .. " item(s)")
 end, { desc = "Copy target nodes (Visual > marks > cursor)" })
 
+action.register("yank_tree", function(ctx)
+  local ascii = require("eda.tree.ascii")
+  local target = get_target_nodes(ctx)
+  if #target.nodes == 0 then
+    vim.notify("yank_tree: no nodes selected", vim.log.levels.WARN)
+    return
+  end
+  local rendered = ascii.render(target.nodes, ctx.explorer.root_path)
+  vim.fn.setreg("+", rendered)
+  if #target.nodes == 1 then
+    vim.notify("Yanked: " .. rendered)
+  else
+    vim.notify("Yanked tree (" .. #target.nodes .. " item(s))")
+  end
+  if target.origin == "marks" then
+    clear_marks(ctx.store)
+    refresh(ctx)
+  end
+end, { desc = "Yank selected nodes as ASCII tree (Visual > marks > cursor)" })
+
 action.register("quickfix", function(ctx)
   local target = get_target_nodes(ctx)
   if #target.nodes == 0 then

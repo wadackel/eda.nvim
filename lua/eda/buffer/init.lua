@@ -259,6 +259,7 @@ local visual_mode_actions = {
   copy = true,
   quickfix = true,
   mark_toggle = true,
+  yank_tree = true,
 }
 
 ---Set keymaps on the buffer.
