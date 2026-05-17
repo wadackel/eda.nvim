@@ -124,6 +124,7 @@ require("eda").setup({
     ["yp"] = "yank_path",
     ["yP"] = "yank_path_absolute",
     ["yn"] = "yank_name",
+    ["yt"] = "yank_tree",
     ["<C-l>"] = "refresh",
     ["<C-h>"] = "collapse_node",
     ["g."] = "toggle_hidden",
@@ -668,6 +669,7 @@ configuration option.
 | `yp`    | yank_path          | Yank relative path            |
 | `yP`    | yank_path_absolute | Yank absolute path            |
 | `yn`    | yank_name          | Yank filename                 |
+| `yt`    | yank_tree          | Yank selected nodes as ASCII tree (Visual > marks > cursor) |
 | `<C-l>` | refresh            | Refresh explorer              |
 | `<C-h>` | collapse_node      | Collapse or move to parent    |
 | `g.`    | toggle_hidden      | Toggle hidden files           |
@@ -731,6 +733,7 @@ previously visited root restores its prior expansion.
 - **yank_path** — Yank the relative path to the system clipboard.
 - **yank_path_absolute** — Yank the absolute path to the system clipboard.
 - **yank_name** — Yank the filename to the system clipboard.
+- **yank_tree** — Yank the selected node set as an ASCII tree (Visual > marks > cursor) for pasting into PR descriptions. Uses Box Drawing characters compatible with GitHub-flavored Markdown code blocks. When a single node is selected, copies the relative path without tree glyphs.
 
 ### File Operations
 

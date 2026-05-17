@@ -275,4 +275,9 @@ function Store:next_generation()
   return self.generation
 end
 
+---Natural sort comparator key.
+---Exposed so other modules (e.g. `eda.tree.ascii`) can share the same name ordering
+---as the explorer's visible children sort, avoiding drift between rendered views.
+Store.natural_sort_key = natural_sort_key
+
 return Store

@@ -862,4 +862,129 @@ T["mark_clear_all: no-op (no refresh) when no marks exist"] = function()
   MiniTest.expect.equality(ctx._render_called(), false)
 end
 
+-- ===============================================================
+-- yank_tree tests
+-- ===============================================================
+
+--- Capture vim.fn.setreg + vim.notify calls and return a teardown function.
+---@return { reg_calls: { reg: string, val: string }[], notify_calls: { msg: string, level: integer? }[] }, fun()
+local function capture_yank_io()
+  local captures = { reg_calls = {}, notify_calls = {} }
+  local orig_setreg = vim.fn.setreg
+  local orig_notify = vim.notify
+  vim.fn.setreg = function(reg, val)
+    table.insert(captures.reg_calls, { reg = reg, val = val })
+  end
+  vim.notify = function(msg, level)
+    table.insert(captures.notify_calls, { msg = msg, level = level })
+  end
+  return captures, function()
+    vim.fn.setreg = orig_setreg
+    vim.notify = orig_notify
+  end
+end
+
+T["yank_tree: action is registered"] = function()
+  -- RED-marker: pinpoints the failure reason when the action is missing.
+  MiniTest.expect.equality(type(action.get("yank_tree")), "function")
+end
+
+T["yank_tree: cursor single node yanks relative path verbatim"] = function()
+  local ctx = make_target_ctx(3) -- file_a at /project/dir_a/file_a.lua
+  local captures, teardown = capture_yank_io()
+  action.dispatch("yank_tree", ctx)
+  teardown()
+
+  MiniTest.expect.equality(#captures.reg_calls, 1)
+  MiniTest.expect.equality(captures.reg_calls[1].reg, "+")
+  MiniTest.expect.equality(captures.reg_calls[1].val, "dir_a/file_a.lua")
+  MiniTest.expect.equality(#captures.notify_calls, 1)
+  MiniTest.expect.equality(captures.notify_calls[1].msg, "Yanked: dir_a/file_a.lua")
+end
+
+T["yank_tree: marks render ASCII tree and notify pluralised"] = function()
+  local ctx, store = make_target_ctx(nil)
+  -- Mark file_a (/project/dir_a/file_a.lua) and file_c (/project/file_c.lua)
+  store:get(3)._marked = true
+  store:get(7)._marked = true
+  local captures, teardown = capture_yank_io()
+  action.dispatch("yank_tree", ctx)
+  teardown()
+
+  MiniTest.expect.equality(#captures.reg_calls, 1)
+  MiniTest.expect.equality(captures.reg_calls[1].reg, "+")
+  local expected_tree = table.concat({
+    "./",
+    "├── dir_a/",
+    "│   └── file_a.lua",
+    "└── file_c.lua",
+  }, "\n")
+  MiniTest.expect.equality(captures.reg_calls[1].val, expected_tree)
+  MiniTest.expect.equality(#captures.notify_calls, 1)
+  MiniTest.expect.equality(captures.notify_calls[1].msg, "Yanked tree (2 item(s))")
+end
+
+T["yank_tree: visual range renders ASCII tree"] = function()
+  local ctx = make_target_ctx(nil)
+  local captures, teardown = capture_yank_io()
+  -- Visual lines 2..4: file_a (id=3), sub_dir (id=4), file_b (id=5)
+  with_visual_range("V", 2, 4, function()
+    action.dispatch("yank_tree", ctx)
+  end)
+  teardown()
+
+  MiniTest.expect.equality(#captures.reg_calls, 1)
+  MiniTest.expect.equality(captures.reg_calls[1].reg, "+")
+  -- Common ancestor is dir_a/; sub_dir is explicit AND parent of file_b (collapsed once).
+  local expected_tree = table.concat({
+    "dir_a/",
+    "├── sub_dir/",
+    "│   └── file_b.lua",
+    "└── file_a.lua",
+  }, "\n")
+  MiniTest.expect.equality(captures.reg_calls[1].val, expected_tree)
+  MiniTest.expect.equality(captures.notify_calls[1].msg, "Yanked tree (3 item(s))")
+end
+
+T["yank_tree: empty selection emits WARN notify and skips setreg"] = function()
+  -- No cursor, no marks → target is empty.
+  local ctx = make_target_ctx(nil)
+  local captures, teardown = capture_yank_io()
+  action.dispatch("yank_tree", ctx)
+  teardown()
+
+  MiniTest.expect.equality(#captures.reg_calls, 0)
+  MiniTest.expect.equality(#captures.notify_calls, 1)
+  MiniTest.expect.equality(captures.notify_calls[1].msg, "yank_tree: no nodes selected")
+  MiniTest.expect.equality(captures.notify_calls[1].level, vim.log.levels.WARN)
+end
+
+T["yank_tree: origin=marks clears _marked on yanked nodes"] = function()
+  local ctx, store = make_target_ctx(nil)
+  store:get(3)._marked = true
+  store:get(7)._marked = true
+  local _, teardown = capture_yank_io()
+  action.dispatch("yank_tree", ctx)
+  teardown()
+
+  MiniTest.expect.equality(store:get(3)._marked, nil)
+  MiniTest.expect.equality(store:get(7)._marked, nil)
+end
+
+-- (Cursor + pre-existing marks is structurally impossible: the resolver promotes
+-- marks over cursor whenever both are present. The visual-vs-marks case below is
+-- the only observable scenario where clear_marks must NOT fire.)
+
+T["yank_tree: origin=visual leaves marks intact"] = function()
+  local ctx, store = make_target_ctx(nil)
+  store:get(7)._marked = true -- marked node OUTSIDE the visual range
+  local _, teardown = capture_yank_io()
+  with_visual_range("V", 2, 3, function()
+    action.dispatch("yank_tree", ctx)
+  end)
+  teardown()
+
+  MiniTest.expect.equality(store:get(7)._marked, true)
+end
+
 return T
