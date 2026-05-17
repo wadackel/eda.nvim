@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.5.0](https://github.com/wadackel/eda.nvim/compare/v1.4.0...v1.5.0) (2026-05-17)
+
+
+### Features
+
+* add yank_tree action to copy selected nodes as ASCII tree ([#37](https://github.com/wadackel/eda.nvim/issues/37)) ([3746cbf](https://github.com/wadackel/eda.nvim/commit/3746cbfe5054c3126de5bf0ddd596891c71de496))
+
 ## [1.4.0](https://github.com/wadackel/eda.nvim/compare/v1.3.0...v1.4.0) (2026-05-13)
 
 
