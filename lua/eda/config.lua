@@ -45,6 +45,7 @@ local M = {}
 ---@field inspect eda.InspectConfig
 ---@field mark eda.MarkConfig
 ---@field quickfix eda.QuickfixConfig
+---@field open_in_browser eda.OpenInBrowserConfig
 ---@field header eda.HeaderConfig|false
 ---@field expand_depth integer
 ---@field update_focused_file eda.UpdateFocusedFileConfig
@@ -111,6 +112,21 @@ local M = {}
 
 ---@class eda.QuickfixConfig
 ---@field auto_open boolean
+
+---@class eda.OpenInBrowserCtx
+---@field node eda.TreeNode
+---@field relative_path string
+---@field ref string
+---@field ref_kind "branch"|"sha"|"default_branch"
+---@field remote_url string
+---@field host string
+---@field owner string
+---@field repo string
+---@field kind "blob"|"tree"
+
+---@class eda.OpenInBrowserConfig
+---@field ref "branch"|"sha"|"default_branch"
+---@field url_builder? fun(ctx: eda.OpenInBrowserCtx): string?
 
 ---@alias eda.HeaderPosition "left" | "center" | "right"
 
@@ -219,6 +235,11 @@ local defaults = {
     auto_open = true,
   },
 
+  open_in_browser = {
+    ref = "branch",
+    url_builder = nil,
+  },
+
   header = {
     format = "short",
     position = "left",
@@ -254,6 +275,7 @@ local defaults = {
     ["M"] = "mark_clear_all",
     ["D"] = "delete",
     ["go"] = "system_open",
+    ["gO"] = "open_in_browser",
     ["K"] = "debug",
     ["<leader>i"] = "inspect",
     ["gd"] = "duplicate",

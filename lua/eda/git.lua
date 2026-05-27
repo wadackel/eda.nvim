@@ -110,6 +110,13 @@ local function find_git_root(root)
   return git_root
 end
 
+---Public alias for find_git_root.
+---@param root string
+---@return string?
+function M.find_git_root(root)
+  return find_git_root(root)
+end
+
 ---Get git status for a directory asynchronously.
 ---@param root string Root directory path
 ---@param cb fun(status: table<string, string>?)

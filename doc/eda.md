@@ -101,6 +101,11 @@ require("eda").setup({
     icon = "󰄲",        -- nf-md-checkbox_marked (U+F0132)
   },
 
+  open_in_browser = {
+    ref = "branch",
+    url_builder = nil,
+  },
+
   header = {
     format = "short",
     position = "left",
@@ -135,6 +140,7 @@ require("eda").setup({
     ["m"] = "mark_toggle",
     ["D"] = "delete",
     ["go"] = "system_open",
+    ["gO"] = "open_in_browser",
     ["K"] = "debug",
     ["<leader>i"] = "inspect",
     ["gd"] = "duplicate",
@@ -517,6 +523,48 @@ detection do not apply to directory previews.
 To remove the default `gq` mapping entirely, set
 `mappings = { ["gq"] = false }`.
 
+### open_in_browser
+
+`table`
+
+Configuration for the `open_in_browser` action that opens the selected node on
+the remote repository host (GitHub.com / GitHub Enterprise).
+
+- `ref` `"branch"|"sha"|"default_branch"` (default: `"branch"`)
+  Which git ref to embed in the URL. `branch` uses the current branch and its
+  remote tracking name; on detached HEAD or when no upstream is configured it
+  falls back to the SHA, then to the default branch. `sha` always builds a
+  permalink to the current HEAD (best for sharing). `default_branch` resolves
+  via `origin/HEAD`, falling back to `origin/main` then `origin/master`.
+
+- `url_builder` `function?` (default: `nil`)
+  Custom URL composer. Signature: `fun(ctx: OpenInBrowserCtx): string?`.
+  Return a string to use it as the URL, or `nil` to let the built-in GitHub
+  composer handle it. The built-in only knows GitHub-style URLs
+  (`/blob/<ref>/<path>` and `/tree/<ref>/<path>`); for GitLab, Bitbucket, or
+  other hosts, supply this builder. The `ctx` table is a stable contract with
+  the following keys:
+  - `node` — the `eda.TreeNode` being opened.
+  - `relative_path` — path relative to the **git repository root** (empty for the
+    repository root itself). When eda is opened in a subdirectory of the repo,
+    this still starts from the git root so the resulting URL matches the remote
+    layout.
+  - `ref` — the resolved ref string (branch name, SHA, or default branch).
+  - `ref_kind` — `"branch"|"sha"|"default_branch"`.
+  - `remote_url` — the raw `origin` remote URL.
+  - `host`, `owner`, `repo` — parsed components of `remote_url`.
+  - `kind` — `"blob"` for files, `"tree"` for directories.
+
+The current node's git status gates the action: untracked / added (staged) /
+gitignored files are blocked with a notification, since the URL would 404.
+
+`git remote.origin.url.insteadOf` and SSH config Host aliases are not resolved
+automatically — set `url_builder` if your remote URL needs translation before
+parsing.
+
+To remove the default `gO` mapping entirely, set
+`mappings = { ["gO"] = false }`.
+
 ### header
 
 `table|false`
@@ -681,6 +729,7 @@ configuration option.
 | `M`     | mark_clear_all     | Clear all marks               |
 | `D`     | delete             | Delete target nodes (Visual > marks > cursor) |
 | `go`    | system_open        | Open with system default app  |
+| `gO`    | open_in_browser    | Open on the remote repository host (GitHub/GHE) |
 | `K`     | debug              | Print node data for debugging |
 | `<leader>i` | inspect        | Show node stat in a floating window |
 | `gd`    | duplicate          | Duplicate target nodes (Visual > marks > cursor) |
@@ -809,6 +858,15 @@ success (partial failures keep the marks for the failed/unattempted entries).
 - **close** — Close the explorer window.
 - **system_open** — Open the file with the system default application
   (`open` on macOS, `xdg-open` on Linux).
+- **open_in_browser** — Open the selected node on the remote repository host
+  (GitHub.com or GitHub Enterprise). Single target only; multiple-selection
+  via Visual or marks is rejected. Blocks files whose git status is
+  untracked / added / ignored (would 404 on the remote). Ref resolution falls
+  back through branch → SHA → default branch. The buffer-local mapping `gO`
+  overrides Neovim's built-in `gO` (table of contents) inside `eda` buffers
+  and is the network counterpart to `go` / `system_open`. Customize via the
+  `open_in_browser` config (see `### open_in_browser`).
+  Default mapping: `gO`
 - **debug** — Print the node data to the console (developer API).
   Default mapping: `K`
 - **inspect** — Show node stat (size, permissions, timestamps, symlink

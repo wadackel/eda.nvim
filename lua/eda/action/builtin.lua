@@ -1096,6 +1096,94 @@ action.register("yank_tree", function(ctx)
   end
 end, { desc = "Yank selected nodes as ASCII tree (Visual > marks > cursor)" })
 
+action.register("open_in_browser", function(ctx)
+  local git_url = require("eda.git_url")
+  local target = get_target_nodes(ctx)
+  if #target.nodes == 0 then
+    return
+  end
+  if #target.nodes > 1 then
+    vim.notify(git_url.MSG.multi_target, vim.log.levels.ERROR)
+    return
+  end
+
+  local node = target.nodes[1]
+  local root = ctx.explorer.root_path
+
+  local git_root = git.find_git_root(root)
+  if not git_root then
+    vim.notify(git_url.MSG.no_repo, vim.log.levels.ERROR)
+    return
+  end
+
+  if ctx.config.git and ctx.config.git.enabled then
+    local ready = git.get_status_ready(root)
+    if ready == "loading" then
+      vim.notify(git_url.MSG.loading, vim.log.levels.WARN)
+      return
+    end
+    if ready == "no_repo" then
+      vim.notify(git_url.MSG.no_repo, vim.log.levels.ERROR)
+      return
+    end
+    local statuses = git.get_cached(root) or {}
+    local status = statuses[node.path]
+    if status == "?" then
+      vim.notify(git_url.MSG.untracked, vim.log.levels.ERROR)
+      return
+    elseif status == "A" then
+      vim.notify(git_url.MSG.added, vim.log.levels.ERROR)
+      return
+    elseif status == "!" then
+      vim.notify(git_url.MSG.ignored, vim.log.levels.ERROR)
+      return
+    end
+  end
+
+  -- URL paths are relative to git_root, not the eda explorer root: when eda
+  -- opens a subdirectory of a repo, the remote tree still starts at git_root.
+  local relative_path
+  if node.path == git_root then
+    relative_path = ""
+  else
+    relative_path = node.path:sub(#git_root + 2)
+  end
+
+  local node_type = node.type == "directory" and "tree" or "blob"
+
+  local remote_url = git_url.resolve_remote_url(git_root)
+  if not remote_url then
+    vim.notify(git_url.MSG.no_remote, vim.log.levels.ERROR)
+    return
+  end
+
+  local parsed = git_url.parse_remote(remote_url)
+  if not parsed then
+    vim.notify(git_url.MSG.unparseable_remote, vim.log.levels.ERROR)
+    return
+  end
+
+  local ref_info = git_url.resolve_ref(git_root, ctx.config.open_in_browser.ref)
+  if not ref_info then
+    vim.notify(git_url.MSG.no_resolvable_ref, vim.log.levels.ERROR)
+    return
+  end
+
+  local ctx_table = {
+    node = node,
+    relative_path = relative_path,
+    ref = ref_info.ref,
+    ref_kind = ref_info.ref_kind,
+    remote_url = remote_url,
+    host = parsed.host,
+    owner = parsed.owner,
+    repo = parsed.repo,
+    kind = node_type,
+  }
+  local url = git_url.build_url(ctx_table, ctx.config.open_in_browser)
+  vim.ui.open(url)
+end, { desc = "Open the selected node on the remote repository host (GitHub/GHE)" })
+
 action.register("quickfix", function(ctx)
   local target = get_target_nodes(ctx)
   if #target.nodes == 0 then
