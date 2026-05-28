@@ -1,5 +1,17 @@
 # Changelog
 
+## [1.6.0](https://github.com/wadackel/eda.nvim/compare/v1.5.0...v1.6.0) (2026-05-28)
+
+
+### Features
+
+* add open_in_browser action for GitHub/GHE ([#44](https://github.com/wadackel/eda.nvim/issues/44)) ([a2330b8](https://github.com/wadackel/eda.nvim/commit/a2330b8690eea05e1cb31239847939c6d1498c6b))
+
+
+### Bug Fixes
+
+* **dir_size:** use monotonic clock for cache TTL ([#45](https://github.com/wadackel/eda.nvim/issues/45)) ([6d73fc7](https://github.com/wadackel/eda.nvim/commit/6d73fc7a3c806f9530e8f3bcf4c2ece6f7166d94))
+
 ## [1.5.0](https://github.com/wadackel/eda.nvim/compare/v1.4.0...v1.5.0) (2026-05-17)
 
 
