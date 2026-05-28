@@ -14,7 +14,7 @@ local M = {}
 
 ---@class eda.DirSizeEntry
 ---@field bytes integer
----@field computed_at_ms integer
+---@field computed_at_ms number
 
 local _defaults = { cache_ttl_ms = 30000 }
 local _config = vim.deepcopy(_defaults)
@@ -59,7 +59,7 @@ function M._start_walk(path)
       return
     end
     if not root_errored then
-      _cache[path] = { bytes = state.bytes, computed_at_ms = vim.uv.now() }
+      _cache[path] = { bytes = state.bytes, computed_at_ms = vim.uv.hrtime() / 1e6 }
     end
     _active[path] = nil
   end
@@ -135,7 +135,7 @@ end
 ---@return { state: "cached"|"computing", bytes: integer? }
 function M.ensure(path)
   local c = _cache[path]
-  if c and (vim.uv.now() - c.computed_at_ms) < _config.cache_ttl_ms then
+  if c and (vim.uv.hrtime() / 1e6 - c.computed_at_ms) < _config.cache_ttl_ms then
     return { state = "cached", bytes = c.bytes }
   end
   if _active[path] then
