@@ -278,6 +278,14 @@ require("eda").setup({
     icon = "󰄲", -- nf-md-checkbox_marked (U+F0132)
   },
 
+  -- Open nodes on the remote repository host via `gO`
+  open_in_browser = {
+    -- Ref used in generated URLs: "branch", "sha", or "default_branch"
+    ref = "branch",
+    -- Optional custom URL builder: fun(ctx): string?
+    url_builder = nil,
+  },
+
   -- Header displayed above the tree (set to false to disable entirely)
   header = {
     -- Format: "short", or fun(root_path): string|false
@@ -318,6 +326,7 @@ require("eda").setup({
     ["M"] = "mark_clear_all",        -- Clear all marks
     ["D"] = "delete",                -- Delete target nodes (Visual > marks > cursor)
     ["go"] = "system_open",          -- Open with system application
+    ["gO"] = "open_in_browser",      -- Open on the remote repository host
     ["K"] = "debug",                 -- Print node data for debugging
     ["<leader>i"] = "inspect",       -- Show node stat in a floating window
     ["gd"] = "duplicate",            -- Duplicate target nodes (Visual > marks > cursor)
@@ -417,6 +426,7 @@ Target resolution is unified across `delete` / `cut` / `copy` / `duplicate`: **V
 | `refresh` | Rescan the filesystem and re-render the tree |
 | `close` | Close the explorer window |
 | `system_open` | Open the file with the system default application |
+| `open_in_browser` | Open on the remote repository host (GitHub/GHE) |
 | `debug` | Print node data to the console (developer API) |
 | `inspect` | Show node stat (size, permissions, timestamps, etc.) in a floating window |
 | `help` | Show keybinding help in a floating window |
