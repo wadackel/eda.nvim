@@ -52,8 +52,9 @@ local function geometry(winid, dims)
   return {
     row = math.max(1, pos[1] + border.top + offset[1] + 1),
     col = math.max(1, pos[2] + border.left + offset[2] + 1),
-    width = fit.axis == "width" and fit.width or nil,
-    height = fit.axis == "height" and fit.height or nil,
+    width = fit.width,
+    height = fit.height,
+    crop = fit.crop,
   }
 end
 

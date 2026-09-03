@@ -349,34 +349,78 @@ function M.border_size(border)
   return { top = 0, left = 0 }
 end
 
+---@class eda.image.Crop source rectangle in image pixels
+---@field x integer
+---@field y integer
+---@field width integer
+---@field height integer
+
 ---@class eda.image.Fit
 ---@field width integer cells
 ---@field height integer cells
----@field axis "width"|"height" the dimension that limits the placement
+---@field crop eda.image.Crop part of the image that matches the cell box's aspect ratio
 
----Cells needed to show an image inside a window without upscaling. Only the
----binding axis should be sent to the terminal: rounding both axes to whole cells
----distorts the aspect ratio (cells are tall), whereas the terminal derives the
----other axis from the image's real proportions.
+---@param n number
+---@return integer
+local function round(n)
+  return math.floor(n + 0.5)
+end
+
+---Cell box and source crop that show an image inside a window. Both axes are
+---always decided here: WezTerm fills an omitted axis from the image's pixel size
+---instead of deriving it from the given one, so a large image would spill out of
+---the window. A whole-cell box never matches the image aspect exactly, and the
+---terminal stretches the image to the box; the crop absorbs that mismatch by
+---trimming a sliver of the image instead. Images smaller than a cell are scaled
+---up to one.
 ---@param image eda.image.Size pixels
 ---@param cell eda.image.Size pixels per cell
 ---@param window eda.image.Size cells
 ---@return eda.image.Fit
 function M.fit_cells(image, cell, window)
-  local cols = image.width / cell.width
-  local rows = image.height / cell.height
-  local by_width, by_height = window.width / cols, window.height / rows
-  local scale = math.min(1, by_width, by_height)
-  local function cells(n, max)
-    return math.max(1, math.min(max, math.floor(n * scale + 0.5)))
+  local cols, rows = image.width / cell.width, image.height / cell.height
+  local scale = math.min(1, window.width / cols, window.height / rows)
+  local exact = { cols * scale, rows * scale }
+  local limit, px, img = { window.width, window.height }, { cell.width, cell.height }, { image.width, image.height }
+  -- s: the axis with fewer cells, l: the other one
+  local s, l = 1, 2
+  if exact[2] < exact[1] then
+    s, l = 2, 1
   end
-  return {
-    width = cells(cols, window.width),
-    height = cells(rows, window.height),
-    -- Unscaled images use the width: cells are narrower than tall, so rounding the
-    -- column count loses less size than rounding the row count.
-    axis = (scale < 1 and by_height < by_width) and "height" or "width",
-  }
+
+  -- Rounding the short axis to `n` cells and deriving the long axis from it puts
+  -- the aspect error on the long axis, where a cell is a smaller fraction. The
+  -- error is absorbed as cropped pixels, or as a smaller box when the derived
+  -- axis would overflow the window.
+  local function candidate(n)
+    local box = {}
+    box[s] = math.min(limit[s], n)
+    box[l] = math.max(1, math.min(limit[l], round(box[s] * exact[l] / exact[s])))
+    local box_px = { box[1] * px[1], box[2] * px[2] }
+    local crop = { x = 0, y = 0, width = img[1], height = img[2] }
+    if img[1] * box_px[2] > img[2] * box_px[1] then
+      crop.width = math.max(1, math.min(img[1], round(img[2] * box_px[1] / box_px[2])))
+      crop.x = math.floor((img[1] - crop.width) / 2)
+    else
+      crop.height = math.max(1, math.min(img[2], round(img[1] * box_px[2] / box_px[1])))
+      crop.y = math.floor((img[2] - crop.height) / 2)
+    end
+    local crop_loss = 1 - (crop.width * crop.height) / (img[1] * img[2])
+    local size_loss = 1 - math.min(1, box[s] / exact[s], box[l] / exact[l])
+    return { width = box[1], height = box[2], crop = crop }, math.max(crop_loss, size_loss)
+  end
+
+  -- Flooring the short axis can halve a banner that spans 1.9 rows, while ceiling
+  -- it can crop a tall image by several percent; whichever hurts less wins.
+  local lo, hi = math.floor(exact[s]), math.ceil(exact[s])
+  local best, harm = candidate(math.max(1, lo))
+  if hi ~= lo and lo >= 1 then
+    local alt, alt_harm = candidate(hi)
+    if alt_harm < harm then
+      best = alt
+    end
+  end
+  return best
 end
 
 return M

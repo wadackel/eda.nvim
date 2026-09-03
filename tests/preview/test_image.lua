@@ -59,6 +59,10 @@ local function restore_terminal()
     saved.to_png = nil
   end
   saved.pending_detect = nil
+  if saved.screen then
+    vim.o.columns, vim.o.lines = saved.screen[1], saved.screen[2]
+    saved.screen = nil
+  end
   kitty._reset()
 end
 
@@ -168,6 +172,9 @@ end
 
 T["Preview"]["supported terminal transmits and places the image inside the preview border"] = function()
   stub_terminal({ offset = { 1, 96 } })
+  -- The headless default of 80x24 leaves the preview split too small for the fake PNG
+  saved.screen = { vim.o.columns, vim.o.lines }
+  vim.o.columns, vim.o.lines = 120, 40
   local p, env = setup_preview()
   p:show(env.png)
   helpers.wait_for(1000, function()
@@ -179,18 +186,18 @@ T["Preview"]["supported terminal transmits and places the image inside the previ
   local expected_col = pos[2] + 1 + 96 + 1
   local place = find("a=p")
   MiniTest.expect.equality(place:find(string.format("\27[%d;%dH", expected_row, expected_col), 1, true) ~= nil, true)
-  -- 400x300 px at 10x20 px cells is 40x15 cells; only the binding axis is sent so the
-  -- terminal derives the other one from the image's own aspect ratio
+  -- 400x300 px at 10x20 px cells is 40x15 cells, which the screen set above fits
+  -- without scaling, so both axes and the whole image as the crop are sent
   local win_w, win_h = vim.api.nvim_win_get_width(p.winid), vim.api.nvim_win_get_height(p.winid)
-  if win_w >= 40 and win_h >= 15 then
-    local has_c, has_r = place:find("c=", 1, true) ~= nil, place:find("r=", 1, true) ~= nil
-    MiniTest.expect.equality(has_c ~= has_r, true)
-    if win_w / 40 <= win_h / 15 then
-      MiniTest.expect.equality(place:find("c=40", 1, true) ~= nil, true)
-    else
-      MiniTest.expect.equality(place:find("r=15", 1, true) ~= nil, true)
-    end
+  MiniTest.expect.equality(win_w >= 40 and win_h >= 15, true, string.format("preview is %dx%d", win_w, win_h))
+  local keys = {}
+  for key, value in place:match("\27_G([^;\27]*)"):gmatch("(%w+)=([^,]*)") do
+    keys[key] = value
   end
+  MiniTest.expect.equality(
+    { c = keys.c, r = keys.r, x = keys.x, y = keys.y, w = keys.w, h = keys.h },
+    { c = "40", r = "15", x = "0", y = "0", w = "400", h = "300" }
+  )
   MiniTest.expect.equality(buf_lines(p), { "" })
   teardown_preview(p, env)
 end
