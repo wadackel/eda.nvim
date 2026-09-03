@@ -92,10 +92,15 @@ local M = {}
 ---@class eda.IndentConfig
 ---@field width integer
 
+---@class eda.PreviewImageConfig
+---@field enabled boolean
+---@field max_file_size integer
+
 ---@class eda.PreviewConfig
 ---@field enabled boolean
 ---@field debounce integer
 ---@field max_file_size integer|fun(path: string): integer
+---@field image eda.PreviewImageConfig
 
 ---@class eda.FullNameConfig
 ---@field enabled boolean
@@ -212,6 +217,10 @@ local defaults = {
     enabled = false,
     debounce = 100,
     max_file_size = 1024 * 100,
+    image = {
+      enabled = true,
+      max_file_size = 10 * 1024 * 1024,
+    },
   },
 
   full_name = {

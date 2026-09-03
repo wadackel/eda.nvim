@@ -231,6 +231,22 @@ T["setup"]["inspect.dir_size merges user override"] = function()
   MiniTest.expect.equality(c.inspect.dir_size.cache_ttl_ms, 5000)
 end
 
+T["setup"]["preview.image has defaults"] = function()
+  config.setup()
+  local c = config.get()
+  MiniTest.expect.equality(type(c.preview.image), "table")
+  MiniTest.expect.equality(c.preview.image.enabled, true)
+  MiniTest.expect.equality(c.preview.image.max_file_size, 10 * 1024 * 1024)
+end
+
+T["setup"]["preview.image merges a partial override"] = function()
+  config.setup({ preview = { image = { enabled = false } } })
+  local c = config.get()
+  MiniTest.expect.equality(c.preview.image.enabled, false)
+  MiniTest.expect.equality(c.preview.image.max_file_size, 10 * 1024 * 1024) -- default preserved
+  MiniTest.expect.equality(c.preview.max_file_size, 1024 * 100) -- sibling untouched
+end
+
 T["setup"]["inspect.dir_size can be disabled"] = function()
   config.setup({ inspect = { dir_size = { enabled = false } } })
   local c = config.get()
