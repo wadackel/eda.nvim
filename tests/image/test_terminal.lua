@@ -132,6 +132,34 @@ T["write"]["falls back to io.write and flushes when nvim_ui_send is unavailable"
   MiniTest.expect.equality(flushed, true)
 end
 
+T["detect"] = MiniTest.new_set()
+
+T["detect"]["enables tmux passthrough before querying the terminal"] = function()
+  terminal._reset()
+  local saved =
+    { uis = vim.api.nvim_list_uis, system = vim.fn.system, is_tmux = terminal.is_tmux, writer = terminal.writer }
+  local order = {}
+  vim.api.nvim_list_uis = function()
+    return { {} }
+  end
+  vim.fn.system = function(cmd)
+    order[#order + 1] = table.concat(cmd, " ")
+    return ""
+  end
+  terminal.is_tmux = function()
+    return true
+  end
+  terminal.writer = function(data)
+    order[#order + 1] = data
+  end
+  terminal.detect(function() end)
+  vim.api.nvim_list_uis, vim.fn.system, terminal.is_tmux, terminal.writer =
+    saved.uis, saved.system, saved.is_tmux, saved.writer
+  terminal._reset()
+  MiniTest.expect.equality(order[1], "tmux set -p allow-passthrough all")
+  MiniTest.expect.equality(order[2] ~= nil and order[2]:find("\27[>q", 1, true) ~= nil, true)
+end
+
 T["autocmds"] = MiniTest.new_set()
 
 T["autocmds"]["VimResized handler is registered on first cell_size call, not on require"] = function()

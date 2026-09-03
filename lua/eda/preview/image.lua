@@ -156,7 +156,7 @@ end
 ---bring them back when it closes, whichever code path closes it.
 ---@param winid integer
 function M.hide_for_window(winid)
-  if not vim.api.nvim_win_is_valid(winid) then
+  if next(entries) == nil or not vim.api.nvim_win_is_valid(winid) then
     return
   end
   ensure_autocmds()

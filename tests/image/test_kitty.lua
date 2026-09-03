@@ -143,8 +143,12 @@ T["kitty"]["del(math.huge) clears everything"] = function()
   MiniTest.expect.equality(kitty.del(math.huge), true)
   MiniTest.expect.equality(kitty.get(a), nil)
   MiniTest.expect.equality(kitty.get(b), nil)
-  MiniTest.expect.equality(#captured, 1)
-  MiniTest.expect.equality(captured[1]:find("a=d", 1, true) ~= nil, true)
+  -- one d=I per image: a global d=A would also wipe other clients sharing the terminal
+  MiniTest.expect.equality(#captured, 2)
+  for _, chunk in ipairs(captured) do
+    MiniTest.expect.equality(chunk:find("d=I", 1, true) ~= nil, true)
+  end
+  MiniTest.expect.equality(find("d=A"), nil)
   MiniTest.expect.equality(kitty.del(math.huge), false)
 end
 

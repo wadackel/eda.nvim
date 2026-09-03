@@ -16,8 +16,9 @@ local CHUNK_SIZE = 4096
 ---@field image_id integer
 ---@field opts eda.image.PlacementOpts
 
--- Random base keeps ids from colliding with other clients sharing the terminal.
-local next_id = math.random(1000, 900000)
+-- The pid keeps ids from colliding with other Neovim instances sharing the
+-- terminal; math.random alone is seeded identically in every LuaJIT process.
+local next_id = 1000 + (vim.uv.os_getpid() * 977) % 900000
 local state = {} ---@type table<integer, eda.image.Placement>
 -- Several callers may hide the image independently (focus loss, a dialog on top);
 -- it comes back only when every reason has been released.
@@ -140,8 +141,13 @@ function M.del(id)
     if next(state) == nil then
       return false
     end
+    -- Delete per image rather than `d=A`: the latter would also wipe images that
+    -- other clients sharing this terminal window (tmux panes) have placed.
+    local all = state
     state = {}
-    terminal.write(command({ a = "d", d = "A", q = 2 }))
+    for _, entry in pairs(all) do
+      terminal.write(command({ a = "d", d = "I", i = entry.image_id, q = 2 }))
+    end
     return true
   end
   local entry = state[id]

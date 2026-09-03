@@ -173,9 +173,15 @@ function M.detect(cb)
       return true
     end,
   })
-  timer:start(1000, 0, function()
-    done(nil)
-  end)
+  timer:start(
+    1000,
+    0,
+    vim.schedule_wrap(function()
+      done(nil)
+    end)
+  )
+  -- The query itself travels through the passthrough, so it must be enabled first
+  M.ensure_passthrough()
   M.write("\27[>q")
 end
 
@@ -284,6 +290,7 @@ function M._reset()
   passthrough_enabled = false
   autocmds_registered = false
   pcall(vim.api.nvim_del_augroup_by_name, "eda_image_terminal")
+  pcall(vim.api.nvim_del_augroup_by_name, "eda_image_detect")
 end
 
 ---@class eda.image.BorderSize

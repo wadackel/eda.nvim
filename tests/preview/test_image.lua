@@ -59,7 +59,7 @@ local function restore_terminal()
     saved.to_png = nil
   end
   saved.pending_detect = nil
-  kitty.del(math.huge)
+  kitty._reset()
 end
 
 local function find(pattern)
@@ -373,6 +373,16 @@ T["Preview"]["hide_for_window hides the image while the window is open"] = funct
   MiniTest.expect.equality(find("a=p"), nil)
   vim.api.nvim_win_close(dialog, true)
   teardown_preview(p, env)
+end
+
+T["Preview"]["hide_for_window without an image registers nothing"] = function()
+  stub_terminal()
+  image._reset()
+  local dialog = open_dialog()
+  image.hide_for_window(dialog)
+  MiniTest.expect.equality(pcall(vim.api.nvim_get_autocmds, { group = "eda_image_preview" }), false)
+  MiniTest.expect.equality(#captured, 0)
+  vim.api.nvim_win_close(dialog, true)
 end
 
 T["Preview"]["closing the window shows the image again"] = function()
