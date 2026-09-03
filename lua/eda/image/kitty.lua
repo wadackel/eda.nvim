@@ -9,8 +9,9 @@ local CHUNK_SIZE = 4096
 ---@class eda.image.PlacementOpts
 ---@field row integer 1-indexed screen row
 ---@field col integer 1-indexed screen column
----@field width? integer cells; when only one of width/height is given the terminal keeps the aspect ratio
+---@field width? integer cells; send both axes, WezTerm fills an omitted one from the image's pixel size
 ---@field height? integer cells
+---@field crop? eda.image.Crop source rectangle; absent means the whole image
 
 ---@class eda.image.Placement
 ---@field image_id integer
@@ -63,12 +64,11 @@ end
 ---@param entry eda.image.Placement
 local function place(id, entry)
   local o = entry.opts
-  terminal.write(
-    "\0277"
-      .. string.format("\27[%d;%dH", o.row, o.col)
-      .. command({ a = "p", i = entry.image_id, p = id, C = 1, c = o.width, r = o.height, q = 2 })
-      .. "\0278"
-  )
+  local control = { a = "p", i = entry.image_id, p = id, C = 1, c = o.width, r = o.height, q = 2 }
+  if o.crop then
+    control.x, control.y, control.w, control.h = o.crop.x, o.crop.y, o.crop.width, o.crop.height
+  end
+  terminal.write("\0277" .. string.format("\27[%d;%dH", o.row, o.col) .. command(control) .. "\0278")
 end
 
 ---@param id integer
@@ -119,13 +119,7 @@ function M.update(id, opts)
   if not is_hidden() then
     unplace(id, entry)
   end
-  local merged = vim.tbl_extend("force", entry.opts, opts)
-  -- width/height form one unit: a caller that sends a single axis relies on the
-  -- terminal deriving the other, so a stale value from the previous call must not survive
-  if opts.width ~= nil or opts.height ~= nil then
-    merged.width, merged.height = opts.width, opts.height
-  end
-  entry.opts = merged
+  entry.opts = vim.tbl_extend("force", entry.opts, opts)
   if not is_hidden() then
     place(id, entry)
   end

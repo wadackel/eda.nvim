@@ -65,25 +65,44 @@ T["kitty"]["set transmits base64 chunks then places at the given cell"] = functi
   MiniTest.expect.equality(#captured, 3)
 end
 
-T["kitty"]["placement with only one axis leaves the other to the terminal"] = function()
-  kitty.set("png", { row = 1, col = 1, width = 12 })
-  local place = captured[#captured]
-  MiniTest.expect.equality(place:find("c=12", 1, true) ~= nil, true)
-  MiniTest.expect.equality(place:find("r=", 1, true), nil)
-  kitty.set("png", { row = 1, col = 1, height = 7 })
-  place = captured[#captured]
-  MiniTest.expect.equality(place:find("r=7", 1, true) ~= nil, true)
-  MiniTest.expect.equality(place:find("c=", 1, true), nil)
+-- Control keys of the placement command in `chunk`, as a key -> value table
+local function placement_keys(chunk)
+  local keys = {}
+  for key, value in chunk:match("\27_G([^;\27]*)"):gmatch("(%w+)=([^,]*)") do
+    keys[key] = value
+  end
+  return keys
 end
 
-T["kitty"]["update with one axis replaces the size pair instead of merging"] = function()
-  local id = kitty.set("png", { row = 1, col = 1, width = 12 })
+T["kitty"]["placement with a crop sends the source rectangle"] = function()
+  kitty.set("png", { row = 1, col = 1, width = 10, height = 5, crop = { x = 2, y = 0, width = 196, height = 200 } })
+  local keys = placement_keys(captured[#captured])
+  MiniTest.expect.equality(keys.c, "10")
+  MiniTest.expect.equality(keys.r, "5")
+  MiniTest.expect.equality(keys.x, "2")
+  MiniTest.expect.equality(keys.y, "0")
+  MiniTest.expect.equality(keys.w, "196")
+  MiniTest.expect.equality(keys.h, "200")
+end
+
+T["kitty"]["placement without a crop sends no source rectangle"] = function()
+  kitty.set("png", { row = 1, col = 1, width = 10, height = 5 })
+  local keys = placement_keys(captured[#captured])
+  MiniTest.expect.equality(keys.c, "10")
+  MiniTest.expect.equality(keys.r, "5")
+  MiniTest.expect.equality(keys.x, nil)
+  MiniTest.expect.equality(keys.w, nil)
+end
+
+T["kitty"]["update keeps the size and crop when only the position changes"] = function()
+  local crop = { x = 0, y = 4, width = 300, height = 291 }
+  local id = kitty.set("png", { row = 1, col = 1, width = 12, height = 7, crop = crop })
   captured = {}
-  kitty.update(id, { row = 2, col = 2, height = 7 })
-  local place = captured[#captured]
-  MiniTest.expect.equality(place:find("r=7", 1, true) ~= nil, true)
-  MiniTest.expect.equality(place:find("c=", 1, true), nil)
-  MiniTest.expect.equality(kitty.get(id), { row = 2, col = 2, height = 7 })
+  kitty.update(id, { row = 2, col = 2 })
+  local keys = placement_keys(captured[#captured])
+  MiniTest.expect.equality(keys.c, "12")
+  MiniTest.expect.equality(keys.h, "291")
+  MiniTest.expect.equality(kitty.get(id), { row = 2, col = 2, width = 12, height = 7, crop = crop })
 end
 
 T["kitty"]["get returns a copy of the placement opts"] = function()
