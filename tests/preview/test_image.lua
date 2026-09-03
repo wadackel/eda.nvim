@@ -255,4 +255,63 @@ T["Preview"]["non-PNG without ImageMagick shows a hint"] = function()
   teardown_preview(p, env)
 end
 
+T["Preview"]["large PNG without ImageMagick shows a downscale hint"] = function()
+  stub_terminal()
+  local saved_executable = vim.fn.executable
+  vim.fn.executable = function()
+    return 0
+  end
+  local p, env = setup_preview()
+  local big = env.dir .. "/big.png"
+  helpers.create_file(big, "\137PNG\r\n\26\n" .. u32(13) .. "IHDR" .. u32(4000) .. u32(100) .. "\8\6\0\0\0")
+  p:show(big)
+  helpers.wait_for(1000, function()
+    return p.winid ~= nil and buf_lines(p)[1] == "Image: big.png"
+  end)
+  vim.fn.executable = saved_executable
+  MiniTest.expect.equality(
+    vim.tbl_contains(
+      buf_lines(p),
+      "Image is larger than 2048px on its longest side; install ImageMagick (magick) to downscale it."
+    ),
+    true
+  )
+  MiniTest.expect.equality(find("a=p"), nil)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["focus autocmds are registered on first render, not on require"] = function()
+  stub_terminal()
+  image._reset()
+  MiniTest.expect.equality(pcall(vim.api.nvim_get_autocmds, { group = "eda_image_preview" }), false)
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  local ok, autocmds = pcall(vim.api.nvim_get_autocmds, { group = "eda_image_preview" })
+  MiniTest.expect.equality(ok and #autocmds > 0, true)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["reposition forgets a placement the terminal no longer knows"] = function()
+  stub_terminal()
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  local saved_update = kitty.update
+  local calls = 0
+  kitty.update = function()
+    calls = calls + 1
+    return false
+  end
+  p:reposition()
+  p:reposition()
+  kitty.update = saved_update
+  MiniTest.expect.equality(calls, 1)
+  teardown_preview(p, env)
+end
+
 return T

@@ -5,26 +5,17 @@ local convert = require("eda.image.convert")
 
 local M = {}
 
-local EXTENSIONS = {
-  png = true,
-  jpg = true,
-  jpeg = true,
-  gif = true,
-  webp = true,
-  bmp = true,
-}
-
 ---@class eda.image.PreviewEntry
 ---@field id integer kitty placement id
 ---@field dims eda.image.Size image pixels
 
 local entries = {} ---@type table<integer, eda.image.PreviewEntry> keyed by bufnr
+local autocmds_registered = false
 
 ---@param path string
 ---@return boolean
 function M.is_image(path)
-  local ext = path:match("[^/]%.([%w]+)$")
-  return ext ~= nil and EXTENSIONS[ext:lower()] == true
+  return convert.supports(path)
 end
 
 ---@param bufnr integer
@@ -74,6 +65,28 @@ local function read_file(path)
   return data
 end
 
+-- Cursor-positioned images are unknown to tmux, so they would linger over other
+-- panes; drop them while Neovim is unfocused and bring them back afterwards.
+local function ensure_autocmds()
+  if autocmds_registered then
+    return
+  end
+  autocmds_registered = true
+  local group = vim.api.nvim_create_augroup("eda_image_preview", { clear = true })
+  vim.api.nvim_create_autocmd("FocusLost", {
+    group = group,
+    callback = function()
+      kitty.hide_all("focus")
+    end,
+  })
+  vim.api.nvim_create_autocmd("FocusGained", {
+    group = group,
+    callback = function()
+      kitty.show_all("focus")
+    end,
+  })
+end
+
 ---Render `path` into the preview window showing `bufnr`. `is_current` is re-checked
 ---after every asynchronous step so a slow detection or conversion never paints over
 ---a newer target.
@@ -82,6 +95,7 @@ end
 ---@param path string
 ---@param is_current fun(): boolean
 function M.render(bufnr, winid, path, is_current)
+  ensure_autocmds()
   local function alive()
     return is_current() and vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_is_valid(winid)
   end
@@ -132,23 +146,16 @@ function M.reposition(bufnr, winid)
   if not entry or not vim.api.nvim_win_is_valid(winid) then
     return
   end
-  kitty.update(entry.id, geometry(winid, entry.dims))
+  if not kitty.update(entry.id, geometry(winid, entry.dims)) then
+    entries[bufnr] = nil
+  end
 end
 
--- Cursor-positioned images are unknown to tmux, so they would linger over other
--- panes; drop them while Neovim is unfocused and bring them back afterwards.
-local group = vim.api.nvim_create_augroup("eda_image_preview", { clear = true })
-vim.api.nvim_create_autocmd("FocusLost", {
-  group = group,
-  callback = function()
-    kitty.hide_all()
-  end,
-})
-vim.api.nvim_create_autocmd("FocusGained", {
-  group = group,
-  callback = function()
-    kitty.show_all()
-  end,
-})
+---Forget every tracked placement and registered autocmd. Test seam.
+function M._reset()
+  entries = {}
+  autocmds_registered = false
+  pcall(vim.api.nvim_del_augroup_by_name, "eda_image_preview")
+end
 
 return M
