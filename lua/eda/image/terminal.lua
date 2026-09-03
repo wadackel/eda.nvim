@@ -95,8 +95,10 @@ local function classify(name)
   return nil
 end
 
+---Terminal kind suggested by environment variables, or nil. Only trustworthy
+---outside tmux, where the variables belong to the terminal Neovim runs in.
 ---@return string?
-local function env_hint()
+function M.env_hint()
   if vim.env.KITTY_WINDOW_ID or (vim.env.TERM or ""):find("kitty", 1, true) then
     return "kitty"
   end
@@ -112,6 +114,13 @@ end
 local detected ---@type eda.image.Terminal?
 local pending ---@type fun(term: eda.image.Terminal)[]?
 local detect_timer ---@type uv.uv_timer_t?
+
+M.detect_timeout_ms = 1000
+
+-- Kitty graphics capability query: a 1x1 RGB probe that any implementation must
+-- answer with `ESC _ G i=31;OK ESC \`. Unlike XTVERSION it does not depend on the
+-- terminal's name, so unknown terminals that speak the protocol are recognized.
+local KITTY_QUERY = "\27_Gi=31,s=1,v=1,a=q,t=d,f=24;AAAA\27\\"
 
 ---Detect whether the terminal can display Kitty graphics. The callback may run
 ---synchronously when the answer is already known.
@@ -139,17 +148,19 @@ function M.detect(cb)
     return finish({ supported = false, name = "headless" })
   end
 
-  local hint = env_hint()
-  if not M.is_tmux() then
-    return finish({ supported = hint ~= nil, name = hint or "unknown" })
+  local hint = M.env_hint()
+  -- Outside tmux the environment belongs to this terminal, so a hint settles it;
+  -- inside tmux it describes whichever client started the server and only serves
+  -- as the fallback when the terminal does not answer.
+  if hint and not M.is_tmux() then
+    return finish({ supported = true, name = hint })
   end
 
-  -- Inside tmux the environment describes whichever client started the server, so
-  -- ask the terminal for its identity (XTVERSION) instead of trusting env vars.
   local timer = assert(vim.uv.new_timer())
   detect_timer = timer
   local autocmd_id
-  local function done(name)
+  local reported_name ---@type string?
+  local function done(term)
     if not timer:is_closing() then
       timer:stop()
       timer:close()
@@ -159,9 +170,8 @@ function M.detect(cb)
       pcall(vim.api.nvim_del_autocmd, autocmd_id)
       autocmd_id = nil
     end
-    local kind = name and classify(name) or hint
     vim.schedule(function()
-      finish({ supported = kind ~= nil, name = kind or name or "unknown" })
+      finish(term)
     end)
   end
 
@@ -169,24 +179,37 @@ function M.detect(cb)
     group = vim.api.nvim_create_augroup("eda_image_detect", { clear = true }),
     callback = function(ev)
       local seq = type(ev.data) == "table" and ev.data.sequence or ev.data
-      local name = type(seq) == "string" and seq:match("P>|(%S+)") or nil
-      if not name then
+      if type(seq) ~= "string" then
         return
       end
-      done(name)
-      return true
+      local name = seq:match("P>|(%S+)")
+      if name then
+        name = name:gsub("%c", "")
+        local kind = classify(name)
+        if kind then
+          done({ supported = true, name = kind })
+          return true
+        end
+        -- Unknown name: the capability query decides
+        reported_name = name
+        return
+      end
+      if seq:match("_G[^;]*i=31[^;]*;OK") then
+        done({ supported = true, name = reported_name or "kitty-graphics" })
+        return true
+      end
     end,
   })
   timer:start(
-    1000,
+    M.detect_timeout_ms,
     0,
     vim.schedule_wrap(function()
-      done(nil)
+      done({ supported = hint ~= nil, name = hint or reported_name or "unknown" })
     end)
   )
-  -- The query itself travels through the passthrough, so it must be enabled first
+  -- The probes travel through the passthrough, so it must be enabled first
   M.ensure_passthrough()
-  M.write("\27[>q")
+  M.write("\27[>q" .. KITTY_QUERY)
 end
 
 ---Parse `tmux display-message` output into a {row, col} screen offset for the pane.

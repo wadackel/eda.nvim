@@ -499,10 +499,14 @@ Known limitations of image preview:
   notifications, or popups overlapping the preview area are covered by it.
 - Inside tmux, an image stays on screen when you switch to another pane unless
   tmux has `focus-events on`, which lets eda hide it on `FocusLost`.
-- Inside tmux, the terminal is identified through an XTVERSION query. With
-  `extended-keys on` the response does not reach Neovim; eda then falls back to
-  environment variables, and a terminal it cannot identify is treated as
-  unsupported for the rest of the session.
+- Support is detected by asking the terminal directly: eda sends the Kitty
+  graphics capability query (and an XTVERSION query as a fast path for kitty,
+  Ghostty, and WezTerm) and waits up to one second for an answer, so any
+  terminal that implements the protocol works, including over SSH. Outside
+  tmux, environment variables of the known terminals settle the answer
+  without a query. Inside tmux with `extended-keys on` the responses do not
+  reach Neovim; eda then falls back to environment variables, and a terminal
+  it cannot identify is treated as unsupported for the rest of the session.
 - When the terminal does not report its cell size in pixels, eda assumes 9x18
   and the image may appear smaller than the pane allows.
 

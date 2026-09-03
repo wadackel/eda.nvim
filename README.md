@@ -65,7 +65,7 @@ Explore as a tree, edit as a buffer — a file explorer for Neovim that combines
 - Neovim >= 0.11
 - [git](https://git-scm.com/) (optional, for git status integration)
 - [mini.icons](https://github.com/echasnovski/mini.icons) or [nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons) (optional, for file icons)
-- A terminal that implements the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) — kitty, Ghostty, or WezTerm (optional, for image preview)
+- A terminal that implements the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) (optional, for image preview; verified with kitty, Ghostty, and WezTerm, detected through the protocol's own capability query so other implementations work too)
 - [ImageMagick](https://imagemagick.org/) `magick` (optional, for previewing image formats other than PNG and for downscaling large PNGs)
 
 ## Installation

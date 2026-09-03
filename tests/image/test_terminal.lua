@@ -136,7 +136,18 @@ T["write"]["falls back to io.write and flushes when nvim_ui_send is unavailable"
   MiniTest.expect.equality(flushed, true)
 end
 
-T["detect"] = MiniTest.new_set()
+local detect_restore
+
+T["detect"] = MiniTest.new_set({
+  hooks = {
+    post_case = function()
+      if detect_restore then
+        detect_restore()
+        detect_restore = nil
+      end
+    end,
+  },
+})
 
 T["detect"]["enables tmux passthrough before querying the terminal"] = function()
   terminal._reset()
@@ -162,6 +173,135 @@ T["detect"]["enables tmux passthrough before querying the terminal"] = function(
   terminal._reset()
   MiniTest.expect.equality(order[1], "tmux set -p allow-passthrough on")
   MiniTest.expect.equality(order[2] ~= nil and order[2]:find("\27[>q", 1, true) ~= nil, true)
+end
+
+local function stub_detect_env(opts)
+  local saved = {
+    uis = vim.api.nvim_list_uis,
+    system = vim.fn.system,
+    is_tmux = terminal.is_tmux,
+    writer = terminal.writer,
+    env_hint = terminal.env_hint,
+    timeout = terminal.detect_timeout_ms,
+  }
+  terminal._reset()
+  vim.api.nvim_list_uis = function()
+    return { {} }
+  end
+  vim.fn.system = function()
+    return ""
+  end
+  terminal.is_tmux = function()
+    return opts.tmux == true
+  end
+  terminal.env_hint = function()
+    return opts.hint
+  end
+  terminal.detect_timeout_ms = opts.timeout or 1000
+  local writes = {}
+  terminal.writer = function(data)
+    writes[#writes + 1] = data
+  end
+  detect_restore = function()
+    vim.api.nvim_list_uis = saved.uis
+    vim.fn.system = saved.system
+    terminal.is_tmux = saved.is_tmux
+    terminal.writer = saved.writer
+    terminal.env_hint = saved.env_hint
+    terminal.detect_timeout_ms = saved.timeout
+    terminal._reset()
+  end
+  return writes, detect_restore
+end
+
+local function respond(sequence)
+  vim.api.nvim_exec_autocmds("TermResponse", { data = { sequence = sequence } })
+end
+
+local KITTY_OK = "\27_Gi=31;OK\27\\"
+
+T["detect"]["probes the terminal with XTVERSION and the graphics query in one write outside tmux"] = function()
+  local writes, restore = stub_detect_env({ tmux = false, hint = nil })
+  terminal.detect(function() end)
+  restore()
+  MiniTest.expect.equality(#writes, 1)
+  MiniTest.expect.equality(writes[1]:find("\27[>q", 1, true) ~= nil, true)
+  MiniTest.expect.equality(writes[1]:find("\27_G", 1, true) ~= nil, true)
+  MiniTest.expect.equality(writes[1]:find("a=q", 1, true) ~= nil, true)
+  MiniTest.expect.equality(writes[1]:find("i=31", 1, true) ~= nil, true)
+end
+
+T["detect"]["a graphics query OK marks the terminal supported for the session"] = function()
+  local _, restore = stub_detect_env({ tmux = false, hint = nil })
+  local results = {}
+  terminal.detect(function(term)
+    results[#results + 1] = term
+  end)
+  respond(KITTY_OK)
+  vim.wait(200, function()
+    return #results == 1
+  end, 10)
+  terminal.detect(function(term)
+    results[#results + 1] = term
+  end)
+  restore()
+  MiniTest.expect.equality(results[1], { supported = true, name = "kitty-graphics" })
+  MiniTest.expect.equality(results[2], { supported = true, name = "kitty-graphics" })
+end
+
+T["detect"]["an unknown XTVERSION name waits for the graphics query; a known name settles immediately"] = function()
+  local _, restore = stub_detect_env({ tmux = true, hint = nil })
+  local results = {}
+  terminal.detect(function(term)
+    results[#results + 1] = term
+  end)
+  respond("\27P>|limenty 1.0\27\\")
+  vim.wait(100, function()
+    return #results == 1
+  end, 10)
+  MiniTest.expect.equality(#results, 0)
+  respond(KITTY_OK)
+  vim.wait(200, function()
+    return #results == 1
+  end, 10)
+  MiniTest.expect.equality(results[1], { supported = true, name = "limenty" })
+  restore()
+
+  local _, restore2 = stub_detect_env({ tmux = true, hint = nil })
+  local known = {}
+  terminal.detect(function(term)
+    known[#known + 1] = term
+  end)
+  respond("\27P>|kitty 0.48.2\27\\")
+  vim.wait(200, function()
+    return #known == 1
+  end, 10)
+  restore2()
+  MiniTest.expect.equality(known[1], { supported = true, name = "kitty" })
+end
+
+T["detect"]["falls back to the environment hint when nothing answers"] = function()
+  local _, restore = stub_detect_env({ tmux = false, hint = nil, timeout = 50 })
+  local results = {}
+  terminal.detect(function(term)
+    results[#results + 1] = term
+  end)
+  vim.wait(1000, function()
+    return #results == 1
+  end, 10)
+  restore()
+  MiniTest.expect.equality(results[1], { supported = false, name = "unknown" })
+
+  local _, restore2 = stub_detect_env({ tmux = true, hint = "wezterm", timeout = 50 })
+  local hinted = {}
+  terminal.detect(function(term)
+    hinted[#hinted + 1] = term
+  end)
+  vim.wait(1000, function()
+    return #hinted == 1
+  end, 10)
+  restore2()
+  MiniTest.expect.equality(hinted[1], { supported = true, name = "wezterm" })
 end
 
 T["autocmds"] = MiniTest.new_set()
