@@ -310,21 +310,34 @@ function M.border_size(border)
   return { top = 0, left = 0 }
 end
 
----Cells needed to show an image inside a window without upscaling.
+---@class eda.image.Fit
+---@field width integer cells
+---@field height integer cells
+---@field axis "width"|"height" the dimension that limits the placement
+
+---Cells needed to show an image inside a window without upscaling. Only the
+---binding axis should be sent to the terminal: rounding both axes to whole cells
+---distorts the aspect ratio (cells are tall), whereas the terminal derives the
+---other axis from the image's real proportions.
 ---@param image eda.image.Size pixels
 ---@param cell eda.image.Size pixels per cell
 ---@param window eda.image.Size cells
----@return eda.image.Size cells
+---@return eda.image.Fit
 function M.fit_cells(image, cell, window)
   local cols = image.width / cell.width
   local rows = image.height / cell.height
-  local scale = math.min(1, window.width / cols, window.height / rows)
-  -- Terminals stretch the image to the c x r box regardless of aspect ratio, so
-  -- flooring both axes visibly squashes small images; round to the nearest cell instead.
+  local by_width, by_height = window.width / cols, window.height / rows
+  local scale = math.min(1, by_width, by_height)
   local function cells(n, max)
     return math.max(1, math.min(max, math.floor(n * scale + 0.5)))
   end
-  return { width = cells(cols, window.width), height = cells(rows, window.height) }
+  return {
+    width = cells(cols, window.width),
+    height = cells(rows, window.height),
+    -- Unscaled images use the width: cells are narrower than tall, so rounding the
+    -- column count loses less size than rounding the row count.
+    axis = (scale < 1 and by_height < by_width) and "height" or "width",
+  }
 end
 
 return M

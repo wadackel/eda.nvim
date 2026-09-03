@@ -42,15 +42,15 @@ local function geometry(winid, dims)
   local border = terminal.border_size(cfg.border)
   local pos = vim.api.nvim_win_get_position(winid)
   local offset = terminal.tmux_offset()
-  local cells = terminal.fit_cells(dims, terminal.cell_size(), {
+  local fit = terminal.fit_cells(dims, terminal.cell_size(), {
     width = vim.api.nvim_win_get_width(winid),
     height = vim.api.nvim_win_get_height(winid),
   })
   return {
     row = pos[1] + border.top + offset[1] + 1,
     col = pos[2] + border.left + offset[2] + 1,
-    width = cells.width,
-    height = cells.height,
+    width = fit.axis == "width" and fit.width or nil,
+    height = fit.axis == "height" and fit.height or nil,
   }
 end
 

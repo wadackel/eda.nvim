@@ -9,8 +9,8 @@ local CHUNK_SIZE = 4096
 ---@class eda.image.PlacementOpts
 ---@field row integer 1-indexed screen row
 ---@field col integer 1-indexed screen column
----@field width integer cells
----@field height integer cells
+---@field width? integer cells; when only one of width/height is given the terminal keeps the aspect ratio
+---@field height? integer cells
 
 ---@class eda.image.Placement
 ---@field image_id integer

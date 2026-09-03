@@ -65,6 +65,17 @@ T["kitty"]["set transmits base64 chunks then places at the given cell"] = functi
   MiniTest.expect.equality(#captured, 3)
 end
 
+T["kitty"]["placement with only one axis leaves the other to the terminal"] = function()
+  kitty.set("png", { row = 1, col = 1, width = 12 })
+  local place = captured[#captured]
+  MiniTest.expect.equality(place:find("c=12", 1, true) ~= nil, true)
+  MiniTest.expect.equality(place:find("r=", 1, true), nil)
+  kitty.set("png", { row = 1, col = 1, height = 7 })
+  place = captured[#captured]
+  MiniTest.expect.equality(place:find("r=7", 1, true) ~= nil, true)
+  MiniTest.expect.equality(place:find("c=", 1, true), nil)
+end
+
 T["kitty"]["get returns a copy of the placement opts"] = function()
   local id = kitty.set("png", { row = 1, col = 2, width = 3, height = 4 })
   MiniTest.expect.equality(kitty.get(id), { row = 1, col = 2, width = 3, height = 4 })

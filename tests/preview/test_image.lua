@@ -167,10 +167,17 @@ T["Preview"]["supported terminal transmits and places the image inside the previ
   local expected_col = pos[2] + 1 + 96 + 1
   local place = find("a=p")
   MiniTest.expect.equality(place:find(string.format("\27[%d;%dH", expected_row, expected_col), 1, true) ~= nil, true)
-  -- 400x300 px at 10x20 px cells is 40x15 cells, which fits any reasonable preview window
-  local win_w = vim.api.nvim_win_get_width(p.winid)
-  if win_w >= 40 then
-    MiniTest.expect.equality(place:find("c=40,", 1, true) ~= nil or place:find("c=40\27", 1, true) ~= nil, true)
+  -- 400x300 px at 10x20 px cells is 40x15 cells; only the binding axis is sent so the
+  -- terminal derives the other one from the image's own aspect ratio
+  local win_w, win_h = vim.api.nvim_win_get_width(p.winid), vim.api.nvim_win_get_height(p.winid)
+  if win_w >= 40 and win_h >= 15 then
+    local has_c, has_r = place:find("c=", 1, true) ~= nil, place:find("r=", 1, true) ~= nil
+    MiniTest.expect.equality(has_c ~= has_r, true)
+    if win_w / 40 <= win_h / 15 then
+      MiniTest.expect.equality(place:find("c=40", 1, true) ~= nil, true)
+    else
+      MiniTest.expect.equality(place:find("r=15", 1, true) ~= nil, true)
+    end
   end
   MiniTest.expect.equality(buf_lines(p), { "" })
   teardown_preview(p, env)

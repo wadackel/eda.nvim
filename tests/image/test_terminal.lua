@@ -51,7 +51,7 @@ T["fit"]["keeps natural size when the image fits"] = function()
     { width = 10, height = 20 },
     { width = 100, height = 50 }
   )
-  MiniTest.expect.equality(cells, { width = 40, height = 15 })
+  MiniTest.expect.equality(cells, { width = 40, height = 15, axis = "width" })
 end
 
 T["fit"]["scales down to the window preserving the aspect ratio"] = function()
@@ -60,7 +60,7 @@ T["fit"]["scales down to the window preserving the aspect ratio"] = function()
     { width = 10, height = 20 },
     { width = 100, height = 50 }
   )
-  MiniTest.expect.equality(cells, { width = 100, height = 38 })
+  MiniTest.expect.equality(cells, { width = 100, height = 38, axis = "width" })
 end
 
 T["fit"]["rounds to the nearest cell so small images keep their aspect ratio"] = function()
@@ -69,7 +69,16 @@ T["fit"]["rounds to the nearest cell so small images keep their aspect ratio"] =
     { width = 20.15, height = 41.1 },
     { width = 55, height = 26 }
   )
-  MiniTest.expect.equality(cells, { width = 10, height = 5 })
+  MiniTest.expect.equality(cells, { width = 10, height = 5, axis = "width" })
+end
+
+T["fit"]["reports the height as the binding axis for tall images"] = function()
+  local cells = terminal.fit_cells(
+    { width = 300, height = 4000 },
+    { width = 10, height = 20 },
+    { width = 100, height = 50 }
+  )
+  MiniTest.expect.equality(cells, { width = 8, height = 50, axis = "height" })
 end
 
 T["fit"]["never exceeds the window when rounding up"] = function()
@@ -78,12 +87,12 @@ T["fit"]["never exceeds the window when rounding up"] = function()
     { width = 10, height = 20 },
     { width = 100, height = 50 }
   )
-  MiniTest.expect.equality(cells, { width = 100, height = 5 })
+  MiniTest.expect.equality(cells, { width = 100, height = 5, axis = "width" })
 end
 
 T["fit"]["never returns less than one cell"] = function()
   local cells = terminal.fit_cells({ width = 2, height = 2 }, { width = 10, height = 20 }, { width = 100, height = 50 })
-  MiniTest.expect.equality(cells, { width = 1, height = 1 })
+  MiniTest.expect.equality(cells, { width = 1, height = 1, axis = "width" })
 end
 
 T["is_tmux"] = MiniTest.new_set()
