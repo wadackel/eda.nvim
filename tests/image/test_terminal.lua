@@ -49,54 +49,84 @@ end
 
 T["fit"] = MiniTest.new_set()
 
-T["fit"]["keeps natural size when the image fits"] = function()
-  local cells = terminal.fit_cells(
-    { width = 400, height = 300 },
-    { width = 10, height = 20 },
-    { width = 100, height = 50 }
-  )
-  MiniTest.expect.equality(cells, { width = 40, height = 15, axis = "width" })
+local function size(w, h)
+  return { width = w, height = h }
 end
 
-T["fit"]["scales down to the window preserving the aspect ratio"] = function()
-  local cells = terminal.fit_cells(
-    { width = 4000, height = 3000 },
-    { width = 10, height = 20 },
-    { width = 100, height = 50 }
-  )
-  MiniTest.expect.equality(cells, { width = 100, height = 38, axis = "width" })
+local function crop(x, y, w, h)
+  return { x = x, y = y, width = w, height = h }
 end
 
-T["fit"]["rounds to the nearest cell so small images keep their aspect ratio"] = function()
-  local cells = terminal.fit_cells(
-    { width = 200, height = 200 },
-    { width = 20.15, height = 41.1 },
-    { width = 55, height = 26 }
-  )
-  MiniTest.expect.equality(cells, { width = 10, height = 5, axis = "width" })
-end
+-- image, cell, window -> expected fit
+local fit_cases = {
+  ["keeps natural size when the image fits"] = {
+    size(400, 300),
+    size(10, 20),
+    size(100, 50),
+    { width = 40, height = 15, crop = crop(0, 0, 400, 300) },
+  },
+  ["scales down to the window and crops the aspect remainder"] = {
+    size(4000, 3000),
+    size(10, 20),
+    size(100, 50),
+    { width = 100, height = 38, crop = crop(26, 0, 3947, 3000) },
+  },
+  ["sends both axes for the WezTerm overflow case"] = {
+    size(2048, 1546),
+    size(15, 31),
+    size(121, 42),
+    { width = 115, height = 42, crop = crop(0, 0, 2048, 1546) },
+  },
+  ["rounds to whole cells even when the cell size is fractional"] = {
+    size(200, 200),
+    size(20.15, 41.1),
+    size(55, 26),
+    { width = 10, height = 5, crop = crop(2, 0, 196, 200) },
+  },
+  ["fills the window for tall images and crops rather than shrinking"] = {
+    size(300, 4000),
+    size(10, 20),
+    size(100, 50),
+    { width = 8, height = 50, crop = crop(0, 125, 300, 3750) },
+  },
+  ["keeps a banner at full width instead of collapsing it to one row"] = {
+    size(3278, 289),
+    size(15, 31),
+    size(46, 22),
+    { width = 46, height = 2, crop = crop(31, 0, 3216, 289) },
+  },
+  ["never exceeds the window when rounding up"] = {
+    size(995, 100),
+    size(10, 20),
+    size(100, 50),
+    { width = 100, height = 5, crop = crop(0, 0, 995, 100) },
+  },
+  ["upscales a sub-cell icon to a whole cell"] = {
+    size(16, 16),
+    size(15, 31),
+    size(100, 50),
+    { width = 2, height = 1, crop = crop(0, 0, 15, 16) },
+  },
+  ["never returns less than one cell"] = {
+    size(2, 2),
+    size(10, 20),
+    size(100, 50),
+    { width = 2, height = 1, crop = crop(0, 0, 2, 2) },
+  },
+}
 
-T["fit"]["reports the height as the binding axis for tall images"] = function()
-  local cells = terminal.fit_cells(
-    { width = 300, height = 4000 },
-    { width = 10, height = 20 },
-    { width = 100, height = 50 }
-  )
-  MiniTest.expect.equality(cells, { width = 8, height = 50, axis = "height" })
-end
-
-T["fit"]["never exceeds the window when rounding up"] = function()
-  local cells = terminal.fit_cells(
-    { width = 995, height = 100 },
-    { width = 10, height = 20 },
-    { width = 100, height = 50 }
-  )
-  MiniTest.expect.equality(cells, { width = 100, height = 5, axis = "width" })
-end
-
-T["fit"]["never returns less than one cell"] = function()
-  local cells = terminal.fit_cells({ width = 2, height = 2 }, { width = 10, height = 20 }, { width = 100, height = 50 })
-  MiniTest.expect.equality(cells, { width = 1, height = 1, axis = "width" })
+for name, case in pairs(fit_cases) do
+  T["fit"][name] = function()
+    local image, cell, window, expected = unpack(case)
+    local fit = terminal.fit_cells(image, cell, window)
+    MiniTest.expect.equality(fit, expected)
+    for _, n in ipairs({ fit.width, fit.height, fit.crop.x, fit.crop.y, fit.crop.width, fit.crop.height }) do
+      MiniTest.expect.equality(n % 1, 0)
+    end
+    MiniTest.expect.equality(fit.width <= window.width and fit.height <= window.height, true)
+    MiniTest.expect.equality(fit.crop.x + fit.crop.width <= image.width, true)
+    MiniTest.expect.equality(fit.crop.y + fit.crop.height <= image.height, true)
+  end
 end
 
 T["is_tmux"] = MiniTest.new_set()
