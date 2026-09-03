@@ -156,10 +156,15 @@ end
 ---bring them back when it closes, whichever code path closes it.
 ---@param winid integer
 function M.hide_for_window(winid)
-  if next(entries) == nil or not vim.api.nvim_win_is_valid(winid) then
+  if not vim.api.nvim_win_is_valid(winid) then
     return
   end
-  ensure_autocmds()
+  -- Nothing to hide unless an image is shown or one is being rendered; a render in
+  -- flight has already registered the autocmds, so this also keeps a disabled or
+  -- unused image preview from creating any augroup.
+  if next(entries) == nil and not autocmds_registered then
+    return
+  end
   kitty.hide_all(winid)
   vim.api.nvim_create_autocmd("WinClosed", {
     group = "eda_image_preview",

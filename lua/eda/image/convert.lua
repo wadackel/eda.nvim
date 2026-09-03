@@ -53,12 +53,25 @@ function M.supports(path)
   return ext == "png" or (ext ~= nil and converters[ext] ~= nil)
 end
 
+---@param path string
+---@return eda.image.Converter
+local function converter_for(path)
+  -- PNG has no table row: it only reaches magick for downscaling
+  return converters[extension(path) or ""] or magick
+end
+
 ---@param src string
 ---@param part string temporary output path
 ---@return string[] argv
 function M.command_for(src, part)
   -- `[0]` keeps only the first frame of animated formats; `png:` forces the encoder
-  return { "magick", src .. "[0]", "-resize", string.format("%dx%d>", MAX_SIDE, MAX_SIDE), "png:" .. part }
+  return {
+    converter_for(src).executable,
+    src .. "[0]",
+    "-resize",
+    string.format("%dx%d>", MAX_SIDE, MAX_SIDE),
+    "png:" .. part,
+  }
 end
 
 ---@param path string
@@ -122,7 +135,7 @@ function M.to_png(path, cb)
   if not M.needs_magick(path) then
     return cb(nil, path)
   end
-  if vim.fn.executable("magick") ~= 1 then
+  if vim.fn.executable(converter_for(path).executable) ~= 1 then
     if extension(path) == "png" then
       return cb("Image is larger than 2048px on its longest side; install ImageMagick (magick) to downscale it.")
     end
@@ -145,7 +158,8 @@ function M.to_png(path, cb)
     vim.schedule(function()
       if res.code ~= 0 then
         vim.uv.fs_unlink(part)
-        if res.signal ~= 0 then
+        -- vim.system delivers its timeout as SIGTERM (15)
+        if res.signal == 15 then
           return cb("Conversion timed out.")
         end
         return cb("magick failed: " .. vim.trim(res.stderr or ""))

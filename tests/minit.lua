@@ -54,13 +54,14 @@ for _, case in ipairs(cases) do
   end, 10)
 
   local name = table.concat(case.desc, " | ")
-  for _, fail in ipairs(case.exec.fails) do
+  local exec = case.exec or { fails = { "case was not executed" }, notes = {} }
+  for _, fail in ipairs(exec.fails) do
     fails[#fails + 1] = name .. ":\n  " .. fail:gsub("\n", "\n  ")
   end
-  for _, note in ipairs(case.exec.notes) do
+  for _, note in ipairs(exec.notes) do
     notes[#notes + 1] = name .. ": " .. note
   end
-  io.write(#case.exec.fails > 0 and "x" or "o")
+  io.write(#exec.fails > 0 and "x" or "o")
 end
 io.write("\n\n")
 

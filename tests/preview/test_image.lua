@@ -385,6 +385,24 @@ T["Preview"]["hide_for_window without an image registers nothing"] = function()
   vim.api.nvim_win_close(dialog, true)
 end
 
+T["Preview"]["a dialog opened while rendering is pending still hides the image"] = function()
+  stub_terminal({ defer_detect = true })
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return saved.pending_detect ~= nil
+  end)
+  local dialog = open_dialog()
+  image.hide_for_window(dialog)
+  saved.pending_detect({ supported = true, name = "stub" })
+  MiniTest.expect.equality(find("a=t") ~= nil, true)
+  MiniTest.expect.equality(find("a=p"), nil)
+  captured = {}
+  vim.api.nvim_win_close(dialog, true)
+  MiniTest.expect.equality(find("a=p") ~= nil, true)
+  teardown_preview(p, env)
+end
+
 T["Preview"]["closing the window shows the image again"] = function()
   stub_terminal()
   local p, env = setup_preview()

@@ -113,7 +113,8 @@ function Preview:show(path)
     return
   end
   -- Images bypass max_file_size and binary detection; they carry their own limit
-  if self.config.image.enabled and image.is_image(path) then
+  local image_cfg = self.config.image
+  if image_cfg and image_cfg.enabled and image.is_image(path) then
     self:_show_image(path, stat)
     return
   end

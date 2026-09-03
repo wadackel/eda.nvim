@@ -110,6 +110,7 @@ end
 
 local detected ---@type eda.image.Terminal?
 local pending ---@type fun(term: eda.image.Terminal)[]?
+local detect_timer ---@type uv.uv_timer_t?
 
 ---Detect whether the terminal can display Kitty graphics. The callback may run
 ---synchronously when the answer is already known.
@@ -145,12 +146,14 @@ function M.detect(cb)
   -- Inside tmux the environment describes whichever client started the server, so
   -- ask the terminal for its identity (XTVERSION) instead of trusting env vars.
   local timer = assert(vim.uv.new_timer())
+  detect_timer = timer
   local autocmd_id
   local function done(name)
-    if timer and not timer:is_closing() then
+    if not timer:is_closing() then
       timer:stop()
       timer:close()
     end
+    detect_timer = nil
     if autocmd_id then
       pcall(vim.api.nvim_del_autocmd, autocmd_id)
       autocmd_id = nil
@@ -287,6 +290,11 @@ function M._reset()
   cell_cache = nil
   detected = nil
   pending = nil
+  if detect_timer and not detect_timer:is_closing() then
+    detect_timer:stop()
+    detect_timer:close()
+  end
+  detect_timer = nil
   passthrough_enabled = false
   autocmds_registered = false
   pcall(vim.api.nvim_del_augroup_by_name, "eda_image_terminal")
