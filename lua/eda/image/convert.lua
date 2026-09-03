@@ -158,8 +158,8 @@ function M.to_png(path, cb)
     vim.schedule(function()
       if res.code ~= 0 then
         vim.uv.fs_unlink(part)
-        -- vim.system delivers its timeout as SIGTERM (15)
-        if res.signal == 15 then
+        -- vim.system reports its own timeout as SIGTERM with exit code 124
+        if res.signal == 15 and res.code == 124 then
           return cb("Conversion timed out.")
         end
         return cb("magick failed: " .. vim.trim(res.stderr or ""))

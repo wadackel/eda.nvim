@@ -76,6 +76,16 @@ T["kitty"]["placement with only one axis leaves the other to the terminal"] = fu
   MiniTest.expect.equality(place:find("c=", 1, true), nil)
 end
 
+T["kitty"]["update with one axis replaces the size pair instead of merging"] = function()
+  local id = kitty.set("png", { row = 1, col = 1, width = 12 })
+  captured = {}
+  kitty.update(id, { row = 2, col = 2, height = 7 })
+  local place = captured[#captured]
+  MiniTest.expect.equality(place:find("r=7", 1, true) ~= nil, true)
+  MiniTest.expect.equality(place:find("c=", 1, true), nil)
+  MiniTest.expect.equality(kitty.get(id), { row = 2, col = 2, height = 7 })
+end
+
 T["kitty"]["get returns a copy of the placement opts"] = function()
   local id = kitty.set("png", { row = 1, col = 2, width = 3, height = 4 })
   MiniTest.expect.equality(kitty.get(id), { row = 1, col = 2, width = 3, height = 4 })

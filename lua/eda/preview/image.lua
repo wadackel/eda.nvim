@@ -165,6 +165,7 @@ function M.hide_for_window(winid)
   if next(entries) == nil and not autocmds_registered then
     return
   end
+  ensure_autocmds()
   kitty.hide_all(winid)
   vim.api.nvim_create_autocmd("WinClosed", {
     group = "eda_image_preview",

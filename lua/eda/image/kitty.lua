@@ -119,7 +119,13 @@ function M.update(id, opts)
   if not is_hidden() then
     unplace(id, entry)
   end
-  entry.opts = vim.tbl_extend("force", entry.opts, opts)
+  local merged = vim.tbl_extend("force", entry.opts, opts)
+  -- width/height form one unit: a caller that sends a single axis relies on the
+  -- terminal deriving the other, so a stale value from the previous call must not survive
+  if opts.width ~= nil or opts.height ~= nil then
+    merged.width, merged.height = opts.width, opts.height
+  end
+  entry.opts = merged
   if not is_hidden() then
     place(id, entry)
   end
