@@ -86,4 +86,51 @@ T["fit"]["never returns less than one cell"] = function()
   MiniTest.expect.equality(cells, { width = 1, height = 1 })
 end
 
+T["is_tmux"] = MiniTest.new_set()
+
+T["is_tmux"]["is false without a UI even when TMUX is inherited"] = function()
+  local saved_tmux, saved_pane = vim.env.TMUX, vim.env.TMUX_PANE
+  terminal._reset()
+  vim.env.TMUX = "/tmp/tmux-1/default,1,0"
+  vim.env.TMUX_PANE = "%0"
+  MiniTest.expect.equality(#vim.api.nvim_list_uis(), 0)
+  MiniTest.expect.equality(terminal.is_tmux(), false)
+  vim.env.TMUX, vim.env.TMUX_PANE = saved_tmux, saved_pane
+  terminal._reset()
+end
+
+T["write"] = MiniTest.new_set()
+
+T["write"]["falls back to io.write and flushes when nvim_ui_send is unavailable"] = function()
+  local saved_send, saved_write, saved_flush, saved_writer = vim.api.nvim_ui_send, io.write, io.flush, terminal.writer
+  local saved_tmux = terminal.is_tmux
+  local written, flushed = nil, false
+  vim.api.nvim_ui_send = nil
+  io.write = function(data)
+    written = data
+  end
+  io.flush = function()
+    flushed = true
+  end
+  terminal.writer = nil
+  terminal.is_tmux = function()
+    return false
+  end
+  terminal.write("\27_Gq=2\27\\")
+  vim.api.nvim_ui_send, io.write, io.flush, terminal.writer = saved_send, saved_write, saved_flush, saved_writer
+  terminal.is_tmux = saved_tmux
+  MiniTest.expect.equality(written, "\27_Gq=2\27\\")
+  MiniTest.expect.equality(flushed, true)
+end
+
+T["autocmds"] = MiniTest.new_set()
+
+T["autocmds"]["VimResized handler is registered on first cell_size call, not on require"] = function()
+  terminal._reset()
+  MiniTest.expect.equality(pcall(vim.api.nvim_get_autocmds, { group = "eda_image_terminal" }), false)
+  terminal.cell_size()
+  local ok, autocmds = pcall(vim.api.nvim_get_autocmds, { group = "eda_image_terminal" })
+  MiniTest.expect.equality(ok and #autocmds > 0, true)
+end
+
 return T

@@ -94,17 +94,35 @@ T["kitty"]["del frees the image data and forgets the id"] = function()
   MiniTest.expect.equality(kitty.del(id), false)
 end
 
-T["kitty"]["hide removes the placement and show restores it"] = function()
+T["kitty"]["hide keeps the placement hidden until every reason is released"] = function()
   local id = kitty.set("png", { row = 2, col = 3, width = 4, height = 5 })
   captured = {}
-  kitty.hide_all()
+  kitty.hide_all("focus")
   MiniTest.expect.equality(#captured, 1)
   MiniTest.expect.equality(captured[1]:find("d=i", 1, true) ~= nil, true)
+  kitty.hide_all(42)
   captured = {}
-  kitty.show_all()
+  kitty.update(id, { row = 7 })
+  kitty.show_all("focus")
+  MiniTest.expect.equality(find("a=p"), nil)
+  kitty.show_all(42)
   MiniTest.expect.equality(#captured, 1)
-  MiniTest.expect.equality(captured[1]:find("\27[2;3H", 1, true) ~= nil, true)
-  MiniTest.expect.equality(kitty.get(id), { row = 2, col = 3, width = 4, height = 5 })
+  MiniTest.expect.equality(captured[1]:find("\27[7;3H", 1, true) ~= nil, true)
+  MiniTest.expect.equality(kitty.get(id), { row = 7, col = 3, width = 4, height = 5 })
+end
+
+T["kitty"]["update returns false for an unknown id"] = function()
+  captured = {}
+  MiniTest.expect.equality(kitty.update(123456789, { row = 1 }), false)
+  MiniTest.expect.equality(#captured, 0)
+end
+
+T["kitty"]["VimLeavePre cleanup is registered on first set, not on require"] = function()
+  kitty._reset()
+  MiniTest.expect.equality(pcall(vim.api.nvim_get_autocmds, { group = "eda_image_kitty" }), false)
+  kitty.set("png", { row = 1, col = 1, width = 1, height = 1 })
+  local ok, autocmds = pcall(vim.api.nvim_get_autocmds, { group = "eda_image_kitty" })
+  MiniTest.expect.equality(ok and #autocmds > 0, true)
 end
 
 T["kitty"]["del(math.huge) clears everything"] = function()

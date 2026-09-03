@@ -11,6 +11,7 @@ local function raw_write(data)
     vim.api.nvim_ui_send(data)
   else
     io.write(data)
+    io.flush()
   end
 end
 
@@ -26,6 +27,11 @@ function M.is_tmux()
   end
   if vim.env.TMUX == nil then
     tmux_cache = false
+    return false
+  end
+  -- Without a UI there is no terminal to tunnel through; unit and E2E children
+  -- inherit $TMUX from the developer's shell and must not touch that session.
+  if #vim.api.nvim_list_uis() == 0 then
     return false
   end
   tmux_cache = true
@@ -224,11 +230,26 @@ end
 ---@field height number
 
 local cell_cache ---@type eda.image.Size?
+local autocmds_registered = false
+
+local function ensure_autocmds()
+  if autocmds_registered then
+    return
+  end
+  autocmds_registered = true
+  vim.api.nvim_create_autocmd("VimResized", {
+    group = vim.api.nvim_create_augroup("eda_image_terminal", { clear = true }),
+    callback = function()
+      cell_cache = nil
+    end,
+  })
+end
 
 ---Pixel size of one terminal cell. Falls back to a common 9x18 when the terminal
 ---does not report pixel dimensions.
 ---@return eda.image.Size
 function M.cell_size()
+  ensure_autocmds()
   if cell_cache then
     return cell_cache
   end
@@ -253,12 +274,17 @@ function M.cell_size()
   return size
 end
 
-vim.api.nvim_create_autocmd("VimResized", {
-  group = vim.api.nvim_create_augroup("eda_image_terminal", { clear = true }),
-  callback = function()
-    cell_cache = nil
-  end,
-})
+---Forget every cached probe result and registered autocmd. Test seam.
+function M._reset()
+  tmux_cache = nil
+  offset_cache = nil
+  cell_cache = nil
+  detected = nil
+  pending = nil
+  passthrough_enabled = false
+  autocmds_registered = false
+  pcall(vim.api.nvim_del_augroup_by_name, "eda_image_terminal")
+end
 
 ---@class eda.image.BorderSize
 ---@field top integer

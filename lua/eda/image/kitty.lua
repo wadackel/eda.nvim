@@ -15,11 +15,18 @@ local CHUNK_SIZE = 4096
 ---@class eda.image.Placement
 ---@field image_id integer
 ---@field opts eda.image.PlacementOpts
----@field hidden boolean
 
 -- Random base keeps ids from colliding with other clients sharing the terminal.
 local next_id = math.random(1000, 900000)
 local state = {} ---@type table<integer, eda.image.Placement>
+-- Several callers may hide the image independently (focus loss, a dialog on top);
+-- it comes back only when every reason has been released.
+local hidden_reasons = {} ---@type table<any, true>
+local autocmds_registered = false
+
+local function is_hidden()
+  return next(hidden_reasons) ~= nil
+end
 
 ---@param control table<string, string|integer>
 ---@param payload string?
@@ -69,29 +76,53 @@ local function unplace(id, entry)
   terminal.write(command({ a = "d", d = "i", i = entry.image_id, p = id, q = 2 }))
 end
 
+local function ensure_autocmds()
+  if autocmds_registered then
+    return
+  end
+  autocmds_registered = true
+  vim.api.nvim_create_autocmd("VimLeavePre", {
+    group = vim.api.nvim_create_augroup("eda_image_kitty", { clear = true }),
+    callback = function()
+      M.del(math.huge)
+    end,
+  })
+end
+
 ---Transmit PNG bytes and display them.
 ---@param bytes string
 ---@param opts eda.image.PlacementOpts
 ---@return integer id
 function M.set(bytes, opts)
+  ensure_autocmds()
   local id = next_id
   next_id = next_id + 1
   transmit(id, bytes)
-  local entry = { image_id = id, opts = vim.deepcopy(opts), hidden = false }
+  local entry = { image_id = id, opts = vim.deepcopy(opts) }
   state[id] = entry
-  place(id, entry)
+  if not is_hidden() then
+    place(id, entry)
+  end
   return id
 end
 
 ---Move or resize an existing placement.
 ---@param id integer
 ---@param opts table partial eda.image.PlacementOpts
+---@return boolean found
 function M.update(id, opts)
-  local entry = assert(state[id], "invalid image id: " .. tostring(id))
-  unplace(id, entry)
+  local entry = state[id]
+  if not entry then
+    return false
+  end
+  if not is_hidden() then
+    unplace(id, entry)
+  end
   entry.opts = vim.tbl_extend("force", entry.opts, opts)
-  entry.hidden = false
-  place(id, entry)
+  if not is_hidden() then
+    place(id, entry)
+  end
+  return true
 end
 
 ---@param id integer
@@ -123,30 +154,42 @@ function M.del(id)
 end
 
 ---Remove every placement from the screen while keeping the image data.
-function M.hide_all()
+---@param reason any identifies the caller; `show_all` with the same value releases it
+function M.hide_all(reason)
+  if hidden_reasons[reason] then
+    return
+  end
+  local was_hidden = is_hidden()
+  hidden_reasons[reason] = true
+  if was_hidden then
+    return
+  end
   for id, entry in pairs(state) do
-    if not entry.hidden then
-      entry.hidden = true
-      unplace(id, entry)
-    end
+    unplace(id, entry)
   end
 end
 
----Re-display placements removed by `hide_all`.
-function M.show_all()
+---Release one hide reason; placements return once no reason remains.
+---@param reason any
+function M.show_all(reason)
+  if not hidden_reasons[reason] then
+    return
+  end
+  hidden_reasons[reason] = nil
+  if is_hidden() then
+    return
+  end
   for id, entry in pairs(state) do
-    if entry.hidden then
-      entry.hidden = false
-      place(id, entry)
-    end
+    place(id, entry)
   end
 end
 
-vim.api.nvim_create_autocmd("VimLeavePre", {
-  group = vim.api.nvim_create_augroup("eda_image_kitty", { clear = true }),
-  callback = function()
-    M.del(math.huge)
-  end,
-})
+---Forget all placements, hide reasons, and registered autocmds. Test seam.
+function M._reset()
+  state = {}
+  hidden_reasons = {}
+  autocmds_registered = false
+  pcall(vim.api.nvim_del_augroup_by_name, "eda_image_kitty")
+end
 
 return M
