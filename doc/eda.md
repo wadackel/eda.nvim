@@ -482,8 +482,9 @@ detection do not apply to directory previews.
 
 Image files (`png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`) are rendered in the
 preview pane using the Kitty graphics protocol on terminals that support it
-(kitty, Ghostty, WezTerm). Inside tmux, eda enables `allow-passthrough` for the
-pane automatically and accounts for pane and status line offsets. Formats other
+(kitty, Ghostty, WezTerm). Inside tmux, eda sets `allow-passthrough` to `on`
+for the pane on the first image preview (the setting stays with the pane) and
+accounts for pane and status line offsets. Formats other
 than PNG, and PNGs larger than 2048px on a side, require ImageMagick (`magick`)
 and are converted into `stdpath("cache")/eda/image` (the newest 50 conversions
 are kept). On unsupported terminals, or when conversion is not possible, the

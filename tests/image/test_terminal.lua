@@ -18,6 +18,10 @@ T["offset"]["ignores a bottom status line"] = function()
   MiniTest.expect.equality(terminal.parse_tmux_offset("3 0 bottom 55 54"), { 3, 0 })
 end
 
+T["offset"]["never returns a negative offset"] = function()
+  MiniTest.expect.equality(terminal.parse_tmux_offset("-2 -5 bottom 55 54"), { 0, 0 })
+end
+
 T["offset"]["falls back to zero on unexpected output"] = function()
   MiniTest.expect.equality(terminal.parse_tmux_offset("no server running"), { 0, 0 })
 end
@@ -156,7 +160,7 @@ T["detect"]["enables tmux passthrough before querying the terminal"] = function(
   vim.api.nvim_list_uis, vim.fn.system, terminal.is_tmux, terminal.writer =
     saved.uis, saved.system, saved.is_tmux, saved.writer
   terminal._reset()
-  MiniTest.expect.equality(order[1], "tmux set -p allow-passthrough all")
+  MiniTest.expect.equality(order[1], "tmux set -p allow-passthrough on")
   MiniTest.expect.equality(order[2] ~= nil and order[2]:find("\27[>q", 1, true) ~= nil, true)
 end
 

@@ -75,7 +75,8 @@ function M.ensure_passthrough()
     return
   end
   passthrough_enabled = true
-  pcall(vim.fn.system, { "tmux", "set", "-p", "allow-passthrough", "all" })
+  -- `on` (visible panes only) is enough: images are only drawn while the pane is shown
+  pcall(vim.fn.system, { "tmux", "set", "-p", "allow-passthrough", "on" })
 end
 
 ---@class eda.image.Terminal
@@ -201,7 +202,7 @@ function M.parse_tmux_offset(out)
   if status_pos == "top" then
     status_rows = math.max(0, tonumber(client_h) - tonumber(window_h))
   end
-  return { tonumber(top) + status_rows, tonumber(left) }
+  return { math.max(0, tonumber(top) + status_rows), math.max(0, tonumber(left)) }
 end
 
 local offset_cache ---@type integer[]?

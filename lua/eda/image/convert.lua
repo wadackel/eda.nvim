@@ -15,16 +15,26 @@ local PNG_SIGNATURE = "\137PNG\r\n\26\n"
 
 ---@class eda.image.Converter
 ---@field executable string
+---@field coder string ImageMagick input coder
 
-local magick = { executable = "magick" } ---@type eda.image.Converter
+---@param coder string
+---@return eda.image.Converter
+local function magick(coder)
+  return { executable = "magick", coder = coder }
+end
 
 local converters = {
-  jpg = magick,
-  jpeg = magick,
-  gif = magick,
-  webp = magick,
-  bmp = magick,
+  jpg = magick("jpeg"),
+  jpeg = magick("jpeg"),
+  gif = magick("gif"),
+  webp = magick("webp"),
+  bmp = magick("bmp"),
 } ---@type table<string, eda.image.Converter>
+
+-- Bounds ImageMagick itself: a small file can declare a huge canvas, and -resize
+-- only runs after the full decode.
+local RESOURCE_LIMITS =
+  { "-limit", "memory", "256MiB", "-limit", "map", "512MiB", "-limit", "disk", "1GiB", "-limit", "thread", "1" }
 
 ---@param path string
 ---@return string?
@@ -57,21 +67,26 @@ end
 ---@return eda.image.Converter
 local function converter_for(path)
   -- PNG has no table row: it only reaches magick for downscaling
-  return converters[extension(path) or ""] or magick
+  return converters[extension(path) or ""] or magick("png")
 end
 
 ---@param src string
 ---@param part string temporary output path
 ---@return string[] argv
 function M.command_for(src, part)
-  -- `[0]` keeps only the first frame of animated formats; `png:` forces the encoder
-  return {
-    converter_for(src).executable,
-    src .. "[0]",
+  local converter = converter_for(src)
+  local argv = { converter.executable }
+  vim.list_extend(argv, RESOURCE_LIMITS)
+  -- The input coder is pinned to the validated extension: ImageMagick otherwise
+  -- sniffs the format from the bytes, and a renamed PostScript/PDF file would
+  -- reach a delegate. `[0]` keeps only the first frame; `png:` forces the encoder.
+  vim.list_extend(argv, {
+    string.format("%s:%s[0]", converter.coder, src),
     "-resize",
     string.format("%dx%d>", MAX_SIDE, MAX_SIDE),
     "png:" .. part,
-  }
+  })
+  return argv
 end
 
 ---@param path string
@@ -145,7 +160,9 @@ function M.to_png(path, cb)
   if not stat then
     return cb("File not found.")
   end
+  -- Converted previews may hold sensitive content; keep them private to the user
   vim.fn.mkdir(M.cache_dir, "p")
+  vim.fn.setfperm(M.cache_dir, "rwx------")
   local key = vim.fn.sha256(string.format("%s:%d:%d", path, stat.mtime.sec, stat.size))
   local out = M.cache_dir .. "/" .. key .. ".png"
   if vim.uv.fs_stat(out) then
@@ -164,6 +181,7 @@ function M.to_png(path, cb)
         end
         return cb("magick failed: " .. vim.trim(res.stderr or ""))
       end
+      vim.fn.setfperm(part, "rw-------")
       vim.uv.fs_rename(part, out)
       M.prune()
       cb(nil, out)

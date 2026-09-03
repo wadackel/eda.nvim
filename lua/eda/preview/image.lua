@@ -29,7 +29,10 @@ function M.describe(bufnr, path, note)
     lines[#lines + 1] = string.format("Size: %d bytes", stat.size)
   end
   lines[#lines + 1] = ""
-  lines[#lines + 1] = note
+  -- magick's stderr spans several lines; a line containing a newline is rejected
+  for _, line in ipairs(vim.split(note:gsub("\r", ""), "\n", { plain = true, trimempty = true })) do
+    lines[#lines + 1] = line
+  end
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
 end
 
@@ -47,8 +50,8 @@ local function geometry(winid, dims)
     height = vim.api.nvim_win_get_height(winid),
   })
   return {
-    row = pos[1] + border.top + offset[1] + 1,
-    col = pos[2] + border.left + offset[2] + 1,
+    row = math.max(1, pos[1] + border.top + offset[1] + 1),
+    col = math.max(1, pos[2] + border.left + offset[2] + 1),
     width = fit.axis == "width" and fit.width or nil,
     height = fit.axis == "height" and fit.height or nil,
   }

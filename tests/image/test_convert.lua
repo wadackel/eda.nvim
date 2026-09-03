@@ -42,10 +42,41 @@ T["command_for"] = MiniTest.new_set()
 T["command_for"]["downscales to 2048px and writes into a pid-suffixed part file"] = function()
   local argv = convert.command_for("/src/photo.jpg", "/cache/abc.png.part-123")
   MiniTest.expect.equality(argv[1], "magick")
-  MiniTest.expect.equality(argv[2], "/src/photo.jpg[0]")
   MiniTest.expect.equality(vim.tbl_contains(argv, "-resize"), true)
   MiniTest.expect.equality(vim.tbl_contains(argv, "2048x2048>"), true)
   MiniTest.expect.equality(argv[#argv], "png:/cache/abc.png.part-123")
+end
+
+T["command_for"]["pins the input coder to the validated extension"] = function()
+  -- ImageMagick sniffs the format from file content; an explicit coder keeps a
+  -- renamed PostScript/PDF/MVG file from reaching a delegate
+  local function input(argv)
+    for i, arg in ipairs(argv) do
+      if arg == "-resize" then
+        return argv[i - 1]
+      end
+    end
+  end
+  MiniTest.expect.equality(input(convert.command_for("/src/photo.jpg", "/o.png.part-1")), "jpeg:/src/photo.jpg[0]")
+  MiniTest.expect.equality(input(convert.command_for("/src/a.JPEG", "/o.png.part-1")), "jpeg:/src/a.JPEG[0]")
+  MiniTest.expect.equality(input(convert.command_for("/src/anim.gif", "/o.png.part-1")), "gif:/src/anim.gif[0]")
+  MiniTest.expect.equality(input(convert.command_for("/src/w.webp", "/o.png.part-1")), "webp:/src/w.webp[0]")
+  MiniTest.expect.equality(input(convert.command_for("/src/b.bmp", "/o.png.part-1")), "bmp:/src/b.bmp[0]")
+  MiniTest.expect.equality(input(convert.command_for("/src/big.png", "/o.png.part-1")), "png:/src/big.png[0]")
+end
+
+T["command_for"]["caps ImageMagick resources so a decompression bomb cannot exhaust memory"] = function()
+  local argv = convert.command_for("/src/photo.jpg", "/o.png.part-1")
+  local limits = {}
+  for i, arg in ipairs(argv) do
+    if arg == "-limit" then
+      limits[argv[i + 1]] = argv[i + 2]
+    end
+  end
+  MiniTest.expect.equality(limits.memory ~= nil, true)
+  MiniTest.expect.equality(limits.map ~= nil, true)
+  MiniTest.expect.equality(limits.disk ~= nil, true)
+  MiniTest.expect.equality(limits.thread, "1")
 end
 
 T["needs_magick"] = MiniTest.new_set()

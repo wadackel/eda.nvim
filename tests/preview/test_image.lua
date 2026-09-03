@@ -136,6 +136,18 @@ T["is_image"]["rejects non-image paths"] = function()
   end
 end
 
+T["describe"] = MiniTest.new_set()
+
+T["describe"]["splits multi-line notes so buffer writes never fail"] = function()
+  local buf = vim.api.nvim_create_buf(false, true)
+  image.describe(buf, "/tmp/photo.png", "magick failed: line one\nline two\r\n")
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  MiniTest.expect.equality(lines[1], "Image: photo.png")
+  MiniTest.expect.equality(vim.tbl_contains(lines, "magick failed: line one"), true)
+  MiniTest.expect.equality(vim.tbl_contains(lines, "line two"), true)
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
 T["Preview"] = MiniTest.new_set({ hooks = { post_case = restore_terminal } })
 
 T["Preview"]["unsupported terminal shows a text description"] = function()
