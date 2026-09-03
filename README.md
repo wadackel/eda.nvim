@@ -53,6 +53,7 @@ Explore as a tree, edit as a buffer — a file explorer for Neovim that combines
 - **Tree view with hierarchy** — Collapsible directory tree, not flat per-directory listing
 - **Progressive async rendering** — Ancestor chain scanned first for instant cursor placement
 - **Git integration** — Async status detection with visual indicators
+- **Image preview** — PNG/JPEG/GIF/WebP/BMP rendered in the preview pane via the Kitty graphics protocol (kitty, Ghostty, WezTerm, including inside tmux)
 - **Multiple layouts** — `float`, `split_left`, `split_right`, `replace`
 - **Extensible action system** — Named registry with custom actions as first-class citizens
 - **netrw replacement** — `hijack_netrw` option for seamless default browsing
@@ -64,6 +65,8 @@ Explore as a tree, edit as a buffer — a file explorer for Neovim that combines
 - Neovim >= 0.11
 - [git](https://git-scm.com/) (optional, for git status integration)
 - [mini.icons](https://github.com/echasnovski/mini.icons) or [nvim-web-devicons](https://github.com/nvim-tree/nvim-web-devicons) (optional, for file icons)
+- A terminal that implements the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) (optional, for image preview; verified with kitty, Ghostty, and WezTerm, detected through the protocol's own capability query so other implementations work too)
+- [ImageMagick](https://imagemagick.org/) `magick` (optional, for previewing image formats other than PNG and for downscaling large PNGs)
 
 ## Installation
 
@@ -260,6 +263,12 @@ require("eda").setup({
     debounce = 100,
     -- Maximum file size in bytes to preview (also accepts fun(path): integer)
     max_file_size = 102400,
+    image = {
+      -- Render image files with the Kitty graphics protocol when the terminal supports it
+      enabled = true,
+      -- Maximum image file size in bytes; larger images show a text description instead
+      max_file_size = 10485760,
+    },
   },
 
   -- Show full filename in a floating window when truncated in narrow windows

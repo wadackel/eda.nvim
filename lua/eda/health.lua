@@ -31,6 +31,16 @@ function M.check()
     end
   end
 
+  -- Image preview
+  if vim.fn.executable("magick") == 1 then
+    vim.health.ok("magick found (JPEG/GIF/WebP/BMP previews are converted to PNG)")
+  else
+    vim.health.info("magick not found (only PNG files can be previewed as images)")
+  end
+  if vim.env.TMUX then
+    vim.health.info("running inside tmux (allow-passthrough is enabled for the pane on first image preview)")
+  end
+
   -- Registered actions
   local action = require("eda.action")
   local names = action.list()

@@ -71,6 +71,7 @@ User autocommands (`EdaTreeOpen`, `EdaTreeClose`, `EdaMutationPre`, `EdaMutation
 | Smart root resolution | Default: `cwd`. With `update_focused_file.update_root`, root follows the active buffer's project (via `vim.fs.root()` markers). Solves the "file outside cwd" problem |
 | Lazy child materialization | Unexpanded directories hold no children in memory (`children_state = "unloaded"`). Keeps memory usage bounded for 100k+ file repositories |
 | Render snapshot for diff | Buffer `:w` compares against the last painted snapshot, not the full store. Only visible (painted) nodes participate in diff — collapsed subtrees are safe |
+| Own Kitty graphics client for image preview | Delegating to snacks.image was rejected: its non-placeholder path (WezTerm) sends the cursor move and the placement as separate tmux passthrough chunks, and tmux homes the cursor between them, so images land at the screen origin; the upstream issue has been open since 2025. `eda.image` emits the move and placement in one write, adds tmux pane and status-line offsets, and mirrors the `vim.ui.img` API so it can be replaced by Neovim's built-in client later. New formats (PDF, video) plug into the converter table in `image/convert.lua` |
 
 ## Comparison with Existing Plugins
 

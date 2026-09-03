@@ -43,6 +43,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Test bootstrap: `tests/minit.lua` auto-clones mini.nvim to `~/.local/share/nvim/eda-test-deps/`
 - Helper utilities in `tests/helpers.lua` (temp dirs, file creation, wait_for)
 - Async tests: use `helpers.wait_for(timeout_ms, predicate_fn)` for `vim.uv` callback completion
+- `tests/minit.lua` executes cases one at a time. `MiniTest.run()` schedules every case up front, so a `vim.wait` inside a case would run the remaining cases nested inside it and a timed-out wait would be reported as passing
+- Image tests never touch a terminal: stub `terminal.writer` (captures the exact escape bytes), `terminal.detect`, `terminal.is_tmux`, `terminal.tmux_offset`, and `terminal.cell_size` as in `tests/preview/test_image.lua`; `terminal._reset()`, `kitty._reset()`, and `image._reset()` clear module caches and augroups between cases
 - Scanner tests require real filesystem (`helpers.create_temp_dir()`) — `_apply_entries` can populate store synchronously for unit tests but `scan()` needs actual directories
 
 ### E2E Tests
@@ -77,6 +79,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - VHS `Output` supports GIF/MP4/WebM only; for PNG use `Screenshot <file>.png` (works without `Output`)
 - eda.nvim opens with directories collapsed by default; tapes use `gE` (expand_all) after startup to show full tree
 - init.lua sets `swapfile=false` to prevent swap conflicts when running multiple tapes sequentially
+- `docs/assets/preview-image.png` is captured by hand in a real terminal: VHS renders through xterm.js, which has no Kitty graphics support, so `just demo-all` neither produces nor refreshes it
 
 ## Architecture Notes
 
@@ -95,6 +98,11 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - Mark invariant: nodes carry `_marked = true|nil` (2-state). Action target resolution across mark-aware operations (delete/cut/copy/duplicate/paste) follows `Visual > marks > cursor` priority (single source of truth in `action/builtin.lua`)
 - Mark highlight pattern: `EdaMarked` (base, `Special` link) → `EdaMarkedIcon` / `EdaMarkedName` (both linked to `EdaMarked`). On setup and `ColorScheme` events, `bg` / `ctermbg` are stripped from resolved `EdaMarked` to avoid clobbering `CursorLine` / `Visual`
 - `paint_incremental()` (`render/painter.lua`): directory expand/collapse uses a differential paint strategy driven by `_incremental_hint` (node ID of the toggled dir) set in `init.lua`. Only the affected line range is re-decorated, avoiding a full-buffer repaint
+- Image preview (`image/terminal.lua`, `image/kitty.lua`, `image/convert.lua`, `preview/image.lua`) is a self-contained Kitty graphics client; `eda.image.kitty` mirrors `vim.ui.img` (`set` / `get` / `del`) so it can be replaced once that API stabilizes. Placement is cursor-positioned: `ESC 7`, cursor move, `a=p`, `ESC 8` in a single write, because tmux homes the outer cursor after every passthrough chunk. Screen coordinates are `nvim_win_get_position` (outer border corner, already in tabline-inclusive screen rows) + border + tmux offset (`pane_top` plus the top status line height, `pane_left`) + 1
+- `terminal.is_tmux()` trusts `$TMUX` only when `ttyname(1)` matches the pane's tty and a UI is attached: GUI terminals launched from a tmux shell inherit `$TMUX`, and headless test children must never run `tmux` commands
+- Terminal support is decided by the Kitty graphics capability query (`a=q`, answered with `_Gi=31;OK`), not by terminal name: XTVERSION is only a fast path for kitty / Ghostty / WezTerm, and an unknown name keeps waiting for the query answer. Both probes go out in one write; the 1 s timeout (`terminal.detect_timeout_ms`) falls back to `terminal.env_hint()`
+- Images go through `convert.to_png` when they are not PNG or exceed 2048px on a side (`magick -resize 2048x2048>`); the cell box is rounded, not floored, because terminals stretch the image to the box ignoring aspect ratio
+- Hidden placements are tracked by reason (`kitty.hide_all(reason)` / `show_all(reason)`): focus loss and an open dialog hide independently, and the image returns only when every reason is released
 
 ## Benchmarking
 

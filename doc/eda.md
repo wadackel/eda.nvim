@@ -84,6 +84,10 @@ require("eda").setup({
     enabled = false,
     debounce = 100,
     max_file_size = 102400,
+    image = {
+      enabled = true,
+      max_file_size = 10485760,
+    },
   },
 
   full_name = {
@@ -461,6 +465,50 @@ contents using eda's tree rendering style (icons, git status, marks, etc.).
 A closed directory previews its direct children only; an open directory
 mirrors its expanded subtree from the main tree. `max_file_size` and binary
 detection do not apply to directory previews.
+
+- `image` `table` — Image preview settings:
+  - `enabled` `boolean` (default: `true`) — Render image files with the Kitty
+    graphics protocol. When `false`, image files are treated like any other
+    binary file and the pane closes.
+  - `max_file_size` `integer` (default: `10485760`) — Maximum image file size
+    in bytes. Larger images show a text description instead of being rendered.
+
+  ```lua
+  preview = {
+    enabled = true,
+    image = { enabled = true, max_file_size = 5 * 1024 * 1024 },
+  },
+  ```
+
+Image files (`png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`) are rendered in the
+preview pane using the Kitty graphics protocol on terminals that support it
+(kitty, Ghostty, WezTerm). Inside tmux, eda sets `allow-passthrough` to `on`
+for the pane on the first image preview (the setting stays with the pane) and
+accounts for pane and status line offsets. Formats other
+than PNG, and PNGs larger than 2048px on a side, require ImageMagick (`magick`)
+and are converted into `stdpath("cache")/eda/image` (the newest 50 conversions
+are kept). On unsupported terminals, or when conversion is not possible, the
+pane shows the file name, size, and the reason instead. `max_file_size` and
+binary detection do not apply to image files; `image.max_file_size` does. Run
+`:checkhealth eda` to check the prerequisites.
+
+Known limitations of image preview:
+
+- Images are placed by cursor position, above everything Neovim draws. Only the
+  confirm and help dialogs hide the image while open; other floats,
+  notifications, or popups overlapping the preview area are covered by it.
+- Inside tmux, an image stays on screen when you switch to another pane unless
+  tmux has `focus-events on`, which lets eda hide it on `FocusLost`.
+- Support is detected by asking the terminal directly: eda sends the Kitty
+  graphics capability query (and an XTVERSION query as a fast path for kitty,
+  Ghostty, and WezTerm) and waits up to one second for an answer, so any
+  terminal that implements the protocol works, including over SSH. Outside
+  tmux, environment variables of the known terminals settle the answer
+  without a query. Inside tmux with `extended-keys on` the responses do not
+  reach Neovim; eda then falls back to environment variables, and a terminal
+  it cannot identify is treated as unsupported for the rest of the session.
+- When the terminal does not report its cell size in pixels, eda assumes 9x18
+  and the image may appear smaller than the pane allows.
 
 ### full_name
 
@@ -1184,4 +1232,6 @@ Run `:checkhealth eda` to verify your setup. The healthcheck validates:
 - Neovim version (>= 0.11 required)
 - Git availability (optional, for git integration)
 - Icon provider availability (configured provider only; no fallback)
+- ImageMagick `magick` availability (optional, for image preview of formats other than PNG)
+- Whether Neovim runs inside tmux (image preview enables `allow-passthrough` for the pane)
 - Number of registered actions

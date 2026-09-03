@@ -113,6 +113,7 @@ function M.show(mappings)
 
   local layout = compute_help_layout(lines)
   local win = vim.api.nvim_open_win(buf, true, layout)
+  require("eda.preview.image").hide_for_window(win)
   vim.wo[win].winhl = "FloatBorder:EdaHelpBorder,FloatTitle:EdaHelpTitle,FloatFooter:EdaHelpFooter"
 
   _winid = win
