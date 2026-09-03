@@ -462,6 +462,16 @@ A closed directory previews its direct children only; an open directory
 mirrors its expanded subtree from the main tree. `max_file_size` and binary
 detection do not apply to directory previews.
 
+Image files (`png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`) are rendered in the
+preview pane using the Kitty graphics protocol on terminals that support it
+(kitty, Ghostty, WezTerm). Inside tmux, eda enables `allow-passthrough` for the
+pane automatically and accounts for pane and status line offsets. Formats other
+than PNG require ImageMagick (`magick`) and are converted into
+`stdpath("cache")/eda/image`. On unsupported terminals, or when conversion is
+not possible, the pane shows the file name, size, and the reason instead.
+`max_file_size` and binary detection do not apply to image files. Run
+`:checkhealth eda` to check the prerequisites.
+
 ### full_name
 
 `table`

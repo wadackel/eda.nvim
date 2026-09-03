@@ -168,6 +168,54 @@ T["preview"]["cursor move updates preview content"] = function()
   )
 end
 
+T["preview"]["image file shows fallback description when snacks.nvim is absent"] = function()
+  -- NUL bytes and a size above max_file_size: both legacy rejections must be bypassed for images
+  e2e.create_file(tmp .. "/photo.png", "\137PNG\r\n\26\n\0\0\0\13IHDR" .. string.rep("\0", 64))
+
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = false },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+      preview = { enabled = true, debounce = 0, max_file_size = 16 },
+    })
+  ]]
+  )
+
+  e2e.open_eda(child, tmp)
+
+  e2e.wait_until(
+    child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for i, l in ipairs(lines) do
+      if l:find("photo.png") then
+        vim.api.nvim_win_set_cursor(0, {i, 0})
+        return true
+      end
+    end
+    return false
+  ]]
+  )
+
+  e2e.wait_until(
+    child,
+    [[
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      local buf = vim.api.nvim_win_get_buf(w)
+      local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      if lines[1] == "Image: photo.png" then return true end
+    end
+    return false
+  ]],
+    5000
+  )
+end
+
 -- Directory preview tests
 local dir_child, dir_tmp
 

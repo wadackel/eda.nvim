@@ -1,4 +1,5 @@
 local Node = require("eda.tree.node")
+local image = require("eda.preview.image")
 local util = require("eda.util")
 
 ---@class eda.Preview
@@ -76,6 +77,8 @@ function Preview:_ensure_buffer()
     local indent_width = cfg.indent and cfg.indent.width or 2
     self.painter = require("eda.render.painter").new(self.bufnr, indent_width)
   end
+  -- Every render path reuses this buffer, so an image shown for the previous target is freed here
+  image.detach(self.bufnr)
 end
 
 ---Open a fresh preview window or reuse the existing one.
@@ -107,6 +110,11 @@ function Preview:show(path)
   local stat = vim.uv.fs_stat(path)
   if not stat or stat.type ~= "file" then
     self:close()
+    return
+  end
+  -- Images bypass max_file_size and binary detection; the renderer owns their limits
+  if image.is_image(path) then
+    self:_show_image(path)
     return
   end
   local max_size = self.config.max_file_size
@@ -179,6 +187,42 @@ function Preview:show(path)
         end
       end)
     end)
+  end)
+end
+
+---Show an image preview. The window is opened before rendering so the image
+---backend can size its placement against the visible preview window.
+---@param path string
+function Preview:_show_image(path)
+  self._pending_target = path
+
+  local Window = require("eda.window")
+  local layout = Window._compute_preview_layout(self.window.kind, self.window.winid, self.window.config)
+  if not layout then
+    self:close()
+    return
+  end
+
+  self:_ensure_buffer()
+  self.painter:reset()
+  vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, {})
+  vim.bo[self.bufnr].filetype = ""
+
+  self:_open_or_reuse_window(layout)
+
+  if path ~= self._current_target then
+    self._current_target = path
+    if util.is_valid_win(self.winid) then
+      vim.api.nvim_win_set_cursor(self.winid, { 1, 0 })
+    end
+  end
+
+  local bufnr, winid = self.bufnr, self.winid
+  if not bufnr or not winid then
+    return
+  end
+  image.render(bufnr, winid, path, function()
+    return self._pending_target == path and self.bufnr == bufnr and self.winid == winid
   end)
 end
 
@@ -265,6 +309,9 @@ end
 
 ---Close the preview window.
 function Preview:close()
+  if self.bufnr and vim.api.nvim_buf_is_valid(self.bufnr) then
+    image.detach(self.bufnr)
+  end
   if util.is_valid_win(self.winid) then
     vim.api.nvim_win_close(self.winid, true)
   end
@@ -303,6 +350,9 @@ function Preview:reposition()
   vim.api.nvim_win_set_config(self.winid, layout.preview)
   if layout.filer then
     vim.api.nvim_win_set_config(self.window.winid, layout.filer)
+  end
+  if self.bufnr then
+    image.reposition(self.bufnr, self.winid)
   end
 end
 
