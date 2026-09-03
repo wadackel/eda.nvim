@@ -289,9 +289,9 @@ T["get_status_ready and get_reported_changes return ready state after git status
   helpers.create_file(tmpdir .. "/tracked.txt", "modified")
   helpers.create_file(tmpdir .. "/new.txt", "untracked content")
 
-  -- macOS tempname may return /var/folders while git reports /private/var/folders
-  local git_root = vim.fn.system({ "git", "-C", tmpdir, "rev-parse", "--show-toplevel" })
-  git_root = git_root:gsub("\n$", "")
+  -- Status keys are built from vim.fs.root(), which keeps the path as given;
+  -- git rev-parse would resolve the macOS /var -> /private/var symlink instead
+  local git_root = vim.fs.root(tmpdir, ".git")
 
   local done = false
   git.status(tmpdir, function(_)
@@ -319,8 +319,7 @@ T["get_cached return shape unchanged (backward compat)"] = function()
   vim.fn.system({ "git", "-C", tmpdir, "config", "user.name", "Test" })
   helpers.create_file(tmpdir .. "/file.txt", "hello")
 
-  local git_root = vim.fn.system({ "git", "-C", tmpdir, "rev-parse", "--show-toplevel" })
-  git_root = git_root:gsub("\n$", "")
+  local git_root = vim.fs.root(tmpdir, ".git")
 
   local done = false
   git.status(tmpdir, function(_)
