@@ -168,7 +168,7 @@ T["preview"]["cursor move updates preview content"] = function()
   )
 end
 
-T["preview"]["image file shows fallback description when snacks.nvim is absent"] = function()
+T["preview"]["image file shows a text description on an unsupported terminal"] = function()
   -- NUL bytes and a size above max_file_size: both legacy rejections must be bypassed for images
   e2e.create_file(tmp .. "/photo.png", "\137PNG\r\n\26\n\0\0\0\13IHDR" .. string.rep("\0", 64))
 
