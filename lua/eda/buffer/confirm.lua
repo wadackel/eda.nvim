@@ -272,6 +272,7 @@ function M.show(operations, root_path, on_confirm, on_cancel)
   local title_chunks = build_title_chunks(result.counts, signs)
   local layout = compute_confirm_layout(lines, title_chunks)
   local win = vim.api.nvim_open_win(buf, true, layout)
+  require("eda.preview.image").hide_for_window(win)
   vim.wo[win].winhl = "FloatBorder:EdaConfirmBorder,FloatTitle:EdaConfirmTitle,FloatFooter:EdaConfirmFooter"
 
   _winid = win

@@ -314,4 +314,92 @@ T["Preview"]["reposition forgets a placement the terminal no longer knows"] = fu
   teardown_preview(p, env)
 end
 
+T["Preview"]["image above max_file_size shows a size description"] = function()
+  stub_terminal()
+  local p, env = setup_preview()
+  p.config.image.max_file_size = 10
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return p.winid ~= nil and buf_lines(p)[1] == "Image: photo.png"
+  end)
+  MiniTest.expect.equality(
+    vim.tbl_contains(buf_lines(p), "Image exceeds preview.image.max_file_size (10 bytes)."),
+    true
+  )
+  MiniTest.expect.equality(find("a=p"), nil)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["image.enabled = false treats images as binary files"] = function()
+  stub_terminal()
+  local p, env = setup_preview()
+  p:show(env.txt)
+  helpers.wait_for(1000, function()
+    return p.winid ~= nil and buf_lines(p)[1] == "hello"
+  end)
+  p.config.image.enabled = false
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return p.winid == nil
+  end)
+  MiniTest.expect.equality(p.winid, nil)
+  MiniTest.expect.equality(find("a=p"), nil)
+  teardown_preview(p, env)
+end
+
+local function open_dialog()
+  local buf = vim.api.nvim_create_buf(false, true)
+  return vim.api.nvim_open_win(buf, false, { relative = "editor", row = 2, col = 2, width = 10, height = 3 })
+end
+
+T["Preview"]["hide_for_window hides the image while the window is open"] = function()
+  stub_terminal()
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  captured = {}
+  local dialog = open_dialog()
+  image.hide_for_window(dialog)
+  MiniTest.expect.equality(find("d=i") ~= nil, true)
+  MiniTest.expect.equality(find("a=p"), nil)
+  vim.api.nvim_win_close(dialog, true)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["closing the window shows the image again"] = function()
+  stub_terminal()
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  local dialog = open_dialog()
+  image.hide_for_window(dialog)
+  captured = {}
+  vim.api.nvim_win_close(dialog, true)
+  MiniTest.expect.equality(find("a=p") ~= nil, true)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["a hidden image stays hidden across FocusGained and reposition"] = function()
+  stub_terminal()
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  local dialog = open_dialog()
+  image.hide_for_window(dialog)
+  captured = {}
+  vim.api.nvim_exec_autocmds("FocusLost", {})
+  vim.api.nvim_exec_autocmds("FocusGained", {})
+  p:reposition()
+  MiniTest.expect.equality(find("a=p"), nil)
+  vim.api.nvim_win_close(dialog, true)
+  MiniTest.expect.equality(find("a=p") ~= nil, true)
+  teardown_preview(p, env)
+end
+
 return T

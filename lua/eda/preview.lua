@@ -112,9 +112,9 @@ function Preview:show(path)
     self:close()
     return
   end
-  -- Images bypass max_file_size and binary detection; the renderer owns their limits
-  if image.is_image(path) then
-    self:_show_image(path)
+  -- Images bypass max_file_size and binary detection; they carry their own limit
+  if self.config.image.enabled and image.is_image(path) then
+    self:_show_image(path, stat)
     return
   end
   local max_size = self.config.max_file_size
@@ -144,47 +144,19 @@ function Preview:show(path)
         return
       end
       vim.schedule(function()
-        -- Guard against stale async callback
-        if self._pending_target ~= path then
-          return
-        end
-        if not self.window or not util.is_valid_win(self.window.winid) then
-          return
-        end
-
-        -- Compute layout relative to filer window
-        local Window = require("eda.window")
-        local layout = Window._compute_preview_layout(self.window.kind, self.window.winid, self.window.config)
-        if not layout then
-          self:close()
-          return
-        end
-
-        self:_ensure_buffer()
-        -- Clear any stale tree-render state from a previous directory preview
-        self.painter:reset()
-
-        -- Set file content
-        local lines = vim.split(data, "\n", { plain = true })
-        if #lines > 0 and lines[#lines] == "" then
-          table.remove(lines)
-        end
-        vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
-
-        -- Set filetype for syntax highlighting (clear when no match so transitions
-        -- between files / directories do not leave stale filetype attached).
-        local ft = vim.filetype.match({ filename = path, buf = self.bufnr })
-        vim.bo[self.bufnr].filetype = ft or ""
-
-        self:_open_or_reuse_window(layout)
-
-        -- Reset scroll position when switching targets
-        if path ~= self._current_target then
-          self._current_target = path
-          if util.is_valid_win(self.winid) then
-            vim.api.nvim_win_set_cursor(self.winid, { 1, 0 })
-          end
-        end
+        self:_present(path, {
+          fill = function(bufnr)
+            local lines = vim.split(data, "\n", { plain = true })
+            if #lines > 0 and lines[#lines] == "" then
+              table.remove(lines)
+            end
+            vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+            -- Clear the filetype when nothing matches so transitions between files and
+            -- directories do not leave a stale one attached.
+            local ft = vim.filetype.match({ filename = path, buf = bufnr })
+            vim.bo[bufnr].filetype = ft or ""
+          end,
+        })
       end)
     end)
   end)
@@ -193,8 +165,50 @@ end
 ---Show an image preview. The window is opened before rendering so the image
 ---backend can size its placement against the visible preview window.
 ---@param path string
-function Preview:_show_image(path)
+---@param stat uv.fs_stat.result
+function Preview:_show_image(path, stat)
   self._pending_target = path
+
+  local limit = self.config.image.max_file_size
+  if stat.size > limit then
+    self:_present(path, {
+      fill = function(bufnr)
+        vim.bo[bufnr].filetype = ""
+        image.describe(bufnr, path, string.format("Image exceeds preview.image.max_file_size (%d bytes).", limit))
+      end,
+    })
+    return
+  end
+
+  self:_present(path, {
+    fill = function(bufnr)
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
+      vim.bo[bufnr].filetype = ""
+    end,
+    after = function(bufnr, winid)
+      image.render(bufnr, winid, path, function()
+        return self._pending_target == path and self.bufnr == bufnr and self.winid == winid
+      end)
+    end,
+  })
+end
+
+---@class eda.PreviewPresentOpts
+---@field fill fun(bufnr: integer) writes the buffer content for the target
+---@field after? fun(bufnr: integer, winid: integer) runs once the preview window is visible
+
+---Shared presentation for every target kind. Callers set `_pending_target`
+---synchronously before any asynchronous work; a caller whose target went stale in
+---the meantime is dropped here.
+---@param target integer|string
+---@param opts eda.PreviewPresentOpts
+function Preview:_present(target, opts)
+  if self._pending_target ~= target then
+    return
+  end
+  if not self.window or not util.is_valid_win(self.window.winid) then
+    return
+  end
 
   local Window = require("eda.window")
   local layout = Window._compute_preview_layout(self.window.kind, self.window.winid, self.window.config)
@@ -205,25 +219,20 @@ function Preview:_show_image(path)
 
   self:_ensure_buffer()
   self.painter:reset()
-  vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, {})
-  vim.bo[self.bufnr].filetype = ""
+  opts.fill(self.bufnr)
 
   self:_open_or_reuse_window(layout)
 
-  if path ~= self._current_target then
-    self._current_target = path
+  if target ~= self._current_target then
+    self._current_target = target
     if util.is_valid_win(self.winid) then
       vim.api.nvim_win_set_cursor(self.winid, { 1, 0 })
     end
   end
 
-  local bufnr, winid = self.bufnr, self.winid
-  if not bufnr or not winid then
-    return
+  if opts.after and self.bufnr and self.winid then
+    opts.after(self.bufnr, self.winid)
   end
-  image.render(bufnr, winid, path, function()
-    return self._pending_target == path and self.bufnr == bufnr and self.winid == winid
-  end)
 end
 
 ---Show a directory preview using eda's tree-render style.
@@ -264,47 +273,26 @@ end
 ---Paint the directory subtree into the preview buffer.
 ---@param node eda.TreeNode
 function Preview:_render_directory(node)
-  if self._pending_target ~= node.id then
-    return
-  end
-  if not self.window or not util.is_valid_win(self.window.winid) then
-    return
-  end
+  self:_present(node.id, {
+    fill = function(bufnr)
+      vim.bo[bufnr].filetype = ""
 
-  local Window = require("eda.window")
-  local layout = Window._compute_preview_layout(self.window.kind, self.window.winid, self.window.config)
-  if not layout then
-    self:close()
-    return
-  end
+      local cfg = require("eda.config").get()
+      local root = self.store:get(self.store.root_id)
+      local git_status = root and require("eda.git").get_cached(root.path) or nil
 
-  self:_ensure_buffer()
-  self.painter:reset()
-  vim.bo[self.bufnr].filetype = ""
+      local flat_lines = require("eda.render.flatten").flatten(self.store, node.id)
+      local ctx = { store = self.store, git_status = git_status, config = cfg }
+      local decorations = self.decorator_chain:decorate(flat_lines, ctx)
 
-  local cfg = require("eda.config").get()
-  local root = self.store:get(self.store.root_id)
-  local git_status = root and require("eda.git").get_cached(root.path) or nil
-
-  local flat_lines = require("eda.render.flatten").flatten(self.store, node.id)
-  local ctx = { store = self.store, git_status = git_status, config = cfg }
-  local decorations = self.decorator_chain:decorate(flat_lines, ctx)
-
-  self.painter:paint(flat_lines, decorations, {
-    root_path = nil,
-    header = false,
-    kind = "preview",
-    icon = cfg.icon,
+      self.painter:paint(flat_lines, decorations, {
+        root_path = nil,
+        header = false,
+        kind = "preview",
+        icon = cfg.icon,
+      })
+    end,
   })
-
-  self:_open_or_reuse_window(layout)
-
-  if self._current_target ~= node.id then
-    self._current_target = node.id
-    if util.is_valid_win(self.winid) then
-      vim.api.nvim_win_set_cursor(self.winid, { 1, 0 })
-    end
-  end
 end
 
 ---Close the preview window.

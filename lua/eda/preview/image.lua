@@ -18,10 +18,11 @@ function M.is_image(path)
   return convert.supports(path)
 end
 
+---Replace the buffer content with a short description of `path` and `note`.
 ---@param bufnr integer
 ---@param path string
 ---@param note string
-local function describe(bufnr, path, note)
+function M.describe(bufnr, path, note)
   local stat = vim.uv.fs_stat(path)
   local lines = { "Image: " .. vim.fn.fnamemodify(path, ":t") }
   if stat then
@@ -104,7 +105,7 @@ function M.render(bufnr, winid, path, is_current)
       return
     end
     if not term.supported then
-      describe(bufnr, path, "Terminal does not support the Kitty graphics protocol.")
+      M.describe(bufnr, path, "Terminal does not support the Kitty graphics protocol.")
       return
     end
     convert.to_png(path, function(err, png_path)
@@ -112,13 +113,13 @@ function M.render(bufnr, winid, path, is_current)
         return
       end
       if err or not png_path then
-        describe(bufnr, path, err or "Conversion failed.")
+        M.describe(bufnr, path, err or "Conversion failed.")
         return
       end
       local bytes = read_file(png_path)
       local dims = bytes and convert.png_size(bytes)
       if not bytes or not dims then
-        describe(bufnr, path, "Could not read PNG header.")
+        M.describe(bufnr, path, "Could not read PNG header.")
         return
       end
       terminal.ensure_passthrough()
@@ -149,6 +150,25 @@ function M.reposition(bufnr, winid)
   if not kitty.update(entry.id, geometry(winid, entry.dims)) then
     entries[bufnr] = nil
   end
+end
+
+---Hide every image while `winid` (a dialog drawn over the preview) is open and
+---bring them back when it closes, whichever code path closes it.
+---@param winid integer
+function M.hide_for_window(winid)
+  if not vim.api.nvim_win_is_valid(winid) then
+    return
+  end
+  ensure_autocmds()
+  kitty.hide_all(winid)
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = "eda_image_preview",
+    pattern = tostring(winid),
+    once = true,
+    callback = function()
+      kitty.show_all(winid)
+    end,
+  })
 end
 
 ---Forget every tracked placement and registered autocmd. Test seam.
