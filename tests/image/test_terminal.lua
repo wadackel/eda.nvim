@@ -201,7 +201,7 @@ T["detect"]["enables tmux passthrough before querying the terminal"] = function(
   vim.api.nvim_list_uis, vim.fn.system, terminal.is_tmux, terminal.writer =
     saved.uis, saved.system, saved.is_tmux, saved.writer
   terminal._reset()
-  MiniTest.expect.equality(order[1], "tmux set -p allow-passthrough on")
+  MiniTest.expect.equality(order[1], "tmux set -p allow-passthrough all")
   MiniTest.expect.equality(order[2] ~= nil and order[2]:find("\27[>q", 1, true) ~= nil, true)
 end
 

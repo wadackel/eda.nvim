@@ -482,7 +482,7 @@ detection do not apply to directory previews.
 
 Image files (`png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`) are rendered in the
 preview pane using the Kitty graphics protocol on terminals that support it
-(kitty, Ghostty, WezTerm). Inside tmux, eda sets `allow-passthrough` to `on`
+(kitty, Ghostty, WezTerm). Inside tmux, eda sets `allow-passthrough` to `all`
 for the pane on the first image preview (the setting stays with the pane) and
 accounts for pane and status line offsets. Formats other
 than PNG, and PNGs larger than 2048px on a side, require ImageMagick (`magick`)
@@ -497,8 +497,10 @@ Known limitations of image preview:
 - Images are placed by cursor position, above everything Neovim draws. Only the
   confirm and help dialogs hide the image while open; other floats,
   notifications, or popups overlapping the preview area are covered by it.
-- Inside tmux, an image stays on screen when you switch to another pane unless
-  tmux has `focus-events on`, which lets eda hide it on `FocusLost`.
+- Inside tmux, an image stays on screen when you switch to another pane or
+  window unless tmux has `focus-events on`, which lets eda hide it on
+  `FocusLost`. The pane's `allow-passthrough all` is what lets that removal
+  through once the pane is no longer visible.
 - Support is detected by asking the terminal directly: eda sends the Kitty
   graphics capability query (and an XTVERSION query as a fast path for kitty,
   Ghostty, and WezTerm) and waits up to one second for an answer, so any
