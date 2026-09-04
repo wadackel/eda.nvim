@@ -177,6 +177,78 @@ T["is_remote"]["is true when any SSH variable is set"] = function()
   end
 end
 
+-- Runs `fn` as if inside a tmux pane whose `tmux show-environment` prints `out`,
+-- collecting every tmux invocation in the returned list
+local function with_tmux_environment(out, fn)
+  local saved_is_tmux, saved_system = terminal.is_tmux, vim.fn.system
+  local calls = {}
+  terminal.is_tmux = function()
+    return true
+  end
+  vim.fn.system = function(cmd)
+    calls[#calls + 1] = cmd
+    return out
+  end
+  local ok, err = pcall(without_ssh, function()
+    fn(calls)
+  end)
+  terminal.is_tmux = saved_is_tmux
+  vim.fn.system = saved_system
+  terminal._reset()
+  if not ok then
+    error(err, 0)
+  end
+end
+
+T["is_remote"]["is true when the tmux session environment carries SSH_CONNECTION"] = function()
+  with_tmux_environment("SSH_CONNECTION=10.0.0.1 52000 10.0.0.2 22\n", function(calls)
+    MiniTest.expect.equality(terminal.is_remote(), true)
+    MiniTest.expect.equality(#calls, 1)
+    MiniTest.expect.equality(calls[1][1], "tmux")
+    MiniTest.expect.equality(calls[1][2], "show-environment")
+    MiniTest.expect.equality(calls[1][#calls[1]], "SSH_CONNECTION")
+  end)
+end
+
+T["is_remote"]["is false when tmux reports SSH_CONNECTION as removed or unknown"] = function()
+  with_tmux_environment("-SSH_CONNECTION\n", function()
+    MiniTest.expect.equality(terminal.is_remote(), false)
+  end)
+  with_tmux_environment("unknown variable: SSH_CONNECTION\n", function()
+    MiniTest.expect.equality(terminal.is_remote(), false)
+  end)
+end
+
+T["is_remote"]["asks tmux once per event-loop tick"] = function()
+  with_tmux_environment("SSH_CONNECTION=10.0.0.1 52000 10.0.0.2 22\n", function(calls)
+    terminal.is_remote()
+    terminal.is_remote()
+    MiniTest.expect.equality(#calls, 1)
+  end)
+end
+
+T["is_remote"]["does not ask tmux outside a tmux pane"] = function()
+  local saved_is_tmux, saved_system = terminal.is_tmux, vim.fn.system
+  local called = false
+  terminal.is_tmux = function()
+    return false
+  end
+  vim.fn.system = function()
+    called = true
+    return "SSH_CONNECTION=10.0.0.1 52000 10.0.0.2 22\n"
+  end
+  local ok, err = pcall(without_ssh, function()
+    MiniTest.expect.equality(terminal.is_remote(), false)
+  end)
+  terminal.is_tmux = saved_is_tmux
+  vim.fn.system = saved_system
+  terminal._reset()
+  if not ok then
+    error(err, 0)
+  end
+  MiniTest.expect.equality(called, false)
+end
+
 T["write"] = MiniTest.new_set()
 
 T["write"]["falls back to io.write and flushes when nvim_ui_send is unavailable"] = function()

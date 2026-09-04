@@ -50,7 +50,7 @@ function M.check()
     elseif image_cfg.transmission == "file" then
       vim.health.info("image transmission: file path (configured); " .. remediation)
     elseif require("eda.image.terminal").is_remote() then
-      vim.health.info("image transmission: direct (SSH environment detected)")
+      vim.health.info("image transmission: direct (SSH session detected)")
     else
       vim.health.info("image transmission: file path (t=f); " .. remediation)
     end
