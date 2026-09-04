@@ -6,8 +6,11 @@ local M = {}
 M.cache_dir = vim.fn.stdpath("cache") .. "/eda/image"
 M.cache_limit = 50
 
--- Bounds the transmitted payload: the preview pane never needs more pixels than this.
-local MAX_SIDE = 2048
+-- Hard cap on either axis: bounds the payload of a direct transmission and is the
+-- most a PNG may measure to be shown unconverted when magick is unavailable.
+M.max_side = 2048
+-- Pane-derived bounds round up to this step so small resizes reuse one cache entry
+local BOUND_STEP = 256
 -- Files this young may still be in use by another Neovim instance; never prune them.
 local FRESH_SECONDS = 60
 local CONVERT_TIMEOUT_MS = 10000
@@ -70,48 +73,87 @@ local function converter_for(path)
   return converters[extension(path) or ""] or magick("png")
 end
 
+---@return eda.image.Size
+local function cap()
+  return { width = M.max_side, height = M.max_side }
+end
+
+---Pixel bound for a preview area of `size` pixels: each axis rounded up to a
+---multiple of `BOUND_STEP` and limited to `max_px`, which defaults to `max_side`.
+---That limit only matters when the bytes travel over the tty; a file-path
+---transmission passes `math.huge` so a pane wider than it is still filled.
+---@param size eda.image.Size
+---@param max_px? number
+---@return eda.image.Size
+function M.bound_for(size, max_px)
+  max_px = max_px or M.max_side
+  local function quantize(px)
+    return math.min(max_px, math.max(BOUND_STEP, math.ceil(px / BOUND_STEP) * BOUND_STEP))
+  end
+  return { width = quantize(size.width), height = quantize(size.height) }
+end
+
 ---@param src string
 ---@param part string temporary output path
+---@param bound? eda.image.Size pixels the output must fit; defaults to the cap
 ---@return string[] argv
-function M.command_for(src, part)
+function M.command_for(src, part, bound)
+  bound = bound or cap()
   local converter = converter_for(src)
   local argv = { converter.executable }
   vim.list_extend(argv, RESOURCE_LIMITS)
+  if converter.coder == "jpeg" then
+    -- libjpeg can decode straight to a fraction of the full size; without the hint a
+    -- 12 MP photo is decoded in full only to be thrown away by -resize
+    vim.list_extend(argv, { "-define", string.format("jpeg:size=%dx%d", bound.width, bound.height) })
+  end
   -- The input coder is pinned to the validated extension: ImageMagick otherwise
   -- sniffs the format from the bytes, and a renamed PostScript/PDF file would
   -- reach a delegate. `[0]` keeps only the first frame; `png:` forces the encoder.
+  -- Default PNG compression spends most of the conversion time for ~15% smaller
+  -- files. With file-path transmission the bytes never cross the tty, and for a
+  -- direct transmission the conversion time still outweighs the larger payload.
   vim.list_extend(argv, {
     string.format("%s:%s[0]", converter.coder, src),
     "-resize",
-    string.format("%dx%d>", MAX_SIDE, MAX_SIDE),
+    string.format("%dx%d>", bound.width, bound.height),
+    "-define",
+    "png:compression-level=1",
     "png:" .. part,
   })
   return argv
 end
 
+---Dimensions of the PNG at `path`, read from its header alone.
 ---@param path string
----@param n integer
----@return string?
-local function read_head(path, n)
+---@return eda.image.Size?
+function M.png_size_of(path)
   local f = io.open(path, "rb")
   if not f then
     return nil
   end
-  local data = f:read(n)
+  local head = f:read(24)
   f:close()
-  return data
+  return M.png_size(head or "")
+end
+
+---@param dims eda.image.Size?
+---@param bound eda.image.Size
+---@return boolean
+local function exceeds(dims, bound)
+  return dims == nil or dims.width > bound.width or dims.height > bound.height
 end
 
 ---True when the file must go through ImageMagick: any non-PNG format, or a PNG
----larger than the payload bound.
+---larger than `bound` (the cap when omitted).
 ---@param path string
+---@param bound? eda.image.Size
 ---@return boolean
-function M.needs_magick(path)
+function M.needs_magick(path, bound)
   if extension(path) ~= "png" then
     return true
   end
-  local dims = M.png_size(read_head(path, 24) or "")
-  return dims == nil or dims.width > MAX_SIDE or dims.height > MAX_SIDE
+  return exceeds(M.png_size_of(path), bound or cap())
 end
 
 ---Delete the oldest cached PNGs beyond `cache_limit`, skipping recent ones.
@@ -142,17 +184,29 @@ function M.prune()
   end
 end
 
----Produce a PNG for `path` that fits the payload bound, converting through
----`magick` into the cache directory when needed. Calls back on the main loop.
+---Produce a PNG for `path` that fits `bound`, converting through `magick` into
+---the cache directory when needed. Calls back on the main loop.
 ---@param path string
+---@param bound? eda.image.Size pixels the result must fit; defaults to the cap
 ---@param cb fun(err: string?, png_path: string?)
-function M.to_png(path, cb)
-  if not M.needs_magick(path) then
+function M.to_png(path, bound, cb)
+  bound = bound or cap()
+  if not M.needs_magick(path, bound) then
     return cb(nil, path)
   end
   if vim.fn.executable(converter_for(path).executable) ~= 1 then
     if extension(path) == "png" then
-      return cb("Image is larger than 2048px on its longest side; install ImageMagick (magick) to downscale it.")
+      -- Larger than the pane but within the cap: the terminal scales it, so a
+      -- missing magick is not a failure here
+      if not exceeds(M.png_size_of(path), cap()) then
+        return cb(nil, path)
+      end
+      return cb(
+        string.format(
+          "Image is larger than %dpx on its longest side; install ImageMagick (magick) to downscale it.",
+          M.max_side
+        )
+      )
     end
     return cb("Install ImageMagick (magick) to preview this format.")
   end
@@ -163,7 +217,7 @@ function M.to_png(path, cb)
   -- Converted previews may hold sensitive content; keep them private to the user
   vim.fn.mkdir(M.cache_dir, "p")
   vim.fn.setfperm(M.cache_dir, "rwx------")
-  local key = vim.fn.sha256(string.format("%s:%d:%d", path, stat.mtime.sec, stat.size))
+  local key = vim.fn.sha256(string.format("%s:%d:%d:%dx%d", path, stat.mtime.sec, stat.size, bound.width, bound.height))
   local out = M.cache_dir .. "/" .. key .. ".png"
   if vim.uv.fs_stat(out) then
     return cb(nil, out)
@@ -171,7 +225,7 @@ function M.to_png(path, cb)
   -- Other Neovim instances read this directory; write to a private part file and
   -- rename so a reader never sees a half-written PNG.
   local part = out .. ".part-" .. vim.uv.os_getpid()
-  vim.system(M.command_for(path, part), { text = true, timeout = CONVERT_TIMEOUT_MS }, function(res)
+  vim.system(M.command_for(path, part, bound), { text = true, timeout = CONVERT_TIMEOUT_MS }, function(res)
     vim.schedule(function()
       if res.code ~= 0 then
         vim.uv.fs_unlink(part)

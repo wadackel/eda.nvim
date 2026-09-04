@@ -14,7 +14,18 @@ end
 
 -- Header-only PNG: enough for dimension parsing, and the NUL bytes exercise the
 -- legacy is_binary() rejection that images must bypass.
-local FAKE_PNG = "\137PNG\r\n\26\n" .. u32(13) .. "IHDR" .. u32(400) .. u32(300) .. "\8\6\0\0\0" .. string.rep("\0", 32)
+-- Padded well past one 4 KiB base64 chunk so a direct transmission is visibly larger
+-- than a file-path one; every case only parses the 24-byte header. 400x300 stays
+-- under the pane-derived conversion bound (at least 256 per axis, and with the
+-- 10x20 cell stub even the default 80x24 screen yields 768x512), so the source
+-- path reaches the terminal unconverted and the payload assertions hold.
+local FAKE_PNG = "\137PNG\r\n\26\n"
+  .. u32(13)
+  .. "IHDR"
+  .. u32(400)
+  .. u32(300)
+  .. "\8\6\0\0\0"
+  .. string.rep("\0", 8192)
 
 local captured
 local saved = {}
@@ -26,12 +37,17 @@ local function stub_terminal(opts)
   saved.offset = terminal.tmux_offset
   saved.cell_size = terminal.cell_size
   saved.is_tmux = terminal.is_tmux
+  saved.is_remote = terminal.is_remote
   captured = {}
   terminal.writer = function(data)
     captured[#captured + 1] = data
   end
   terminal.is_tmux = function()
     return false
+  end
+  -- Always stubbed: the developer's own SSH session must not change the medium under test
+  terminal.is_remote = function()
+    return opts.remote == true
   end
   terminal.detect = function(cb)
     if opts.defer_detect then
@@ -54,6 +70,7 @@ local function restore_terminal()
   terminal.tmux_offset = saved.offset
   terminal.cell_size = saved.cell_size
   terminal.is_tmux = saved.is_tmux
+  terminal.is_remote = saved.is_remote
   if saved.to_png then
     convert.to_png = saved.to_png
     saved.to_png = nil
@@ -64,6 +81,15 @@ local function restore_terminal()
     saved.screen = nil
   end
   kitty._reset()
+  image._reset()
+end
+
+local function spinner_marks(bufnr)
+  local ns = vim.api.nvim_get_namespaces()["eda_image_preview_hl"]
+  if not ns then
+    return {}
+  end
+  return vim.api.nvim_buf_get_extmarks(bufnr, ns, 0, -1, { details = true })
 end
 
 local function find(pattern)
@@ -73,6 +99,16 @@ local function find(pattern)
     end
   end
   return nil
+end
+
+local function count(pattern)
+  local n = 0
+  for _, chunk in ipairs(captured) do
+    if chunk:find(pattern, 1, true) then
+      n = n + 1
+    end
+  end
+  return n
 end
 
 local function open_filer_split(cfg)
@@ -102,11 +138,13 @@ local function buf_lines(p)
   return vim.api.nvim_buf_get_lines(p.bufnr, 0, -1, false)
 end
 
-local function setup_preview()
+---@param image_cfg? table overrides for `preview.image`
+local function setup_preview(image_cfg)
   config.setup()
   local cfg = config.get()
   cfg.preview.enabled = true
   cfg.preview.max_file_size = 10
+  cfg.preview.image = vim.tbl_extend("force", cfg.preview.image, image_cfg or {})
   local p = Preview.new(cfg.preview)
   local temp_dir = helpers.create_temp_dir()
   local png = temp_dir .. "/photo.png"
@@ -167,6 +205,8 @@ T["Preview"]["unsupported terminal shows a text description"] = function()
     true
   )
   MiniTest.expect.equality(#captured, 0)
+  MiniTest.expect.equality(image._is_loading(p.bufnr), false)
+  MiniTest.expect.equality(#spinner_marks(p.bufnr), 0)
   teardown_preview(p, env)
 end
 
@@ -199,6 +239,71 @@ T["Preview"]["supported terminal transmits and places the image inside the previ
     { c = "40", r = "15", x = "0", y = "0", w = "400", h = "300" }
   )
   MiniTest.expect.equality(buf_lines(p), { "" })
+  teardown_preview(p, env)
+end
+
+-- Control keys and payload of the first transmission command in `captured`
+local function transmission()
+  local chunk = assert(find("a=t"), "no transmission command captured")
+  local keys = {}
+  for key, value in chunk:match("\27_G([^;\27]*)"):gmatch("(%w+)=([^,]*)") do
+    keys[key] = value
+  end
+  return keys, chunk:match(";(.-)\27\\$")
+end
+
+T["Preview"]["same host sends the PNG path instead of its bytes"] = function()
+  stub_terminal()
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  local keys, payload = transmission()
+  MiniTest.expect.equality(keys.t, "f")
+  MiniTest.expect.equality(payload, vim.base64.encode(env.png))
+  MiniTest.expect.equality(count("a=t"), 1)
+  MiniTest.expect.equality(#table.concat(captured) < #FAKE_PNG, true)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["SSH environment falls back to transmitting the bytes"] = function()
+  stub_terminal({ remote = true })
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  local keys, payload = transmission()
+  MiniTest.expect.equality(keys.t, nil)
+  MiniTest.expect.equality(payload, vim.base64.encode(FAKE_PNG):sub(1, 4096))
+  MiniTest.expect.equality(#table.concat(captured) > #FAKE_PNG, true)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["transmission = direct forces the bytes on the same host"] = function()
+  stub_terminal()
+  local p, env = setup_preview({ transmission = "direct" })
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  local keys, payload = transmission()
+  MiniTest.expect.equality(keys.t, nil)
+  MiniTest.expect.equality(payload, vim.base64.encode(FAKE_PNG):sub(1, 4096))
+  teardown_preview(p, env)
+end
+
+T["Preview"]["transmission = file overrides the SSH heuristic"] = function()
+  stub_terminal({ remote = true })
+  local p, env = setup_preview({ transmission = "file" })
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  local keys, payload = transmission()
+  MiniTest.expect.equality(keys.t, "f")
+  MiniTest.expect.equality(payload, vim.base64.encode(env.png))
   teardown_preview(p, env)
 end
 
@@ -265,10 +370,154 @@ T["Preview"]["stale detection callback does not place over a newer text preview"
   teardown_preview(p, env)
 end
 
+T["Preview"]["shows a loading note until the image is placed"] = function()
+  stub_terminal({ defer_detect = true })
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return saved.pending_detect ~= nil
+  end)
+  MiniTest.expect.equality(buf_lines(p)[1], "Image: photo.png")
+  MiniTest.expect.equality(vim.tbl_contains(buf_lines(p), "Loading..."), true)
+  saved.pending_detect({ supported = true, name = "stub" })
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  -- text left under a placement would show wherever the image does not cover the window
+  MiniTest.expect.equality(buf_lines(p), { "" })
+  -- an inline virt_text mark survives the line deletion and would sit beside the image
+  MiniTest.expect.equality(#spinner_marks(p.bufnr), 0)
+  MiniTest.expect.equality(image._is_loading(p.bufnr), false)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["loading note carries a spinner glyph that advances on tick"] = function()
+  local spinner = require("eda.spinner")
+  stub_terminal({ defer_detect = true })
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return saved.pending_detect ~= nil
+  end)
+  MiniTest.expect.equality(image._is_loading(p.bufnr), true)
+  local marks = spinner_marks(p.bufnr)
+  MiniTest.expect.equality(#marks, 1)
+  MiniTest.expect.equality(marks[1][2], #buf_lines(p) - 1)
+  MiniTest.expect.equality(marks[1][4].virt_text[1], { spinner.frames[1] .. " ", "EdaPreviewSpinner" })
+  image._tick_loading(p.bufnr)
+  marks = spinner_marks(p.bufnr)
+  MiniTest.expect.equality(#marks, 1)
+  MiniTest.expect.equality(marks[1][4].virt_text[1][1], spinner.frames[2] .. " ")
+  -- the text itself stays plain; the glyph lives in virtual text only
+  MiniTest.expect.equality(vim.tbl_contains(buf_lines(p), "Loading..."), true)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["switching to a text file while loading stops the spinner"] = function()
+  stub_terminal({ defer_detect = true })
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return saved.pending_detect ~= nil
+  end)
+  local image_buf = p.bufnr
+  p:show(env.txt)
+  helpers.wait_for(1000, function()
+    return buf_lines(p)[1] == "hello"
+  end)
+  MiniTest.expect.equality(image._is_loading(image_buf), false)
+  MiniTest.expect.equality(#spinner_marks(p.bufnr), 0)
+  saved.pending_detect({ supported = true, name = "stub" })
+  MiniTest.expect.equality(find("a=p"), nil)
+  MiniTest.expect.equality(image._is_loading(p.bufnr), false)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["conversion is bounded by the preview pane size"] = function()
+  stub_terminal()
+  saved.screen = { vim.o.columns, vim.o.lines }
+  vim.o.columns, vim.o.lines = 120, 40
+  saved.to_png = convert.to_png
+  local seen_bound
+  convert.to_png = function(path, bound, cb)
+    seen_bound = bound
+    return saved.to_png(path, bound, cb)
+  end
+  local p, env = setup_preview()
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  local expected = convert.bound_for({
+    width = vim.api.nvim_win_get_width(p.winid) * 10,
+    height = vim.api.nvim_win_get_height(p.winid) * 20,
+  })
+  MiniTest.expect.equality(seen_bound, expected)
+  teardown_preview(p, env)
+end
+
+-- Bound handed to convert.to_png for a preview opened on a `columns` x `lines` screen
+local function bound_seen(image_cfg, columns, lines)
+  saved.screen = { vim.o.columns, vim.o.lines }
+  vim.o.columns, vim.o.lines = columns, lines
+  saved.to_png = convert.to_png
+  local seen
+  convert.to_png = function(path, bound, cb)
+    seen = bound
+    return saved.to_png(path, bound, cb)
+  end
+  local p, env = setup_preview(image_cfg)
+  p:show(env.png)
+  helpers.wait_for(1000, function()
+    return find("a=p") ~= nil
+  end)
+  local width = vim.api.nvim_win_get_width(p.winid)
+  teardown_preview(p, env)
+  return seen, width
+end
+
+T["Preview"]["file transmission is bounded by the pane alone, direct transmission also by the payload cap"] = function()
+  stub_terminal()
+  -- 400 columns at 10 px per cell: the preview pane is far wider than 2048 px
+  local file_bound, width = bound_seen(nil, 400, 60)
+  MiniTest.expect.equality(width * 10 > convert.max_side, true)
+  MiniTest.expect.equality(file_bound.width > convert.max_side, true)
+  MiniTest.expect.equality(file_bound.width, convert.bound_for({ width = width * 10, height = 1 }, math.huge).width)
+  restore_terminal()
+  stub_terminal()
+  local direct_bound = bound_seen({ transmission = "direct" }, 400, 60)
+  MiniTest.expect.equality(direct_bound.width, convert.max_side)
+end
+
+T["Preview"]["PNG larger than the pane but within the cap is shown as-is without ImageMagick"] = function()
+  stub_terminal()
+  local saved_executable = vim.fn.executable
+  vim.fn.executable = function()
+    return 0
+  end
+  local p, env = setup_preview()
+  local mid = env.dir .. "/mid.png"
+  helpers.create_file(mid, "\137PNG\r\n\26\n" .. u32(13) .. "IHDR" .. u32(1500) .. u32(100) .. "\8\6\0\0\0")
+  local ok, err = pcall(function()
+    p:show(mid)
+    helpers.wait_for(1000, function()
+      return find("a=p") ~= nil
+    end)
+  end)
+  vim.fn.executable = saved_executable
+  if not ok then
+    error(err, 0)
+  end
+  local keys, payload = transmission()
+  MiniTest.expect.equality(keys.t, "f")
+  MiniTest.expect.equality(payload, vim.base64.encode(mid))
+  teardown_preview(p, env)
+end
+
 T["Preview"]["non-PNG without ImageMagick shows a hint"] = function()
   stub_terminal()
   saved.to_png = convert.to_png
-  convert.to_png = function(_, cb)
+  convert.to_png = function(_, _, cb)
     cb("magick not found")
   end
   local p, env = setup_preview()

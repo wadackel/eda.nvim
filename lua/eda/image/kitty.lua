@@ -17,6 +17,10 @@ local CHUNK_SIZE = 4096
 ---@field image_id integer
 ---@field opts eda.image.PlacementOpts
 
+---@class eda.image.ImageSource
+---@field data? string PNG bytes, sent inline in base64 chunks
+---@field filename? string absolute path to a PNG the terminal reads itself (same host only)
+
 -- The pid keeps ids from colliding with other Neovim instances sharing the
 -- terminal; math.random alone is seeded identically in every LuaJIT process.
 local next_id = 1000 + (vim.uv.os_getpid() * 977) % 900000
@@ -90,15 +94,28 @@ local function ensure_autocmds()
   })
 end
 
----Transmit PNG bytes and display them.
----@param bytes string
+---Hand the terminal a path to read instead of the bytes. No `m` key: Ghostty
+---ignores it for non-direct media, and WezTerm rejects a file datum that lands in
+---its chunk accumulator.
+---@param image_id integer
+---@param filename string
+local function transmit_file(image_id, filename)
+  terminal.write(command({ a = "t", t = "f", f = 100, i = image_id, q = 2 }, vim.base64.encode(filename)))
+end
+
+---Transmit an image and display it.
+---@param source eda.image.ImageSource
 ---@param opts eda.image.PlacementOpts
 ---@return integer id
-function M.set(bytes, opts)
+function M.set(source, opts)
   ensure_autocmds()
   local id = next_id
   next_id = next_id + 1
-  transmit(id, bytes)
+  if source.filename then
+    transmit_file(id, source.filename)
+  else
+    transmit(id, assert(source.data, "image source needs data or filename"))
+  end
   local entry = { image_id = id, opts = vim.deepcopy(opts) }
   state[id] = entry
   if not is_hidden() then

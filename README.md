@@ -268,6 +268,8 @@ require("eda").setup({
       enabled = true,
       -- Maximum image file size in bytes; larger images show a text description instead
       max_file_size = 10485760,
+      -- "auto": file path on the same host, byte stream over SSH; "file" / "direct": force either medium
+      transmission = "auto",
     },
   },
 

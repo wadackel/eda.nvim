@@ -35,10 +35,25 @@ function M.check()
   if vim.fn.executable("magick") == 1 then
     vim.health.ok("magick found (JPEG/GIF/WebP/BMP previews are converted to PNG)")
   else
-    vim.health.info("magick not found (only PNG files can be previewed as images)")
+    vim.health.info(
+      "magick not found (PNG files up to 2048px on a side are previewed as-is; other formats need ImageMagick)"
+    )
   end
   if vim.env.TMUX then
     vim.health.info("running inside tmux (allow-passthrough is enabled for the pane on first image preview)")
+  end
+  local image_cfg = type(cfg.preview) == "table" and cfg.preview.image
+  if type(image_cfg) == "table" and image_cfg.enabled then
+    local remediation = 'set preview.image.transmission = "direct" if the preview stays blank'
+    if image_cfg.transmission == "direct" then
+      vim.health.info("image transmission: direct (configured)")
+    elseif image_cfg.transmission == "file" then
+      vim.health.info("image transmission: file path (configured); " .. remediation)
+    elseif require("eda.image.terminal").is_remote() then
+      vim.health.info("image transmission: direct (SSH environment detected)")
+    else
+      vim.health.info("image transmission: file path (t=f); " .. remediation)
+    end
   end
 
   -- Registered actions

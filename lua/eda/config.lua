@@ -95,6 +95,7 @@ local M = {}
 ---@class eda.PreviewImageConfig
 ---@field enabled boolean
 ---@field max_file_size integer
+---@field transmission "auto"|"file"|"direct"
 
 ---@class eda.PreviewConfig
 ---@field enabled boolean
@@ -220,6 +221,7 @@ local defaults = {
     image = {
       enabled = true,
       max_file_size = 10 * 1024 * 1024,
+      transmission = "auto",
     },
   },
 

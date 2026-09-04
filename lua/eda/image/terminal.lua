@@ -114,6 +114,16 @@ function M.env_hint()
   return nil
 end
 
+---True when Neovim appears to run on a different host than the terminal, so a
+---file path sent to the terminal would not resolve there. Inside tmux the pane's
+---environment reflects the client that created it, not a later attach over SSH;
+---asking `tmux show-environment` on every render would add a fork for that one
+---case and could not be cached, since the answer changes exactly at re-attach.
+---@return boolean
+function M.is_remote()
+  return vim.env.SSH_TTY ~= nil or vim.env.SSH_CONNECTION ~= nil or vim.env.SSH_CLIENT ~= nil
+end
+
 local detected ---@type eda.image.Terminal?
 local pending ---@type fun(term: eda.image.Terminal)[]?
 local detect_timer ---@type uv.uv_timer_t?

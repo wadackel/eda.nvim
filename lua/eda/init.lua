@@ -123,6 +123,7 @@ local highlight_groups = {
   EdaInspectValueMuted = { link = "Comment" },
   EdaInspectError = { link = "DiagnosticError" },
   EdaInspectSpinner = { link = "Comment" },
+  EdaPreviewSpinner = { link = "Comment" },
   EdaFullNameNormal = { link = "EdaCursorLine" },
 }
 
