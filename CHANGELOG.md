@@ -1,5 +1,20 @@
 # Changelog
 
+## [1.7.0](https://github.com/wadackel/eda.nvim/compare/v1.6.0...v1.7.0) (2026-09-04)
+
+
+### Features
+
+* image preview via the Kitty graphics protocol ([#50](https://github.com/wadackel/eda.nvim/issues/50)) ([be53ab4](https://github.com/wadackel/eda.nvim/commit/be53ab4d19f8cfcabe82570faa976dd62dca31af))
+* **image:** transmit previews by file path, animate loading, size conversions to the pane ([#54](https://github.com/wadackel/eda.nvim/issues/54)) ([e49161a](https://github.com/wadackel/eda.nvim/commit/e49161a079e72528609c580c3cce212551f4872e))
+
+
+### Bug Fixes
+
+* **image:** allow tmux passthrough from hidden panes so images are removed ([#53](https://github.com/wadackel/eda.nvim/issues/53)) ([b76eb16](https://github.com/wadackel/eda.nvim/commit/b76eb1639d662d1d3f141af837f70bafb3b603c0))
+* **image:** detect an SSH client attached to a local tmux server ([#55](https://github.com/wadackel/eda.nvim/issues/55)) ([fded724](https://github.com/wadackel/eda.nvim/commit/fded724894256859bb57123e116652e96dcbb912))
+* **image:** send both cell axes and a source crop so large images stay inside the preview ([#52](https://github.com/wadackel/eda.nvim/issues/52)) ([afa1b15](https://github.com/wadackel/eda.nvim/commit/afa1b15f732d15f7709aa81c10f2087b9188eda4))
+
 ## [1.6.0](https://github.com/wadackel/eda.nvim/compare/v1.5.0...v1.6.0) (2026-05-28)
 
 
