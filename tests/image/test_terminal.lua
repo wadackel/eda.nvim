@@ -142,6 +142,41 @@ T["is_tmux"]["is false without a UI even when TMUX is inherited"] = function()
   terminal._reset()
 end
 
+T["is_remote"] = MiniTest.new_set()
+
+local SSH_VARS = { "SSH_TTY", "SSH_CONNECTION", "SSH_CLIENT" }
+
+-- Runs `fn` with every SSH variable cleared, restoring the developer's own values afterwards
+local function without_ssh(fn)
+  local saved = {}
+  for _, name in ipairs(SSH_VARS) do
+    saved[name] = vim.env[name]
+    vim.env[name] = nil
+  end
+  local ok, err = pcall(fn)
+  for _, name in ipairs(SSH_VARS) do
+    vim.env[name] = saved[name]
+  end
+  if not ok then
+    error(err, 0)
+  end
+end
+
+T["is_remote"]["is false when no SSH variable is set"] = function()
+  without_ssh(function()
+    MiniTest.expect.equality(terminal.is_remote(), false)
+  end)
+end
+
+T["is_remote"]["is true when any SSH variable is set"] = function()
+  for _, name in ipairs(SSH_VARS) do
+    without_ssh(function()
+      vim.env[name] = "10.0.0.1 52000 10.0.0.2 22"
+      MiniTest.expect.equality(terminal.is_remote(), true, name)
+    end)
+  end
+end
+
 T["write"] = MiniTest.new_set()
 
 T["write"]["falls back to io.write and flushes when nvim_ui_send is unavailable"] = function()

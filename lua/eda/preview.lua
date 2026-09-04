@@ -183,13 +183,13 @@ function Preview:_show_image(path, stat)
 
   self:_present(path, {
     fill = function(bufnr)
-      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
       vim.bo[bufnr].filetype = ""
+      image.loading(bufnr, path)
     end,
     after = function(bufnr, winid)
       image.render(bufnr, winid, path, function()
         return self._pending_target == path and self.bufnr == bufnr and self.winid == winid
-      end)
+      end, { transmission = self.config.image.transmission })
     end,
   })
 end

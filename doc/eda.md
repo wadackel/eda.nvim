@@ -87,6 +87,7 @@ require("eda").setup({
     image = {
       enabled = true,
       max_file_size = 10485760,
+      transmission = "auto",
     },
   },
 
@@ -472,11 +473,20 @@ detection do not apply to directory previews.
     binary file and the pane closes.
   - `max_file_size` `integer` (default: `10485760`) — Maximum image file size
     in bytes. Larger images show a text description instead of being rendered.
+    With file-path transmission (see `transmission`) this bounds the conversion
+    and decoding work rather than the amount of data written to the terminal.
+  - `transmission` `"auto"|"file"|"direct"` (default: `"auto"`) — How the PNG
+    reaches the terminal. `"file"` sends only the file path and lets the
+    terminal read the PNG itself, which keeps Neovim responsive for large
+    images but requires the terminal and Neovim to share a filesystem.
+    `"direct"` streams the image bytes through the tty and works over SSH.
+    `"auto"` picks `"file"` unless an SSH session is detected via `SSH_TTY`,
+    `SSH_CONNECTION`, or `SSH_CLIENT`.
 
   ```lua
   preview = {
     enabled = true,
-    image = { enabled = true, max_file_size = 5 * 1024 * 1024 },
+    image = { enabled = true, max_file_size = 5 * 1024 * 1024, transmission = "auto" },
   },
   ```
 
@@ -485,12 +495,20 @@ preview pane using the Kitty graphics protocol on terminals that support it
 (kitty, Ghostty, WezTerm). Inside tmux, eda sets `allow-passthrough` to `all`
 for the pane on the first image preview (the setting stays with the pane) and
 accounts for pane and status line offsets. Formats other
-than PNG, and PNGs larger than 2048px on a side, require ImageMagick (`magick`)
-and are converted into `stdpath("cache")/eda/image` (the newest 50 conversions
-are kept). On unsupported terminals, or when conversion is not possible, the
-pane shows the file name, size, and the reason instead. `max_file_size` and
-binary detection do not apply to image files; `image.max_file_size` does. Run
-`:checkhealth eda` to check the prerequisites.
+than PNG, and PNGs larger than the preview pane (measured in terminal pixels
+and rounded up to 256px steps; direct transmission additionally caps each side
+at 2048px), require ImageMagick (`magick`) and are converted into
+`stdpath("cache")/eda/image` (the newest 50 conversions are kept). Without
+ImageMagick, PNGs up to 2048px on a side are still shown and scaled by the
+terminal. While detection or conversion is running the pane shows the file
+name, size, and an animated loading note. On unsupported terminals, or when conversion is
+not possible, the pane shows the reason instead. `max_file_size` and
+binary detection do not apply to image files; `image.max_file_size` does. On
+the same host the PNG is handed to the terminal as a file path (Kitty medium
+`t=f`), so only the path travels over the tty and Neovim stays responsive while
+the terminal loads a large image; over SSH the bytes are streamed instead. Run
+`:checkhealth eda` to check the prerequisites and see which transmission is in
+effect.
 
 Known limitations of image preview:
 
@@ -511,6 +529,15 @@ Known limitations of image preview:
   it cannot identify is treated as unsupported for the rest of the session.
 - When the terminal does not report its cell size in pixels, eda assumes 9x18
   and the image may appear smaller than the pane allows.
+- The conversion is sized for the pane at render time. Enlarging the pane
+  afterwards shows the smaller conversion until the next image is selected.
+- File-path transmission (`transmission = "auto"` on the same host) stays
+  blank, with no error, when the terminal cannot open the path: a sandboxed
+  terminal, Neovim running in a container, a terminal running as another user
+  (`sudo nvim`), or a locally started tmux server that was later attached over
+  SSH, which the SSH detection cannot see. Set `transmission = "direct"` in
+  those setups. Conversely, set `transmission = "file"` when the SSH variables
+  are present but the terminal does share the filesystem.
 
 ### full_name
 
@@ -1221,6 +1248,12 @@ keep their user-provided attributes untouched (same as git suffix icons).
 | `EdaInspectError`      | `DiagnosticError` | Error value (e.g. `(stat failed)`, broken symlink) |
 | `EdaInspectSpinner`    | `Comment`         | Animated spinner frame in the `Size` row while an async directory-size walk is running |
 
+### Image Preview
+
+| Group               | Default Link | Description                                                                 |
+|---------------------|--------------|-----------------------------------------------------------------------------|
+| `EdaPreviewSpinner` | `Comment`    | Animated spinner next to the loading note while an image is detected or converted |
+
 ### Full Name Popup
 
 | Group                | Default Link    | Description                              |
@@ -1236,4 +1269,5 @@ Run `:checkhealth eda` to verify your setup. The healthcheck validates:
 - Icon provider availability (configured provider only; no fallback)
 - ImageMagick `magick` availability (optional, for image preview of formats other than PNG)
 - Whether Neovim runs inside tmux (image preview enables `allow-passthrough` for the pane)
+- Which image transmission is in effect (file path or direct) and how to switch it
 - Number of registered actions

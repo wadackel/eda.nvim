@@ -40,7 +40,7 @@ end
 
 T["kitty"]["set transmits base64 chunks then places at the given cell"] = function()
   local bytes = string.rep("x", 5000)
-  local id = kitty.set(bytes, { row = 3, col = 105, width = 40, height = 20 })
+  local id = kitty.set({ data = bytes }, { row = 3, col = 105, width = 40, height = 20 })
   MiniTest.expect.equality(type(id), "number")
 
   local encoded = vim.base64.encode(bytes)
@@ -65,6 +65,33 @@ T["kitty"]["set transmits base64 chunks then places at the given cell"] = functi
   MiniTest.expect.equality(#captured, 3)
 end
 
+T["kitty"]["set with a filename transmits the path by file medium in one write"] = function()
+  local path = "/Users/someone/Pictures/photo+2026 (1).png"
+  -- pre_case's del(math.huge) may have written a d=I for the previous case's image
+  captured = {}
+  local id = kitty.set({ filename = path }, { row = 2, col = 4, width = 30, height = 10 })
+  MiniTest.expect.equality(type(id), "number")
+  MiniTest.expect.equality(#captured, 2)
+
+  local transmit = captured[1]
+  local keys = {}
+  for key, value in transmit:match("\27_G([^;]*)"):gmatch("(%w+)=([^,]*)") do
+    keys[key] = value
+  end
+  MiniTest.expect.equality(keys.a, "t")
+  MiniTest.expect.equality(keys.t, "f")
+  MiniTest.expect.equality(keys.f, "100")
+  MiniTest.expect.equality(keys.q, "2")
+  MiniTest.expect.equality(keys.m, nil)
+  -- The payload is the encoded path and nothing else: no image bytes travel over the tty
+  MiniTest.expect.equality(transmit:match(";(.-)\27\\$"), vim.base64.encode(path))
+
+  local place = captured[2]
+  MiniTest.expect.equality(place:find("\27[2;4H", 1, true) ~= nil, true)
+  MiniTest.expect.equality(place:find("a=p", 1, true) ~= nil, true)
+  MiniTest.expect.equality(place:find("c=30", 1, true) ~= nil, true)
+end
+
 -- Control keys of the placement command in `chunk`, as a key -> value table
 local function placement_keys(chunk)
   local keys = {}
@@ -75,7 +102,10 @@ local function placement_keys(chunk)
 end
 
 T["kitty"]["placement with a crop sends the source rectangle"] = function()
-  kitty.set("png", { row = 1, col = 1, width = 10, height = 5, crop = { x = 2, y = 0, width = 196, height = 200 } })
+  kitty.set(
+    { data = "png" },
+    { row = 1, col = 1, width = 10, height = 5, crop = { x = 2, y = 0, width = 196, height = 200 } }
+  )
   local keys = placement_keys(captured[#captured])
   MiniTest.expect.equality(keys.c, "10")
   MiniTest.expect.equality(keys.r, "5")
@@ -86,7 +116,7 @@ T["kitty"]["placement with a crop sends the source rectangle"] = function()
 end
 
 T["kitty"]["placement without a crop sends no source rectangle"] = function()
-  kitty.set("png", { row = 1, col = 1, width = 10, height = 5 })
+  kitty.set({ data = "png" }, { row = 1, col = 1, width = 10, height = 5 })
   local keys = placement_keys(captured[#captured])
   MiniTest.expect.equality(keys.c, "10")
   MiniTest.expect.equality(keys.r, "5")
@@ -96,7 +126,7 @@ end
 
 T["kitty"]["update keeps the size and crop when only the position changes"] = function()
   local crop = { x = 0, y = 4, width = 300, height = 291 }
-  local id = kitty.set("png", { row = 1, col = 1, width = 12, height = 7, crop = crop })
+  local id = kitty.set({ data = "png" }, { row = 1, col = 1, width = 12, height = 7, crop = crop })
   captured = {}
   kitty.update(id, { row = 2, col = 2 })
   local keys = placement_keys(captured[#captured])
@@ -106,13 +136,13 @@ T["kitty"]["update keeps the size and crop when only the position changes"] = fu
 end
 
 T["kitty"]["get returns a copy of the placement opts"] = function()
-  local id = kitty.set("png", { row = 1, col = 2, width = 3, height = 4 })
+  local id = kitty.set({ data = "png" }, { row = 1, col = 2, width = 3, height = 4 })
   MiniTest.expect.equality(kitty.get(id), { row = 1, col = 2, width = 3, height = 4 })
   MiniTest.expect.equality(kitty.get(id + 1000), nil)
 end
 
 T["kitty"]["update re-places without retransmitting"] = function()
-  local id = kitty.set("png", { row = 1, col = 2, width = 3, height = 4 })
+  local id = kitty.set({ data = "png" }, { row = 1, col = 2, width = 3, height = 4 })
   captured = {}
   kitty.update(id, { row = 5, col = 6 })
   MiniTest.expect.equality(#captured, 2)
@@ -125,7 +155,7 @@ T["kitty"]["update re-places without retransmitting"] = function()
 end
 
 T["kitty"]["del frees the image data and forgets the id"] = function()
-  local id = kitty.set("png", { row = 1, col = 1, width = 1, height = 1 })
+  local id = kitty.set({ data = "png" }, { row = 1, col = 1, width = 1, height = 1 })
   captured = {}
   MiniTest.expect.equality(kitty.del(id), true)
   MiniTest.expect.equality(captured[1]:find("a=d", 1, true) ~= nil, true)
@@ -135,7 +165,7 @@ T["kitty"]["del frees the image data and forgets the id"] = function()
 end
 
 T["kitty"]["hide keeps the placement hidden until every reason is released"] = function()
-  local id = kitty.set("png", { row = 2, col = 3, width = 4, height = 5 })
+  local id = kitty.set({ data = "png" }, { row = 2, col = 3, width = 4, height = 5 })
   captured = {}
   kitty.hide_all("focus")
   MiniTest.expect.equality(#captured, 1)
@@ -160,14 +190,14 @@ end
 T["kitty"]["VimLeavePre cleanup is registered on first set, not on require"] = function()
   kitty._reset()
   MiniTest.expect.equality(pcall(vim.api.nvim_get_autocmds, { group = "eda_image_kitty" }), false)
-  kitty.set("png", { row = 1, col = 1, width = 1, height = 1 })
+  kitty.set({ data = "png" }, { row = 1, col = 1, width = 1, height = 1 })
   local ok, autocmds = pcall(vim.api.nvim_get_autocmds, { group = "eda_image_kitty" })
   MiniTest.expect.equality(ok and #autocmds > 0, true)
 end
 
 T["kitty"]["del(math.huge) clears everything"] = function()
-  local a = kitty.set("png", { row = 1, col = 1, width = 1, height = 1 })
-  local b = kitty.set("png", { row = 1, col = 1, width = 1, height = 1 })
+  local a = kitty.set({ data = "png" }, { row = 1, col = 1, width = 1, height = 1 })
+  local b = kitty.set({ data = "png" }, { row = 1, col = 1, width = 1, height = 1 })
   captured = {}
   MiniTest.expect.equality(kitty.del(math.huge), true)
   MiniTest.expect.equality(kitty.get(a), nil)

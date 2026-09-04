@@ -237,6 +237,7 @@ T["setup"]["preview.image has defaults"] = function()
   MiniTest.expect.equality(type(c.preview.image), "table")
   MiniTest.expect.equality(c.preview.image.enabled, true)
   MiniTest.expect.equality(c.preview.image.max_file_size, 10 * 1024 * 1024)
+  MiniTest.expect.equality(c.preview.image.transmission, "auto")
 end
 
 T["setup"]["preview.image merges a partial override"] = function()
@@ -244,6 +245,7 @@ T["setup"]["preview.image merges a partial override"] = function()
   local c = config.get()
   MiniTest.expect.equality(c.preview.image.enabled, false)
   MiniTest.expect.equality(c.preview.image.max_file_size, 10 * 1024 * 1024) -- default preserved
+  MiniTest.expect.equality(c.preview.image.transmission, "auto") -- default preserved
   MiniTest.expect.equality(c.preview.max_file_size, 1024 * 100) -- sibling untouched
 end
 

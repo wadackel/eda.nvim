@@ -2,6 +2,7 @@
 local terminal = require("eda.image.terminal")
 local kitty = require("eda.image.kitty")
 local convert = require("eda.image.convert")
+local spinner = require("eda.spinner")
 
 local M = {}
 
@@ -10,7 +11,22 @@ local M = {}
 ---@field dims eda.image.Size image pixels
 
 local entries = {} ---@type table<integer, eda.image.PreviewEntry> keyed by bufnr
+local loading = {} ---@type table<integer, eda.Spinner> keyed by bufnr
+local ns_hl = vim.api.nvim_create_namespace("eda_image_preview_hl")
 local autocmds_registered = false
+
+---@param bufnr integer
+local function stop_loading(bufnr)
+  local handle = loading[bufnr]
+  if not handle then
+    return
+  end
+  loading[bufnr] = nil
+  handle.stop()
+  if vim.api.nvim_buf_is_valid(bufnr) then
+    vim.api.nvim_buf_clear_namespace(bufnr, ns_hl, 0, -1)
+  end
+end
 
 ---@param path string
 ---@return boolean
@@ -23,6 +39,7 @@ end
 ---@param path string
 ---@param note string
 function M.describe(bufnr, path, note)
+  stop_loading(bufnr)
   local stat = vim.uv.fs_stat(path)
   local lines = { "Image: " .. vim.fn.fnamemodify(path, ":t") }
   if stat then
@@ -34,6 +51,38 @@ function M.describe(bufnr, path, note)
     lines[#lines + 1] = line
   end
   vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, lines)
+end
+
+---Describe `path` with an animated loading note. The glyph is inline virtual
+---text rather than part of the line, so ticking never rewrites buffer text.
+---@param bufnr integer
+---@param path string
+function M.loading(bufnr, path)
+  M.describe(bufnr, path, "Loading...")
+  local row = vim.api.nvim_buf_line_count(bufnr) - 1
+  local mark ---@type integer?
+  local function paint(glyph)
+    mark = vim.api.nvim_buf_set_extmark(bufnr, ns_hl, row, 0, {
+      id = mark,
+      virt_text = { { glyph .. " ", "EdaPreviewSpinner" } },
+      virt_text_pos = "inline",
+      hl_mode = "combine",
+    })
+  end
+  local handle
+  handle = spinner.new(function(glyph)
+    if loading[bufnr] ~= handle or not vim.api.nvim_buf_is_valid(bufnr) then
+      handle.stop()
+      if loading[bufnr] == handle then
+        loading[bufnr] = nil
+      end
+      return
+    end
+    paint(glyph)
+  end)
+  loading[bufnr] = handle
+  handle.tick()
+  handle.start()
 end
 
 ---Screen placement for an image shown inside `winid`.
@@ -56,6 +105,19 @@ local function geometry(winid, dims)
     height = fit.height,
     crop = fit.crop,
   }
+end
+
+---Pixels the preview window can show: its cells times the terminal's cell size.
+---Only a direct transmission is held to the payload cap.
+---@param winid integer
+---@param by_path boolean
+---@return eda.image.Size
+local function pixel_bound(winid, by_path)
+  local cell = terminal.cell_size()
+  return convert.bound_for({
+    width = vim.api.nvim_win_get_width(winid) * cell.width,
+    height = vim.api.nvim_win_get_height(winid) * cell.height,
+  }, by_path and math.huge or nil)
 end
 
 ---@param path string
@@ -92,6 +154,39 @@ local function ensure_autocmds()
   })
 end
 
+---@class eda.image.RenderOpts
+---@field transmission? "auto"|"file"|"direct" see `preview.image.transmission`
+
+---Whether the terminal should read the PNG from disk (`t=f`) instead of receiving
+---its bytes over the tty. Writing megabytes through `nvim_ui_send` blocks the TUI
+---until the terminal has consumed them, so the path wins whenever it can resolve
+---on the terminal's side.
+---@param opts eda.image.RenderOpts
+---@return boolean
+local function transmit_by_path(opts)
+  if opts.transmission == "file" then
+    return true
+  end
+  if opts.transmission == "direct" then
+    return false
+  end
+  return not terminal.is_remote()
+end
+
+---@param png_path string
+---@param by_path boolean
+---@return eda.image.ImageSource?
+---@return eda.image.Size?
+local function load_source(png_path, by_path)
+  if by_path then
+    local dims = convert.png_size_of(png_path)
+    return dims and { filename = png_path }, dims
+  end
+  local bytes = read_file(png_path)
+  local dims = bytes and convert.png_size(bytes)
+  return dims and { data = bytes }, dims
+end
+
 ---Render `path` into the preview window showing `bufnr`. `is_current` is re-checked
 ---after every asynchronous step so a slow detection or conversion never paints over
 ---a newer target.
@@ -99,8 +194,10 @@ end
 ---@param winid integer
 ---@param path string
 ---@param is_current fun(): boolean
-function M.render(bufnr, winid, path, is_current)
+---@param opts? eda.image.RenderOpts
+function M.render(bufnr, winid, path, is_current, opts)
   ensure_autocmds()
+  local by_path = transmit_by_path(opts or {})
   local function alive()
     return is_current() and vim.api.nvim_buf_is_valid(bufnr) and vim.api.nvim_win_is_valid(winid)
   end
@@ -112,7 +209,8 @@ function M.render(bufnr, winid, path, is_current)
       M.describe(bufnr, path, "Terminal does not support the Kitty graphics protocol.")
       return
     end
-    convert.to_png(path, function(err, png_path)
+    -- Measured after the probe: the window may have been resized while it waited
+    convert.to_png(path, pixel_bound(winid, by_path), function(err, png_path)
       if not alive() then
         return
       end
@@ -120,15 +218,16 @@ function M.render(bufnr, winid, path, is_current)
         M.describe(bufnr, path, err or "Conversion failed.")
         return
       end
-      local bytes = read_file(png_path)
-      local dims = bytes and convert.png_size(bytes)
-      if not bytes or not dims then
+      local source, dims = load_source(png_path, by_path)
+      if not source or not dims then
         M.describe(bufnr, path, "Could not read PNG header.")
         return
       end
       terminal.ensure_passthrough()
       M.detach(bufnr)
-      entries[bufnr] = { id = kitty.set(bytes, geometry(winid, dims)), dims = dims }
+      -- The loading note would stay visible wherever the image does not cover the window
+      vim.api.nvim_buf_set_lines(bufnr, 0, -1, false, {})
+      entries[bufnr] = { id = kitty.set(source, geometry(winid, dims)), dims = dims }
     end)
   end)
 end
@@ -136,6 +235,7 @@ end
 ---Free the image shown for `bufnr`, if any.
 ---@param bufnr integer
 function M.detach(bufnr)
+  stop_loading(bufnr)
   local entry = entries[bufnr]
   if entry then
     entries[bufnr] = nil
@@ -181,11 +281,29 @@ function M.hide_for_window(winid)
   })
 end
 
----Forget every tracked placement and registered autocmd. Test seam.
+---Forget every tracked placement, loading spinner, and registered autocmd. Test seam.
 function M._reset()
+  for bufnr in pairs(loading) do
+    stop_loading(bufnr)
+  end
   entries = {}
   autocmds_registered = false
   pcall(vim.api.nvim_del_augroup_by_name, "eda_image_preview")
+end
+
+---@param bufnr integer
+---@return boolean
+function M._is_loading(bufnr)
+  return loading[bufnr] ~= nil
+end
+
+---Advance the loading spinner of `bufnr` by one frame. Test seam.
+---@param bufnr integer
+function M._tick_loading(bufnr)
+  local handle = loading[bufnr]
+  if handle then
+    handle.tick()
+  end
 end
 
 return M

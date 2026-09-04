@@ -17,11 +17,9 @@ local _state = nil
 
 local _ns_hl = vim.api.nvim_create_namespace("eda_inspect_hl")
 
--- Braille spinner frames rendered in the Size field while an async directory
--- size walk is in progress. Plain BMP characters (U+2800-U+28FF) so panvimdoc
--- and fixed-width renderers handle them correctly.
-local _SPINNER_FRAMES = { "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏" }
-local _SPINNER_INTERVAL_MS = 100
+-- Shared with the image preview so both indicators animate alike
+local _SPINNER_FRAMES = require("eda.spinner").frames
+local _SPINNER_INTERVAL_MS = require("eda.spinner").interval_ms
 local _spinner_timer = nil
 local _spinner_frame = 1
 
