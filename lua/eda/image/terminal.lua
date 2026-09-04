@@ -75,8 +75,11 @@ function M.ensure_passthrough()
     return
   end
   passthrough_enabled = true
-  -- `on` (visible panes only) is enough: images are only drawn while the pane is shown
-  pcall(vim.fn.system, { "tmux", "set", "-p", "allow-passthrough", "on" })
+  -- `on` drops passthrough from panes that are not visible, so the `a=d` sent on
+  -- FocusLost after a window switch never reaches the terminal and the image
+  -- lingers. `all` cannot paint over another window: placements stop once the
+  -- pane has lost focus.
+  pcall(vim.fn.system, { "tmux", "set", "-p", "allow-passthrough", "all" })
 end
 
 ---@class eda.image.Terminal
