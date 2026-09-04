@@ -114,14 +114,39 @@ function M.env_hint()
   return nil
 end
 
+local remote_cache ---@type boolean?
+
 ---True when Neovim appears to run on a different host than the terminal, so a
----file path sent to the terminal would not resolve there. Inside tmux the pane's
----environment reflects the client that created it, not a later attach over SSH;
----asking `tmux show-environment` on every render would add a fork for that one
----case and could not be cached, since the answer changes exactly at re-attach.
+---file path sent to the terminal would not resolve there. Inside tmux the
+---process environment reflects the client that created the pane, not a later
+---attach over SSH; the session environment does, because `update-environment`
+---copies `SSH_CONNECTION` from every attaching client (and records it as removed
+---when the client has none). The answer changes exactly at re-attach, so it is
+---asked again on every render, cached one tick like `tmux_offset`. When a local
+---and an SSH client are attached at the same time the last attach wins.
 ---@return boolean
 function M.is_remote()
-  return vim.env.SSH_TTY ~= nil or vim.env.SSH_CONNECTION ~= nil or vim.env.SSH_CLIENT ~= nil
+  if vim.env.SSH_TTY ~= nil or vim.env.SSH_CONNECTION ~= nil or vim.env.SSH_CLIENT ~= nil then
+    return true
+  end
+  if not M.is_tmux() then
+    return false
+  end
+  if remote_cache ~= nil then
+    return remote_cache
+  end
+  local cmd = { "tmux", "show-environment", "SSH_CONNECTION" }
+  if vim.env.TMUX_PANE then
+    table.insert(cmd, 3, vim.env.TMUX_PANE)
+    table.insert(cmd, 3, "-t")
+  end
+  local ok, out = pcall(vim.fn.system, cmd)
+  -- A removed variable prints as `-SSH_CONNECTION`, an unset one as an error line
+  remote_cache = ok and vim.startswith(out, "SSH_CONNECTION=")
+  vim.schedule(function()
+    remote_cache = nil
+  end)
+  return remote_cache
 end
 
 local detected ---@type eda.image.Terminal?
@@ -324,6 +349,7 @@ end
 function M._reset()
   tmux_cache = nil
   offset_cache = nil
+  remote_cache = nil
   cell_cache = nil
   detected = nil
   pending = nil

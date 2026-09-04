@@ -481,7 +481,8 @@ detection do not apply to directory previews.
     images but requires the terminal and Neovim to share a filesystem.
     `"direct"` streams the image bytes through the tty and works over SSH.
     `"auto"` picks `"file"` unless an SSH session is detected via `SSH_TTY`,
-    `SSH_CONNECTION`, or `SSH_CLIENT`.
+    `SSH_CONNECTION`, or `SSH_CLIENT`, or, inside tmux, via the
+    `SSH_CONNECTION` that tmux records from the most recently attached client.
 
   ```lua
   preview = {
@@ -533,11 +534,15 @@ Known limitations of image preview:
   afterwards shows the smaller conversion until the next image is selected.
 - File-path transmission (`transmission = "auto"` on the same host) stays
   blank, with no error, when the terminal cannot open the path: a sandboxed
-  terminal, Neovim running in a container, a terminal running as another user
-  (`sudo nvim`), or a locally started tmux server that was later attached over
-  SSH, which the SSH detection cannot see. Set `transmission = "direct"` in
-  those setups. Conversely, set `transmission = "file"` when the SSH variables
-  are present but the terminal does share the filesystem.
+  terminal, Neovim running in a container, or a terminal running as another
+  user (`sudo nvim`). Set `transmission = "direct"` in those setups.
+  Conversely, set `transmission = "file"` when the SSH variables are present
+  but the terminal does share the filesystem.
+- Inside tmux a later SSH attach to a locally started server is detected
+  through the session environment, which tmux's `update-environment` rewrites
+  on every attach, so among several attached clients the last one decides.
+  With a local and an SSH client attached at the same time, images may stay
+  blank on one of them; set `transmission = "direct"` to serve both.
 
 ### full_name
 
