@@ -283,12 +283,13 @@ action.register("collapse_node", function(ctx)
   if not node then
     return
   end
+  local capture
   if Node.is_dir(node) and node.open then
     -- Check if collapsing would lose edits
     if vim.bo[ctx.buffer.bufnr].modified then
       local edit_preserve = require("eda.buffer.edit_preserve")
       local cfg = ctx.config
-      local capture =
+      capture =
         edit_preserve.capture(ctx.buffer.bufnr, ctx.buffer.painter, ctx.store, ctx.explorer.root_path, cfg.indent.width)
       if has_edits_under(capture, node.path) then
         vim.notify("eda: save or discard changes in " .. node.name .. "/ before collapsing", vim.log.levels.WARN)
@@ -297,7 +298,7 @@ action.register("collapse_node", function(ctx)
     end
     node.open = false
     ctx.explorer._incremental_hint = { toggled_node_id = node.id }
-    refresh_preserving(ctx)
+    refresh_preserving(ctx, capture)
   elseif node.parent_id then
     local parent = ctx.store:get(node.parent_id)
     if parent and parent.id ~= ctx.store.root_id then
@@ -305,7 +306,7 @@ action.register("collapse_node", function(ctx)
       if vim.bo[ctx.buffer.bufnr].modified then
         local edit_preserve = require("eda.buffer.edit_preserve")
         local cfg = ctx.config
-        local capture = edit_preserve.capture(
+        capture = edit_preserve.capture(
           ctx.buffer.bufnr,
           ctx.buffer.painter,
           ctx.store,
@@ -320,7 +321,7 @@ action.register("collapse_node", function(ctx)
       parent.open = false
       ctx.buffer.target_node_id = parent.id
       ctx.explorer._incremental_hint = { toggled_node_id = parent.id }
-      refresh_preserving(ctx)
+      refresh_preserving(ctx, capture)
     elseif parent then
       navigate_to_parent_root(ctx)
     end
