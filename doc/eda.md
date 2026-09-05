@@ -779,6 +779,12 @@ skipped during parsing. The computed operations are then validated for
 structural errors — missing rename targets, duplicate destinations — and
 rejected on failure.
 
+Automatic filesystem refreshes are deferred while the buffer has unsaved edits.
+After saving or discarding the edits, pending external changes are reconciled.
+A refresh already in progress cannot replace the snapshot used by a new edit.
+If a file operation fails because the filesystem changed, the edit remains
+unsaved and the error is reported.
+
 ## Mappings
 
 Default key mappings in the explorer buffer. Customize via the `mappings`
