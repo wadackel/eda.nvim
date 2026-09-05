@@ -496,9 +496,11 @@ See [`:help eda-api`](doc/eda.nvim.txt) for the full public API, including the `
 #### Example: open a terminal in the directory under the cursor
 
 ```lua
+local action = require("eda.action")
+
 action.register("open_terminal", function(ctx)
   local node = ctx.buffer:get_cursor_node(ctx.window.winid)
-  local dir = node and node.is_dir and node.path
+  local dir = node and node.type == "directory" and node.path
     or node and vim.fn.fnamemodify(node.path, ":h")
     or ctx.explorer.root_path
   vim.cmd("split | terminal")
