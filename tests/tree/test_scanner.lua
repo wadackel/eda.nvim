@@ -498,6 +498,7 @@ T["scan fd semaphore recovers from opendir errors"] = function()
   -- Pending queue should be empty
   MiniTest.expect.equality(#scanner._pending_scans, 0)
 
+  vim.fn.setfperm(tmp .. "/no_access", "rwx------")
   helpers.remove_temp_dir(tmp)
 end
 

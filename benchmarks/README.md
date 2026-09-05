@@ -185,3 +185,84 @@ The standard scenario uses its existing insert/whole-line replacement fixture;
 the actual-action workload above additionally exercises a surviving rename ID
 and deletion. Neither result demonstrates that an individual parse became
 faster.
+
+## Symlink scan workload
+
+Create three 1,000-entry directories containing 0, 100, and 1,000 symlinks.
+Link targets alternate between a file, a directory, and a missing path:
+
+```sh
+export EDA_BENCH_DIR="$(mktemp -d)"
+python3 - <<'PYTHON'
+import os
+from pathlib import Path
+root = Path(os.environ["EDA_BENCH_DIR"])
+(root / "targets").mkdir()
+(root / "targets" / "file").write_text("target\n")
+(root / "targets" / "directory").mkdir()
+for links in (0, 100, 1000):
+    directory = root / f"links-{links}"
+    directory.mkdir()
+    for index in range(1000):
+        entry = directory / f"entry-{index:04d}"
+        if index < links:
+            target = ("file", "directory", "missing")[index % 3]
+            entry.symlink_to(root / "targets" / target)
+        else:
+            entry.write_text("ordinary\n")
+PYTHON
+EDA_BENCH_OUTPUT=/tmp/eda-symlinks.json \
+  nvim --headless -l benchmarks/symlinks.lua
+```
+
+The harness runs one warmup and five measured scans for every link count,
+`follow_symlinks` setting, and delay setting. The zero-delay mode uses the real
+local filesystem. The synthetic mode adds a 1 ms delay to each metadata call:
+a blocking sleep for synchronous calls or a deferred callback for asynchronous
+calls. This is a controlled latency model, not a measurement of a network
+filesystem. Runs should be sequential, without competing benchmark/test work.
+
+JSON records directory enumeration time (through `fs_closedir` completion),
+metadata call counts and accumulated request times, synchronous metadata
+blocking time, `_apply_entries` call duration, store reconciliation, sorting,
+plain painting, total scan latency, and the maximum gap in a 1 ms heartbeat.
+Metadata request times overlap when asynchronous and must not be added to total
+latency. `_apply_entries` returns after queuing asynchronous metadata; subsequent
+reconciliation is timed separately. For ordinary files it still reconciles
+before returning. Sorting and plain painting are measured after scan completion
+and are not included in `scan_ms`; no terminal display latency is measured.
+
+Recorded on macOS arm64 / Neovim 0.12.5, comparing base `fad6cc9` with bounded
+asynchronous symlink metadata. Each row summarizes five measured scans after
+one warmup. Scan times show mean ± sample standard deviation in milliseconds;
+heartbeat columns show the mean of each scan's maximum gap.
+
+| Added delay (ms/call) | Links | Follow | Scan before (ms) | Scan after (ms) | Heartbeat gap before → after (ms) |
+| ---: | ---: | --- | ---: | ---: | ---: |
+| 0 | 0 | true | 7.828 ± 0.710 | 7.240 ± 0.324 | 7.112 → 6.728 |
+| 0 | 0 | false | 7.236 ± 0.175 | 7.039 ± 0.346 | 6.750 → 6.613 |
+| 0 | 100 | true | 11.101 ± 1.234 | 9.501 ± 0.686 | 10.557 → 6.798 |
+| 0 | 100 | false | 10.513 ± 0.446 | 9.523 ± 0.729 | 10.088 → 6.985 |
+| 0 | 1,000 | true | 42.718 ± 2.668 | 25.393 ± 0.397 | 42.133 → 7.340 |
+| 0 | 1,000 | false | 42.359 ± 1.405 | 24.265 ± 0.630 | 41.825 → 6.724 |
+| 1 | 0 | true | 8.743 ± 2.270 | 7.417 ± 0.250 | 7.956 → 6.860 |
+| 1 | 0 | false | 7.225 ± 0.196 | 8.926 ± 2.498 | 6.854 → 7.839 |
+| 1 | 100 | true | 221.808 ± 0.614 | 15.573 ± 0.759 | 221.466 → 6.189 |
+| 1 | 100 | false | 138.803 ± 1.592 | 13.036 ± 1.387 | 137.936 → 6.231 |
+| 1 | 1,000 | true | 2158.818 ± 10.444 | 78.799 ± 1.448 | 2158.359 → 6.635 |
+| 1 | 1,000 | false | 1324.969 ± 19.909 | 59.457 ± 6.259 | 1324.182 → 6.553 |
+
+For 1,000 real links with following enabled, enumeration averaged 1.223 ms
+before / 0.916 ms after, and synchronous metadata blocking fell from 34.282 ms
+to zero. All 1,667 metadata requests after the change were asynchronous
+(1,000 realpaths and 667 target stats). `_apply_entries` call duration fell
+from 41.491 ms to 0.227 ms because it now queues that work. Reconciliation
+still runs later on the main loop: 6.584 ms before / 6.708 ms after. Sorting
+was 1.204/1.118 ms and plain painting 0.877/1.332 ms. Those small sort/paint
+variations are not an optimization claim.
+
+The remaining roughly 7 ms heartbeat gap is consistent with synchronous
+materialization; this change does not make every scan stage asynchronous.
+Normal-file scans remain in the same range. The synthetic case demonstrates
+that metadata latency no longer becomes an equally long main-loop stall;
+its speedup is specific to the injected delay and bounded overlapping work.
