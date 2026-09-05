@@ -470,4 +470,46 @@ T["max_file_size"]["large file is not previewed when exceeding max_file_size"] =
   )
 end
 
+T["preview"]["root changes rebind preview dependencies and show the new tree"] = function()
+  e2e.setup_eda(child)
+  e2e.create_file(tmp .. "/next/visible.txt", "NEW ROOT")
+  e2e.exec(child, [[require("eda.config").get().preview.enabled = true]])
+  e2e.open_eda(child, tmp)
+  e2e.exec(
+    child,
+    string.format(
+      [[
+    local eda = require("eda")
+    eda._change_root(eda.get_current(), %q, {})
+  ]],
+      tmp .. "/next"
+    )
+  )
+  e2e.wait_until(
+    child,
+    [[
+    local ex = require("eda").get_current()
+    return ex._initial_scan_complete and ex.preview.store == ex.store and ex.preview.scanner == ex.scanner
+  ]]
+  )
+  e2e.exec(
+    child,
+    [[
+    local ex = require("eda").get_current()
+    ex.preview:show_directory(ex.store:get(ex.store.root_id))
+  ]]
+  )
+  e2e.wait_until(
+    child,
+    [[
+    local p = require("eda").get_current().preview
+    if not p.winid or not vim.api.nvim_win_is_valid(p.winid) then return false end
+    for _, line in ipairs(vim.api.nvim_buf_get_lines(p.bufnr, 0, -1, false)) do
+      if line:find("visible.txt", 1, true) then return true end
+    end
+    return false
+  ]]
+  )
+end
+
 return T

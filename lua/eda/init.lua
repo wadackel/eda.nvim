@@ -1242,6 +1242,11 @@ function M._change_root(explorer, new_path, opts)
   explorer.store = new_store
   explorer.scanner = new_scanner
   explorer.root_path = new_path
+  explorer.preview:attach(explorer.window, {
+    store = new_store,
+    scanner = new_scanner,
+    decorator_chain = explorer.decorator_chain,
+  })
 
   -- Update buffer name for uniqueness
   local buf_name = "eda://" .. new_path

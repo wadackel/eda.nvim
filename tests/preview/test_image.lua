@@ -705,4 +705,53 @@ T["Preview"]["a hidden image stays hidden across FocusGained and reposition"] = 
   teardown_preview(p, env)
 end
 
+T["Preview"]["a pending conversion cannot attach an image after close"] = function()
+  stub_terminal()
+  saved.to_png = convert.to_png
+  local complete
+  convert.to_png = function(_, _, callback)
+    complete = callback
+  end
+  local p, env = setup_preview()
+  p:show(env.jpg)
+  helpers.wait_for(1000, function()
+    return complete ~= nil
+  end)
+  MiniTest.expect.equality(type(complete), "function")
+  p.config.enabled = false
+  p:close()
+  captured = {}
+  complete(nil, env.png)
+  MiniTest.expect.equality(find("a=p"), nil)
+  MiniTest.expect.equality(find("a=t"), nil)
+  MiniTest.expect.equality(p.winid, nil)
+  teardown_preview(p, env)
+end
+
+T["Preview"]["same-path image requests reject the earlier conversion"] = function()
+  stub_terminal()
+  saved.to_png = convert.to_png
+  local conversions = {}
+  convert.to_png = function(_, _, callback)
+    conversions[#conversions + 1] = callback
+  end
+  local p, env = setup_preview()
+  p:show(env.jpg)
+  helpers.wait_for(1000, function()
+    return #conversions == 1
+  end)
+  p:show(env.jpg)
+  helpers.wait_for(1000, function()
+    return #conversions == 2
+  end)
+  MiniTest.expect.equality(#conversions, 2)
+  conversions[2](nil, env.png)
+  MiniTest.expect.equality(find("a=p") ~= nil, true)
+  captured = {}
+  conversions[1](nil, env.png)
+  MiniTest.expect.equality(find("a=t"), nil)
+  MiniTest.expect.equality(find("a=p"), nil)
+  teardown_preview(p, env)
+end
+
 return T
