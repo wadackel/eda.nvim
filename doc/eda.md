@@ -1137,7 +1137,8 @@ Every action receives an `eda.ActionContext` table:
 - `window` — The explorer window (`eda.Window`).
 - `scanner` — The filesystem scanner (`eda.Scanner`).
 - `config` — The current configuration (`eda.Config`).
-- `explorer` — The explorer instance (`eda.Explorer`).
+- `explorer` — The explorer instance (`eda.Explorer`), including `root_path`
+  and `instance_id`.
 
 ## Events
 
