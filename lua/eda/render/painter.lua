@@ -31,6 +31,8 @@ end
 
 ---@class eda.Painter
 ---@field bufnr integer
+---@field _paint_tick integer?
+---@field _synced_tick integer?
 ---@field ns_ids integer  Namespace for node ID extmarks
 ---@field ns_hl integer   Namespace for highlight extmarks (used by decoration provider)
 ---@field ns_icon integer  Namespace for icon extmarks (non-ephemeral; Neovim bug: ephemeral inline virt_text not rendered)
@@ -83,7 +85,9 @@ function Painter.new(bufnr, indent_width)
       if buf ~= self.bufnr then
         return false
       end
-      self:_resync_on_redraw()
+      if self._synced_tick ~= vim.api.nvim_buf_get_changedtick(buf) then
+        self:_resync_on_redraw()
+      end
     end,
     on_line = function(_, _, buf, row)
       if buf ~= self.bufnr then
@@ -163,6 +167,8 @@ end
 ---scratch (e.g. preview switching between file and directory render modes).
 ---ns_hl is ephemeral and reset by the decoration provider on each redraw.
 function Painter:reset()
+  self._paint_tick = nil
+  self._synced_tick = nil
   vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_icon, 0, -1)
   vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_ids, 0, -1)
   vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_header, 0, -1)
@@ -428,6 +434,7 @@ function Painter:paint(flat_lines, decorations, opts)
     if entry and (entry.icon_text or entry.prefix_text) then
       local indent_len = fl.depth * self.indent_width
       vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, offset + i - 1, indent_len, {
+        id = fl.node_id,
         virt_text = build_icon_virt_text(entry),
         virt_text_pos = "inline",
         right_gravity = false,
@@ -444,6 +451,8 @@ function Painter:paint(flat_lines, decorations, opts)
 
   vim.bo[self.bufnr].modified = false
   self.snapshot = new_snapshot
+  self._paint_tick = vim.api.nvim_buf_get_changedtick(self.bufnr)
+  self._synced_tick = self._paint_tick
 end
 
 ---Incrementally update the buffer for a single directory toggle (collapse/expand).
@@ -454,7 +463,7 @@ end
 ---@param hint { toggled_node_id: integer }
 ---@return boolean success
 function Painter:paint_incremental(flat_lines, decorations, opts, hint)
-  if #self._flat_lines == 0 then
+  if #self._flat_lines == 0 or self._paint_tick ~= vim.api.nvim_buf_get_changedtick(self.bufnr) then
     return false
   end
 
@@ -575,10 +584,6 @@ function Painter:paint_incremental(flat_lines, decorations, opts, hint)
     for j = ins_start, ins_start + ins_count - 1 do
       new_line_strings[#new_line_strings + 1] = self:_build_line(flat_lines[j])
     end
-    -- Clear and rebuild all ns_icon extmarks: existing icons use
-    -- right_gravity=false and do not shift when lines are inserted above,
-    -- leaving siblings rendered on the wrong row.
-    vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_icon, 0, -1)
     -- Insert lines
     vim.api.nvim_buf_set_lines(self.bufnr, insert_row, insert_row, false, new_line_strings)
     -- Place ns_ids extmarks for inserted nodes
@@ -608,22 +613,30 @@ function Painter:paint_incremental(flat_lines, decorations, opts, hint)
   local toggled_name_hl = resolve_name_hl(toggled_fl.node, toggled_dec)
   self._decoration_cache[toggled_id] = build_cache_entry(toggled_dec, toggled_fl.node, toggled_name_hl, separator)
 
-  -- Rebuild all icon extmarks from decoration cache.
-  -- Both collapse and expand paths clear ns_icon in affected ranges, but
-  -- right_gravity=false icons do not auto-shift with line edits. A full
-  -- rebuild is the simplest correct approach and avoids stale icons in
-  -- headless/no-redraw contexts.
-  vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_icon, 0, -1)
-  for i, fl in ipairs(flat_lines) do
+  local function place_icon(i)
+    local fl = flat_lines[i]
+    if not fl then
+      return
+    end
     local entry = self._decoration_cache[fl.node_id]
     if entry and (entry.icon_text or entry.prefix_text) then
-      local indent_len = fl.depth * self.indent_width
-      vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, offset + i - 1, indent_len, {
+      vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, offset + i - 1, fl.depth * self.indent_width, {
+        id = fl.node_id,
         virt_text = build_icon_virt_text(entry),
         virt_text_pos = "inline",
         right_gravity = false,
       })
+    else
+      vim.api.nvim_buf_del_extmark(self.bufnr, self.ns_icon, fl.node_id)
     end
+  end
+  place_icon(toggled_new_i)
+  if is_expand then
+    for i = ins_start, ins_start + ins_count - 1 do
+      place_icon(i)
+    end
+    -- A column-zero icon with left gravity stays before a line inserted at its position.
+    place_icon(ins_start + ins_count)
   end
 
   -- Update internal state
@@ -647,11 +660,12 @@ function Painter:paint_incremental(flat_lines, decorations, opts, hint)
   self.snapshot = new_snapshot
 
   vim.bo[self.bufnr].modified = false
+  self._paint_tick = vim.api.nvim_buf_get_changedtick(self.bufnr)
+  self._synced_tick = self._paint_tick
   return true
 end
 
 ---Resync _row_to_fl and icon extmarks from current ns_ids extmark positions.
----Called by on_win on each redraw to keep decorations aligned after buffer edits.
 ---ns_ids extmarks (right_gravity=true) are the source of truth for row positions.
 function Painter:_resync_on_redraw()
   local marks = vim.api.nvim_buf_get_extmarks(self.bufnr, self.ns_ids, 0, -1, { details = true })
@@ -705,6 +719,7 @@ function Painter:_resync_on_redraw()
           if entry and (entry.icon_text or entry.prefix_text) then
             local indent_len = fl.depth * self.indent_width
             vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, m[2], indent_len, {
+              id = fl.node_id,
               virt_text = build_icon_virt_text(entry),
               virt_text_pos = "inline",
               right_gravity = false,
@@ -714,6 +729,7 @@ function Painter:_resync_on_redraw()
       end
     end
   end
+  self._synced_tick = vim.api.nvim_buf_get_changedtick(self.bufnr)
 end
 
 ---Resync icon extmarks and internal caches after user edits (e.g. dd).
@@ -760,6 +776,7 @@ function Painter:resync_highlights()
       if entry and (entry.icon_text or entry.prefix_text) then
         local indent_len = fl.depth * self.indent_width
         vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, v.row, indent_len, {
+          id = fl.node_id,
           virt_text = build_icon_virt_text(entry),
           virt_text_pos = "inline",
           right_gravity = false,
@@ -783,6 +800,7 @@ function Painter:resync_highlights()
       end
     end
   end
+  self._synced_tick = vim.api.nvim_buf_get_changedtick(self.bufnr)
 end
 
 ---Get the current render snapshot.
