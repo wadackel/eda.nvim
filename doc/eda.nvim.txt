@@ -1303,6 +1303,122 @@ Integrations such as LSP workspace notifications must use `results.completed`,
 rather than the full `operations` plan, to report successful changes only.
 
 
+LSP RENAME NOTIFICATIONS
+
+The following native Neovim integration sends `workspace/didRenameFiles`
+<https://microsoft.github.io/language-server-protocol/specifications/lsp/3.17/specification/#workspace_didRenameFiles>
+for completed moves. It requires a running language server that advertises a
+static `workspace.fileOperations.didRename` registration. Configure
+capabilities before starting or enabling your servers; restart existing clients
+after installing it. No additional file-operations plugin is required.
+
+>lua
+    vim.lsp.config("*", {
+      capabilities = {
+        workspace = {
+          fileOperations = { dynamicRegistration = false, didRename = true },
+        },
+      },
+    })
+    
+    local function contains(root, path)
+      root = vim.fs.normalize(root):gsub("/+$", "")
+      path = vim.fs.normalize(path)
+      return path == root or vim.startswith(path, root .. "/")
+    end
+    
+    local function in_workspace(client, op)
+      for _, folder in ipairs(client.workspace_folders or {}) do
+        local root = vim.uri_to_fname(folder.uri)
+        if contains(root, op.src) or contains(root, op.dst) then
+          return true
+        end
+      end
+      return false
+    end
+    
+    local function matches_filter(filter, op)
+      if filter.scheme and filter.scheme ~= "file" then
+        return false
+      end
+      local entry_type = op.entry_type
+      if not entry_type then
+        local stat = vim.uv.fs_stat(op.dst)
+        entry_type = stat and stat.type
+      end
+      local kind = ({ file = "file", directory = "folder" })[entry_type]
+      local pattern = filter.pattern
+      if pattern.matches and pattern.matches ~= kind then
+        return false
+      end
+      local path, glob = vim.fs.normalize(op.src), pattern.glob
+      if pattern.options and pattern.options.ignoreCase then
+        path, glob = vim.fn.tolower(path), vim.fn.tolower(glob)
+      end
+      local matcher = vim.glob.to_lpeg(glob)
+      return matcher:match(path) ~= nil or (kind == "folder" and matcher:match(path .. "/") ~= nil)
+    end
+    
+    vim.api.nvim_create_autocmd("User", {
+      group = vim.api.nvim_create_augroup("EdaLspRenameNotifications", { clear = true }),
+      pattern = "EdaMutationPost",
+      callback = function(ev)
+        for _, client in ipairs(vim.lsp.get_clients()) do
+          local registration = vim.tbl_get(client.server_capabilities, "workspace", "fileOperations", "didRename")
+          if client.initialized and registration then
+            local files = {}
+            for _, op in ipairs(ev.data.results.completed) do
+              if op.type == "move" and in_workspace(client, op) then
+                for _, filter in ipairs(registration.filters) do
+                  if matches_filter(filter, op) then
+                    files[#files + 1] = { oldUri = vim.uri_from_fname(op.src), newUri = vim.uri_from_fname(op.dst) }
+                    break
+                  end
+                end
+              end
+            end
+            if #files > 0 then
+              client:notify("workspace/didRenameFiles", { files = files })
+            end
+          end
+        end
+      end,
+    })
+<
+
+Only `results.completed` move entries are considered, including when a later
+operation fails. Creates, deletes, copies, failed moves, and unattempted moves
+are excluded. Notifications go to initialized clients whose workspace contains
+the source or destination and whose registration filters match the old path.
+The filters honor the URI scheme, glob, optional file/folder kind, and
+`ignoreCase`. Clients without workspace folders or a static registration are
+skipped. Do not enable dynamic file-operation registration for this handler.
+
+Operation metadata supplies the file/folder kind when available; otherwise the
+handler checks the completed destination. If its kind is unavailable, only
+filters without a kind restriction can match. The handler reports a moved
+directory once, without expanding its descendants.
+
+This is a post-operation notification. It does not request
+`workspace/willRenameFiles`, apply pre-rename workspace edits, or guarantee
+updated imports. Enable `willRename` only when a separate integration
+implements that request and applies its edits before the filesystem move.
+
+To smoke-test with your server:
+
+1. Enable trace logging with `vim.lsp.set_log_level("trace")`, install the
+handler, and restart the server. Check its
+`server_capabilities.workspace.fileOperations.didRename.filters` and choose
+a file that matches them inside its workspace.
+2. Rename that file in eda and save. Open the log with
+`:lua vim.cmd.edit(vim.lsp.log.get_filename())` and find
+`workspace/didRenameFiles` with the expected `oldUri` and `newUri`.
+3. Create or copy a file and verify that no rename notification is sent. For a
+partially failed batch, verify that only moves in `results.completed` appear.
+4. Restore the previous log level after checking. A correct notification alone
+does not establish that the server updates imports.
+
+
 EDAROOTCHANGED ~
 
 Fired when the explorer’s root directory changes (via `parent`, `cwd`, or
