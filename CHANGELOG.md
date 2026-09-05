@@ -1,5 +1,37 @@
 # Changelog
 
+## [1.8.0](https://github.com/wadackel/eda.nvim/compare/v1.7.0...v1.8.0) (2026-09-05)
+
+
+### Features
+
+* preview inside replace-mode explorer windows ([#106](https://github.com/wadackel/eda.nvim/issues/106)) ([85e2edf](https://github.com/wadackel/eda.nvim/commit/85e2edff0054b725769c39707d527c13aaef73cf))
+
+
+### Bug Fixes
+
+* dispose watcher and preview debounce timers ([#86](https://github.com/wadackel/eda.nvim/issues/86)) ([ea61eaa](https://github.com/wadackel/eda.nvim/commit/ea61eaa6bf3a7a91d7ea658cde28e79c94d61086))
+* honor the large directory warning threshold ([#95](https://github.com/wadackel/eda.nvim/issues/95)) ([d092b5f](https://github.com/wadackel/eda.nvim/commit/d092b5fdaca3e480c2e80b7a36a281766e6233a7))
+* invalidate stale preview requests across lifecycles ([#87](https://github.com/wadackel/eda.nvim/issues/87)) ([2acbcd3](https://github.com/wadackel/eda.nvim/commit/2acbcd36c91bbd8b3eb78ad9a5ebead6878456f6))
+* keep preview toggle state per explorer ([#104](https://github.com/wadackel/eda.nvim/issues/104)) ([6fce45e](https://github.com/wadackel/eda.nvim/commit/6fce45e47e45afa76e244c731d715ceb5c89be10))
+* parse Git status with NUL-delimited paths ([#85](https://github.com/wadackel/eda.nvim/issues/85)) ([fca74d3](https://github.com/wadackel/eda.nvim/commit/fca74d382c3cb726a91126d3c58e7a42e1cde084))
+* preserve files when system trash is unavailable ([#84](https://github.com/wadackel/eda.nvim/issues/84)) ([8cb9c39](https://github.com/wadackel/eda.nvim/commit/8cb9c3924a56ca33506d76fe61a3f59aec847341))
+* preserve unsaved edits during automatic refresh ([#81](https://github.com/wadackel/eda.nvim/issues/81)) ([0d06782](https://github.com/wadackel/eda.nvim/commit/0d06782c83934ace001332bf1e399b6c6e108f3c)), closes [#59](https://github.com/wadackel/eda.nvim/issues/59)
+* reconcile watched directory changes without replacing the tree ([#89](https://github.com/wadackel/eda.nvim/issues/89)) ([7406556](https://github.com/wadackel/eda.nvim/commit/7406556f6c2df18b7e6330737f7e0ae616ad33da))
+* reject occupied file creation destinations ([#79](https://github.com/wadackel/eda.nvim/issues/79)) ([9757146](https://github.com/wadackel/eda.nvim/commit/97571463fcac8145cbf2ea775e0f85e74c52c2ce))
+* reserve unique batch paste destinations ([#83](https://github.com/wadackel/eda.nvim/issues/83)) ([3156378](https://github.com/wadackel/eda.nvim/commit/3156378356627ea30312f66783bb72216d390edf))
+* unify mutation results and event delivery ([#88](https://github.com/wadackel/eda.nvim/issues/88)) ([198c264](https://github.com/wadackel/eda.nvim/commit/198c26462754d1c85d78803488aa12ef636073c4))
+* validate buffer mutation batches and preserve partial writes ([#82](https://github.com/wadackel/eda.nvim/issues/82)) ([2e32fd7](https://github.com/wadackel/eda.nvim/commit/2e32fd7fbe19b62dea788f521bc85f6a4945029f)), closes [#57](https://github.com/wadackel/eda.nvim/issues/57)
+* verify filesystem outcomes and preserve symlink targets ([#101](https://github.com/wadackel/eda.nvim/issues/101)) ([cb34298](https://github.com/wadackel/eda.nvim/commit/cb342987e5cbeb36b826fbb75e3529bd83200e21)), closes [#76](https://github.com/wadackel/eda.nvim/issues/76)
+
+
+### Performance Improvements
+
+* coordinate Git status requests per repository ([#94](https://github.com/wadackel/eda.nvim/issues/94)) ([6045cb4](https://github.com/wadackel/eda.nvim/commit/6045cb4d3b0a39c5812a7149985a6cfcd3e52f47))
+* limit incremental icon updates and redraw resync ([#91](https://github.com/wadackel/eda.nvim/issues/91)) ([ac08bff](https://github.com/wadackel/eda.nvim/commit/ac08bff1b24d850a9339cb784dab8f4f3ad6cd26))
+* resolve symlink metadata with bounded async work ([#93](https://github.com/wadackel/eda.nvim/issues/93)) ([d48272a](https://github.com/wadackel/eda.nvim/commit/d48272a36265e3b60c2f78c3504f0181ba3f7317))
+* reuse the capture within dirty directory collapse ([#92](https://github.com/wadackel/eda.nvim/issues/92)) ([fad6cc9](https://github.com/wadackel/eda.nvim/commit/fad6cc97845f8ea413b932e230065de4eee9fb45))
+
 ## [1.7.0](https://github.com/wadackel/eda.nvim/compare/v1.6.0...v1.7.0) (2026-09-04)
 
 
