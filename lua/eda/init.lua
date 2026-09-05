@@ -10,6 +10,7 @@ local git = require("eda.git")
 local Watcher = require("eda.watcher")
 local Preview = require("eda.preview")
 local FullName = require("eda.full_name")
+local Refresh = require("eda.refresh")
 
 -- Load builtin actions (registers them on require)
 require("eda.action.builtin")
@@ -31,6 +32,7 @@ local next_instance_id = 0
 ---@field watcher eda.Watcher
 ---@field preview eda.Preview
 ---@field full_name eda.FullName
+---@field refresh eda.Refresh
 ---@field _render_gen integer
 ---@field _last_painted_gen integer
 ---@field _incremental_hint? { toggled_node_id: integer }
@@ -539,6 +541,7 @@ function M.open(opts)
     _pending_dispatch = nil,
   }
 
+  explorer.refresh = Refresh.new(explorer)
   M._current = explorer
   table.insert(M._instances, explorer)
 
@@ -730,6 +733,7 @@ function M.open(opts)
   buffer.render = function(_self_buf, _s)
     mark_render_dirty()
     render_with_decorators()
+    explorer.refresh:flush()
   end
 
   -- Edit-preserving render: capture edits → full repaint → replay edits
@@ -1000,31 +1004,11 @@ function M.open(opts)
         end)
       end
 
-      -- Setup watcher on root directory
+      local gen = explorer.generation
       watcher:watch(root_path, function()
-        if not util.is_valid_buf(buffer.bufnr) then
-          watcher:unwatch_all()
-          return
+        if explorer.generation == gen and util.is_valid_buf(buffer.bufnr) then
+          explorer.refresh:request()
         end
-        scanner:rescan_preserving_state(store.root_id, function()
-          vim.schedule(function()
-            if not util.is_valid_buf(buffer.bufnr) then
-              return
-            end
-            mark_render_dirty()
-            schedule_render()
-            -- Refresh git status after external filesystem changes
-            if cfg.git.enabled then
-              git.status(root_path, function(_status)
-                if not util.is_valid_buf(buffer.bufnr) then
-                  return
-                end
-                mark_render_dirty()
-                schedule_render()
-              end)
-            end
-          end)
-        end)
       end)
     end)
   end
@@ -1201,6 +1185,7 @@ function M._change_root(explorer, new_path, opts)
 
   -- Increment generation to invalidate stale callbacks
   explorer.generation = explorer.generation + 1
+  explorer.refresh:reset()
 
   -- Reset the pre-render dispatch gate: after a root change, the new scan is
   -- in flight and `flat_lines` is empty until `on_scan_complete` below. Treat
@@ -1324,38 +1309,10 @@ function M._change_root(explorer, new_path, opts)
         end)
       end
 
-      -- Setup watcher on new root
       explorer.watcher:watch(new_path, function()
-        if explorer.generation ~= gen then
-          return
+        if explorer.generation == gen and util.is_valid_buf(explorer.buffer.bufnr) then
+          explorer.refresh:request()
         end
-        if not util.is_valid_buf(explorer.buffer.bufnr) then
-          explorer.watcher:unwatch_all()
-          return
-        end
-        explorer.scanner:rescan_preserving_state(explorer.store.root_id, function()
-          vim.schedule(function()
-            if explorer.generation ~= gen then
-              return
-            end
-            if not util.is_valid_buf(explorer.buffer.bufnr) then
-              return
-            end
-            explorer.buffer:render(explorer.store)
-            -- Refresh git status after external filesystem changes
-            if cfg.git.enabled then
-              git.status(new_path, function(_status)
-                if explorer.generation ~= gen then
-                  return
-                end
-                if not util.is_valid_buf(explorer.buffer.bufnr) then
-                  return
-                end
-                explorer.buffer:render(explorer.store)
-              end)
-            end
-          end)
-        end)
       end)
     end)
   end
@@ -1414,6 +1371,7 @@ function M.close()
   current.preview:close()
   current.full_name:destroy()
   pcall(vim.api.nvim_del_augroup_by_name, "eda_preview_" .. current.buffer.bufnr)
+  current.refresh:reset()
   current.watcher:unwatch_all()
   current.buffer:destroy()
   current.window:close()
@@ -1460,29 +1418,8 @@ end
 
 ---Refresh all active explorer instances.
 function M.refresh_all()
-  local cfg = config.get()
   for _, explorer in ipairs(M._instances) do
-    if util.is_valid_buf(explorer.buffer.bufnr) then
-      local gen = explorer.generation
-      explorer.scanner:rescan_preserving_state(explorer.store.root_id, function()
-        vim.schedule(function()
-          if util.is_valid_buf(explorer.buffer.bufnr) then
-            explorer.buffer:render(explorer.store)
-            -- Refresh git status after rescan
-            if cfg.git.enabled then
-              git.status(explorer.root_path, function(_status)
-                if explorer.generation ~= gen then
-                  return
-                end
-                if util.is_valid_buf(explorer.buffer.bufnr) then
-                  explorer.buffer:render(explorer.store)
-                end
-              end)
-            end
-          end
-        end)
-      end)
-    end
+    explorer.refresh:request()
   end
 end
 

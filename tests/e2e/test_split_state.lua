@@ -41,7 +41,14 @@ local function dispatch_split(nvim)
     action.dispatch("split", ctx)
   ]]
   )
-  e2e.wait_until(nvim, "#require('eda').get_all() >= 2", 10000)
+  e2e.wait_until(
+    nvim,
+    [[
+    local instances = require("eda").get_all()
+    return #instances >= 2 and instances[#instances]._initial_scan_complete
+  ]],
+    10000
+  )
 end
 
 T["split state"]["expand directory in one pane does not affect other"] = function()

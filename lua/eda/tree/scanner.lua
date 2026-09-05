@@ -418,11 +418,14 @@ end
 
 ---@param root_id integer
 ---@param callback fun()
-function Scanner:rescan_preserving_state(root_id, callback)
+---@param state_store? eda.Store
+function Scanner:rescan_preserving_state(root_id, callback, state_store)
+  local state_root_id = state_store and state_store.root_id or root_id
+  state_store = state_store or self.store
   local open_by_path = {}
   local marked_by_path = {}
-  for _, node in pairs(self.store.nodes) do
-    if node.id ~= root_id then
+  for _, node in pairs(state_store.nodes) do
+    if node.id ~= state_root_id then
       if Node.is_dir(node) and node.open then
         open_by_path[node.path] = true
       end
