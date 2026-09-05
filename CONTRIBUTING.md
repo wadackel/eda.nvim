@@ -1,50 +1,98 @@
 # Contributing to eda.nvim
 
-Thank you for your interest in contributing to eda.nvim!
-
 ## Development Environment
 
-This project uses [Nix Flakes](https://nixos.wiki/wiki/Flakes) to manage development tools.
+Tool versions are managed by [Nix Flakes](flake.nix). Run commands from the
+repository root. Enter the development shell with:
 
 ```sh
-# Enter the development shell (provides all required tools)
 nix develop
 ```
 
-Available tasks are defined in the `justfile`. Run `just --list` to see all commands.
+[justfile](justfile) is the source for task definitions. Run `just --list` inside
+the shell, or `nix develop --command just --list` without entering it.
 
-## Running Tests
+## Verification Before a Pull Request
 
-```sh
-# Unit tests
-just test
-
-# E2E tests
-just test-e2e
-
-# All tests
-just test-all
-```
-
-## Code Quality
+Run the complete local check sequence:
 
 ```sh
-# Format code with stylua
-just format
-
-# Check formatting (CI mode, no writes)
-just format-check
-
-# Lint with selene
-just lint
-
-# Type check with lua-language-server
-just typecheck
+nix develop --command just format-check lint typecheck test-all
 ```
+
+This checks formatting with StyLua, lints with Selene, checks types with
+Lua Language Server, and runs unit and E2E tests. To apply formatting first:
+
+```sh
+nix develop --command just format
+```
+
+For focused development, use `just test` for unit tests or `just test-e2e` for
+E2E tests inside the shell. Both use mini.test; the test bootstrap downloads
+mini.nvim into Neovim's data directory when needed. Async unit cases execute
+serially so a wait inside one case cannot run other cases nested inside it.
+
+The [CI workflow](.github/workflows/ci.yaml) defines the automated jobs and test
+matrix. Use the full local sequence above even when a check is not in CI.
+
+## Documentation Changes
+
+When changing user-facing configuration, actions, commands, events, highlight
+groups, or APIs, update [doc/eda.md](doc/eda.md) and regenerate vimdoc:
+
+```sh
+nix develop --command just doc
+```
+
+Review and commit both the source and [doc/eda.nvim.txt](doc/eda.nvim.txt). Edit
+the Markdown source instead of the generated help file. Keep README examples
+and links consistent with the reference. For Nerd Font glyphs in inline code,
+use an option name such as `git.icons.added`; panvimdoc cannot render those
+glyphs there. Fenced code blocks can contain the glyphs.
+
+## Visual Changes
+
+After changing layouts, icons, highlight groups, Git status display, tree
+rendering, or header formatting, regenerate the screenshots:
+
+```sh
+nix develop --command just demo-all
+```
+
+For iteration on one scenario, use `nix develop --command just demo tree-basic`
+with the appropriate [VHS tape](docs/assets/vhs). Visually inspect the generated
+images and commit affected files in [docs/assets](docs/assets) together with the
+implementation. Command success alone does not establish that a screenshot is
+correct.
+
+The image-preview capture `docs/assets/preview-image.png` requires a real
+terminal that supports the Kitty graphics protocol. VHS renders through xterm.js
+and cannot capture that protocol, so `demo-all` does not produce or refresh this
+image. Update it manually when the image-preview appearance changes.
+
+## Performance Changes
+
+Measure render-pipeline, store, decorator, or painter changes before and after
+using the same fixture, Neovim version, viewport, and machine:
+
+```sh
+nix develop --command nvim --headless -l benchmarks/render.lua /path/to/fixture
+```
+
+The fixture path is optional; the script otherwise uses the current directory.
+Always run scenario 9 after changing `lua/eda/render/painter.lua` or directory
+toggle paths in `lua/eda/init.lua`. It compares incremental and full painting.
+The command above runs all nine scenarios.
+
+Follow [the benchmark methodology](benchmarks/README.md) for repeated
+measurements and actual toggle, edit-preservation, symlink, or Git workloads.
+Run benchmarks sequentially without competing test processes. Record the
+workload, revisions, timings, variability, and limitations in the PR; a
+headless result is not a measurement of host-terminal display latency.
 
 ## Commit Messages
 
-This project follows [Conventional Commits](https://www.conventionalcommits.org/):
+Use [Conventional Commits](https://www.conventionalcommits.org/):
 
 - `feat:` — New feature
 - `fix:` — Bug fix
@@ -53,13 +101,17 @@ This project follows [Conventional Commits](https://www.conventionalcommits.org/
 - `docs:` — Documentation changes
 - `chore:` — Maintenance tasks
 
-Breaking changes should be indicated with `!` after the type (e.g., `feat!: remove deprecated API`).
+Indicate breaking changes with `!` after the type, for example
+`feat!: remove deprecated API`.
 
 ## Pull Requests
 
-1. Fork the repository and create a branch from `main`
-2. Make your changes
-3. Ensure all checks pass (`just format-check && just lint && just test-all`)
-4. Submit a pull request
+1. Create a branch from `main` and keep it focused on one change.
+2. Implement the change, add relevant tests, and update documentation or visual
+   artifacts as described above.
+3. Run the complete local verification sequence and any required benchmarks.
+4. Review the full diff, including generated files, then open a PR describing
+   the resulting behavior and validation evidence.
 
-Please keep PRs focused on a single change. If you have multiple unrelated changes, submit separate PRs.
+PRs are squash-merged. See [AGENTS.md](AGENTS.md) for additional repository
+conventions used by coding agents.
