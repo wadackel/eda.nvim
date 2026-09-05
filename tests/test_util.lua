@@ -9,12 +9,13 @@ T["debounce"]["delays function call"] = function()
   local debounced = util.debounce(50, function()
     called = true
   end)
-  debounced()
+  debounced.call()
   MiniTest.expect.equality(called, false)
   vim.wait(200, function()
     return called
   end, 10)
   MiniTest.expect.equality(called, true)
+  debounced.dispose()
 end
 
 T["debounce"]["only fires last call"] = function()
@@ -22,13 +23,14 @@ T["debounce"]["only fires last call"] = function()
   local debounced = util.debounce(50, function()
     count = count + 1
   end)
-  debounced()
-  debounced()
-  debounced()
+  debounced.call()
+  debounced.call()
+  debounced.call()
   vim.wait(200, function()
     return count > 0
   end, 10)
   MiniTest.expect.equality(count, 1)
+  debounced.dispose()
 end
 
 T["is_valid_buf"] = MiniTest.new_set()

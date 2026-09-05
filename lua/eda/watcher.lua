@@ -2,7 +2,7 @@ local util = require("eda.util")
 
 ---@class eda.Watcher
 ---@field _handles table<string, uv.uv_fs_event_t>
----@field _debounced table<string, fun()>
+---@field _debounced table<string, eda.Debounce>
 ---@field pending_operations table<string, boolean>
 local Watcher = {}
 Watcher.__index = Watcher
@@ -40,38 +40,40 @@ function Watcher:watch(path, callback)
   end)
 
   self._debounced[path] = debounced
+  self._handles[path] = handle
 
-  handle:start(path, {}, function(err, filename, events)
+  local ok = handle:start(path, {}, function(err, filename, events)
     if err then
       return
     end
-    vim.schedule(function()
-      debounced(filename, events)
-    end)
+    debounced.call(filename, events)
   end)
 
-  self._handles[path] = handle
+  if not ok then
+    self:unwatch(path)
+  end
 end
 
 ---Stop watching a specific path.
 ---@param path string
 function Watcher:unwatch(path)
+  local debounced = self._debounced[path]
+  if debounced then
+    debounced.dispose()
+    self._debounced[path] = nil
+  end
   local handle = self._handles[path]
   if handle then
     handle:stop()
     handle:close()
     self._handles[path] = nil
-    self._debounced[path] = nil
   end
 end
 
 ---Stop all watchers.
 function Watcher:unwatch_all()
-  for path, handle in pairs(self._handles) do
-    handle:stop()
-    handle:close()
-    self._handles[path] = nil
-    self._debounced[path] = nil
+  for path in pairs(self._handles) do
+    self:unwatch(path)
   end
 end
 

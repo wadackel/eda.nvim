@@ -2,23 +2,50 @@ local M = {}
 
 local is_mac = vim.uv.os_uname().sysname == "Darwin"
 
----Debounce a function call.
+---@class eda.Debounce
+---@field call fun(...: any)
+---@field cancel fun()
+---@field dispose fun()
+
 ---@param ms integer Delay in milliseconds
 ---@param fn fun(...: any) Function to debounce
----@return fun(...: any) debounced Debounced function
+---@return eda.Debounce
 function M.debounce(ms, fn)
   local timer = assert(vim.uv.new_timer(), "failed to create timer")
-  return function(...)
-    local args = { ... }
-    timer:stop()
-    timer:start(ms, 0, function()
+  local disposed, generation = false, 0
+  local function cancel()
+    generation = generation + 1
+    if not disposed then
       timer:stop()
+    end
+  end
+  local function dispose()
+    if disposed then
+      return
+    end
+    cancel()
+    disposed = true
+    timer:close()
+  end
+  local function call(...)
+    if disposed then
+      return
+    end
+    cancel()
+    local token = generation
+    local args = { ... }
+    local count = select("#", ...)
+    timer:start(ms, 0, function()
       vim.schedule(function()
-        ---@diagnostic disable-next-line: deprecated
-        fn(unpack(args))
+        -- Stopping the timer cannot retract a callback already queued with vim.schedule.
+        if not disposed and generation == token then
+          ---@diagnostic disable-next-line: deprecated
+          fn(unpack(args, 1, count))
+        end
       end)
     end)
   end
+  return { call = call, cancel = cancel, dispose = dispose }
 end
 
 ---Check if a buffer is valid.
