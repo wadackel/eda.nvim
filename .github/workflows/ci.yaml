@@ -19,7 +19,7 @@ jobs:
           just lint
 
   test:
-    name: test (${{ matrix.os }}, ${{ matrix.neovim }})
+    name: test (${{ matrix.label }})
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -27,12 +27,16 @@ jobs:
         include:
           - os: ubuntu-latest
             neovim: v0.11.0
+            label: v0.11.0
           - os: ubuntu-latest
             neovim: stable
+            label: stable
           - os: ubuntu-latest
             neovim: nightly
+            label: nightly
           - os: macos-15
             neovim: stable
+            label: macos-15, stable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
