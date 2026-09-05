@@ -42,7 +42,18 @@ end
 ---@param cb fun(err?: string)
 function M.delete(path, cb)
   vim.schedule(function()
-    local ok, err = pcall(vim.fs.rm, path, { recursive = true, force = true })
+    local ok, err = pcall(function()
+      -- Neovim 0.11's vim.fs.rm follows a top-level symlink and can delete its target's contents.
+      local stat = vim.uv.fs_lstat(path)
+      if stat and stat.type == "link" then
+        local removed, unlink_err, code = vim.uv.fs_unlink(path)
+        if not removed and code ~= "ENOENT" then
+          error(unlink_err)
+        end
+      else
+        vim.fs.rm(path, { recursive = true, force = true })
+      end
+    end)
     if not ok then
       cb("Failed to delete: " .. (err or path))
     else
