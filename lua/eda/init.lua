@@ -1067,7 +1067,7 @@ function M._handle_write(explorer)
   end
   local Parser = require("eda.buffer.parser")
   local Diff = require("eda.tree.diff")
-  local Fs = require("eda.fs")
+  local Mutation = require("eda.mutation")
   local Confirm = require("eda.buffer.confirm")
 
   local buffer = explorer.buffer
@@ -1119,22 +1119,8 @@ function M._handle_write(explorer)
       end
     end
 
-    local pre_ok, pre_err = pcall(fire_event, "EdaMutationPre", { operations = operations })
-    if not pre_ok then
-      release()
-      vim.notify("eda: mutation hook failed: " .. tostring(pre_err), vim.log.levels.ERROR)
-      return
-    end
-    Fs.execute_operations(operations, { delete_to_trash = cfg.delete_to_trash }, function(result)
+    Mutation.execute(operations, { delete_to_trash = cfg.delete_to_trash }, function(result)
       vim.schedule(function()
-        if not util.is_valid_buf(buffer.bufnr) or explorer.generation ~= generation then
-          release()
-          return
-        end
-        local post_ok, post_err = pcall(fire_event, "EdaMutationPost", { operations = operations, results = result })
-        if not post_ok then
-          vim.notify("eda: mutation hook failed: " .. tostring(post_err), vim.log.levels.ERROR)
-        end
         if not util.is_valid_buf(buffer.bufnr) or explorer.generation ~= generation then
           release()
           return

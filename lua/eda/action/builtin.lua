@@ -661,25 +661,36 @@ action.register("mark_toggle", function(ctx)
   end
 end, { desc = "Mark/unmark node (Visual selection or cursor)" })
 
---- Delete action: unified mark-aware deletion.
---- Targets are resolved with priority Visual > marks > cursor via _get_target_nodes.
---- When origin is "marks", marks for completed deletions are cleared pre-rescan
---- (so partial-failure marks on failed/unattempted ops survive for retry).
---- Confirmation routing goes through eda._should_confirm to honor cfg.confirm.delete,
---- matching the buffer-edit delete path.
+---@param ctx eda.ActionContext
+---@param from_marks boolean
+---@param result eda.ExecuteResult
+---@param verb string
+local function finish_targets(ctx, from_marks, result, verb)
+  if from_marks then
+    local completed = {}
+    for _, op in ipairs(result.completed) do
+      completed[op.src or op.path] = true
+    end
+    for _, node in pairs(ctx.store.nodes) do
+      if completed[node.path] then
+        node._marked = nil
+      end
+    end
+  end
+  get_eda().refresh_all()
+  if not result.error then
+    vim.notify(verb .. " " .. #result.completed .. " item(s)")
+  elseif #result.completed > 0 then
+    vim.notify(verb .. " " .. #result.completed .. " item(s), error: " .. result.error, vim.log.levels.WARN)
+  end
+end
+
 action.register("delete", function(ctx)
-  -- M._get_target_nodes is used (not local get_target_nodes) because it is defined
-  -- later in the file; module-field lookup is deferred until call time.
   local target = M._get_target_nodes(ctx)
   if #target.nodes == 0 then
     vim.notify("No items selected")
     return
   end
-  local from_marks = target.origin == "marks"
-
-  local Fs = require("eda.fs")
-  local Confirm = require("eda.buffer.confirm")
-  local util = require("eda.util")
 
   local operations = {}
   for _, node in ipairs(target.nodes) do
@@ -690,59 +701,14 @@ action.register("delete", function(ctx)
     })
   end
 
-  local function clear_marks_for_completed(completed)
-    for _, op in ipairs(completed) do
-      for _, n in pairs(ctx.store.nodes) do
-        if n.path == op.path then
-          n._marked = nil
-        end
-      end
-    end
-  end
-
   local function execute()
-    vim.api.nvim_exec_autocmds("User", { pattern = "EdaMutationPre", data = { operations = operations } })
-    Fs.execute_operations(operations, { delete_to_trash = ctx.config.delete_to_trash }, function(result)
-      vim.schedule(function()
-        if not util.is_valid_buf(ctx.buffer.bufnr) then
-          return
-        end
-        if from_marks and result.completed then
-          clear_marks_for_completed(result.completed)
-        end
-        if result.error and (not result.completed or #result.completed == 0) then
-          vim.notify("Delete failed: " .. result.error, vim.log.levels.ERROR)
-          vim.api.nvim_exec_autocmds(
-            "User",
-            { pattern = "EdaMutationPost", data = { operations = operations, results = result } }
-          )
-          return
-        end
-        ctx.scanner:rescan_preserving_state(ctx.store.root_id, function()
-          vim.schedule(function()
-            if not util.is_valid_buf(ctx.buffer.bufnr) then
-              return
-            end
-            refresh(ctx)
-            refresh_git(ctx)
-            vim.api.nvim_exec_autocmds(
-              "User",
-              { pattern = "EdaMutationPost", data = { operations = operations, results = result } }
-            )
-            local completed_count = result.completed and #result.completed or 0
-            if result.error then
-              vim.notify("Deleted " .. completed_count .. " item(s), error: " .. result.error, vim.log.levels.WARN)
-            else
-              vim.notify("Deleted " .. completed_count .. " item(s)")
-            end
-          end)
-        end)
-      end)
+    require("eda.mutation").execute(operations, { delete_to_trash = ctx.config.delete_to_trash }, function(result)
+      finish_targets(ctx, target.origin == "marks", result, "Deleted")
     end)
   end
 
   if get_eda()._should_confirm(ctx.config.confirm, operations) then
-    Confirm.show(operations, ctx.explorer.root_path, execute, function() end)
+    require("eda.buffer.confirm").show(operations, ctx.explorer.root_path, execute, function() end)
   else
     execute()
   end
@@ -832,96 +798,27 @@ action.register("mark_clear_all", function(ctx)
   end
 end, { desc = "Clear all marks" })
 
---- Duplicate action: unified mark-aware duplication.
---- Targets are resolved with priority Visual > marks > cursor via _get_target_nodes.
---- Each target is copied to its parent directory with `_copy` suffix (collision-aware).
---- Directories are allowed (Fs.copy uses `cp -R`). When origin is "marks", marks for
---- completed copies are cleared pre-rescan so failed/unattempted ops survive for retry.
 action.register("duplicate", function(ctx)
-  -- M._get_target_nodes is used (not local get_target_nodes) because it is defined
-  -- later in the file; module-field lookup is deferred until call time.
   local target = M._get_target_nodes(ctx)
   if #target.nodes == 0 then
     vim.notify("No items selected")
     return
   end
-  local from_marks = target.origin == "marks"
 
-  local Fs = require("eda.fs")
-  local util = require("eda.util")
-
-  local operations = {}
+  local operations, reserved = {}, {}
   for _, node in ipairs(target.nodes) do
     local parent_dir = vim.fn.fnamemodify(node.path, ":h")
-    table.insert(operations, {
-      type = "copy",
-      src = node.path,
-      dst = M._resolve_unique_dst(parent_dir, node.name),
-    })
+    local dst = M._resolve_unique_dst(parent_dir, node.name, reserved)
+    table.insert(operations, { type = "copy", path = dst, src = node.path, dst = dst })
   end
 
-  vim.api.nvim_exec_autocmds("User", { pattern = "EdaMutationPre", data = { operations = operations } })
-
-  local remaining = #operations
-  local errors = {}
-  local completed = {}
-  local first_failed
-
-  local function finalize()
-    vim.schedule(function()
-      if not util.is_valid_buf(ctx.buffer.bufnr) then
-        return
-      end
-      if from_marks then
-        for _, op in ipairs(completed) do
-          for _, n in pairs(ctx.store.nodes) do
-            if n.path == op.src then
-              n._marked = nil
-            end
-          end
-        end
-      end
-      ctx.scanner:rescan_preserving_state(ctx.store.root_id, function()
-        vim.schedule(function()
-          if not util.is_valid_buf(ctx.buffer.bufnr) then
-            return
-          end
-          refresh(ctx)
-          refresh_git(ctx)
-          local result = { completed = completed, failed = first_failed, error = errors[1] }
-          vim.api.nvim_exec_autocmds(
-            "User",
-            { pattern = "EdaMutationPost", data = { operations = operations, results = result } }
-          )
-          local n_completed = #completed
-          if #errors == 0 then
-            vim.notify("Duplicated " .. n_completed .. " item(s)")
-          elseif n_completed > 0 then
-            vim.notify("Duplicated " .. n_completed .. " item(s), error: " .. errors[1], vim.log.levels.WARN)
-          else
-            vim.notify("Duplicate failed: " .. errors[1], vim.log.levels.ERROR)
-          end
-        end)
-      end)
-    end)
-  end
-
-  for _, op in ipairs(operations) do
-    Fs.copy(op.src, op.dst, function(err)
-      if err then
-        table.insert(errors, err)
-        if not first_failed then
-          first_failed = op
-        end
-      else
-        table.insert(completed, op)
-      end
-      remaining = remaining - 1
-      if remaining == 0 then
-        finalize()
-      end
-    end)
-  end
+  require("eda.mutation").execute(
+    operations,
+    { delete_to_trash = ctx.config.delete_to_trash, no_replace = true },
+    function(result)
+      finish_targets(ctx, target.origin == "marks", result, "Duplicated")
+    end
+  )
 end, { desc = "Duplicate target nodes (Visual > marks > cursor)" })
 
 action.register("system_open", function(ctx)
@@ -1251,7 +1148,6 @@ local active_pastes = {}
 
 action.register("paste", function(ctx)
   local register = require("eda.register")
-  local Fs = require("eda.fs")
   local reg = register.get()
   if not reg then
     vim.notify("Register is empty")
@@ -1282,49 +1178,34 @@ action.register("paste", function(ctx)
 
   local planned, reserved = {}, {}
   for _, src_path in ipairs(reg.paths) do
+    local dst = resolve_unique_dst(target_dir, vim.fn.fnamemodify(src_path, ":t"), reserved)
     planned[#planned + 1] = {
+      type = reg.operation == "cut" and "move" or "copy",
+      path = dst,
       src = src_path,
-      dst = resolve_unique_dst(target_dir, vim.fn.fnamemodify(src_path, ":t"), reserved),
+      dst = dst,
     }
   end
   active_pastes[reg] = true
-  local index = 0
-  local function finish(err)
-    active_pastes[reg] = nil
-    if register.get() == reg then
-      if err then
-        local pending = {}
-        for i = index, #planned do
-          pending[#pending + 1] = planned[i].src
+  require("eda.mutation").execute(
+    planned,
+    { delete_to_trash = ctx.config.delete_to_trash, no_replace = true },
+    function(result)
+      active_pastes[reg] = nil
+      if register.get() == reg then
+        if result.error then
+          local pending = {}
+          for i = #result.completed + 1, #planned do
+            pending[#pending + 1] = planned[i].src
+          end
+          register.set(pending, reg.operation)
+        else
+          register.clear()
         end
-        register.set(pending, reg.operation)
-      else
-        register.clear()
       end
+      get_eda().refresh_all()
     end
-    if err then
-      vim.notify(err, vim.log.levels.ERROR)
-    end
-    get_eda().refresh_all()
-  end
-  local function next_entry(err)
-    if err then
-      finish(err)
-      return
-    end
-    index = index + 1
-    local entry = planned[index]
-    if not entry then
-      finish()
-      return
-    end
-    if reg.operation == "cut" then
-      Fs.move(entry.src, entry.dst, next_entry, { no_replace = true })
-    else
-      Fs.copy(entry.src, entry.dst, next_entry, { no_replace = true })
-    end
-  end
-  next_entry()
+  )
 end, { desc = "Paste from register" })
 
 action.register("help", function(ctx)

@@ -93,10 +93,13 @@ function M.copy(src, dst, cb, opts)
   end
   vim.schedule(function()
     local parent = vim.fn.fnamemodify(dst, ":h")
-    vim.fn.mkdir(parent, "p")
+    local parent_ok, parent_err = pcall(vim.fn.mkdir, parent, "p")
+    if not parent_ok then
+      cb("Failed to create destination parent: " .. tostring(parent_err))
+      return
+    end
 
-    -- Use system cp for recursive copy
-    vim.system({ "cp", "-R", src, dst }, {}, function(result)
+    local ok, err = pcall(vim.system, { "cp", "-R", src, dst }, {}, function(result)
       vim.schedule(function()
         if result.code ~= 0 then
           cb("Failed to copy: " .. (result.stderr or ""))
@@ -105,6 +108,9 @@ function M.copy(src, dst, cb, opts)
         end
       end)
     end)
+    if not ok then
+      cb("Failed to start cp: " .. tostring(err))
+    end
   end)
 end
 
@@ -166,9 +172,12 @@ end
 ---@field failed eda.Operation?
 ---@field error string?
 
----Execute a list of operations sequentially. Halts on first error.
+---@class eda.ExecuteOptions
+---@field delete_to_trash boolean
+---@field no_replace? boolean
+
 ---@param operations eda.Operation[]
----@param opts { delete_to_trash: boolean }
+---@param opts eda.ExecuteOptions
 ---@param cb fun(result: eda.ExecuteResult)
 function M.execute_operations(operations, opts, cb)
   local completed = {}
@@ -182,16 +191,20 @@ function M.execute_operations(operations, opts, cb)
     end
 
     local op = operations[idx]
+    local settled = false
 
     local function on_done(err)
+      if settled then
+        return
+      end
+      settled = true
       if err then
-        -- Format partial failure report
         local msg = ""
         if #completed > 0 then
           local parts = {}
           for _, c in ipairs(completed) do
-            if c.type == "move" then
-              table.insert(parts, "MOVE " .. c.src .. " → " .. c.dst)
+            if c.type == "move" or c.type == "copy" then
+              table.insert(parts, c.type:upper() .. " " .. c.src .. " → " .. c.dst)
             elseif c.type == "create" then
               table.insert(parts, "CREATE " .. c.path)
             elseif c.type == "delete" then
@@ -210,18 +223,31 @@ function M.execute_operations(operations, opts, cb)
       next_op()
     end
 
-    if op.type == "create" then
-      M.create(op.path, op.entry_type == "directory", on_done)
-    elseif op.type == "delete" then
-      if opts.delete_to_trash then
-        M.trash(op.path, on_done)
+    local ok, err = pcall(function()
+      if op.type == "create" then
+        M.create(op.path, op.entry_type == "directory", on_done)
+      elseif op.type == "delete" then
+        if opts.delete_to_trash then
+          M.trash(op.path, on_done)
+        else
+          M.delete(op.path, on_done)
+        end
+      elseif op.type == "move" or op.type == "copy" then
+        local transfer = op.type == "move" and M.move or M.copy
+        if opts.no_replace then
+          transfer(op.src, op.dst, on_done, { no_replace = true })
+        else
+          transfer(op.src, op.dst, on_done)
+        end
       else
-        M.delete(op.path, on_done)
+        on_done("Unknown operation type: " .. tostring(op.type))
       end
-    elseif op.type == "move" then
-      M.move(op.src, op.dst, on_done)
-    else
-      on_done("Unknown operation type: " .. tostring(op.type))
+    end)
+    if not ok then
+      if settled then
+        error(err, 0)
+      end
+      on_done(tostring(err))
     end
   end
 

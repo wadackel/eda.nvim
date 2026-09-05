@@ -3,7 +3,7 @@ local util = require("eda.util")
 local M = {}
 
 ---@class eda.Operation
----@field type "create"|"delete"|"move"
+---@field type "create"|"delete"|"move"|"copy"
 ---@field path string
 ---@field src string?
 ---@field dst string?
