@@ -1,13 +1,7 @@
 vim.o.shadafile = "NONE"
 io.write(string.format("E2E parent Neovim: %s (%s)\n", vim.v.progpath, tostring(vim.version())))
 
--- Bootstrap mini.nvim for E2E testing
-local deps_path = vim.fn.stdpath("data") .. "/eda-test-deps"
-local mini_path = deps_path .. "/mini.nvim"
-
-if not vim.uv.fs_stat(mini_path) then
-  vim.fn.system({ "git", "clone", "--depth=1", "https://github.com/echasnovski/mini.nvim", mini_path })
-end
+local mini_path = dofile("tests/bootstrap.lua").ensure()
 
 vim.opt.runtimepath:prepend(mini_path)
 vim.opt.runtimepath:prepend(vim.fn.getcwd())

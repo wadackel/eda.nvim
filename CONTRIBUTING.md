@@ -29,8 +29,9 @@ nix develop --command just format
 
 For focused development, use `just test` for unit tests or `just test-e2e` for
 E2E tests inside the shell. Both use mini.test; the test bootstrap downloads
-mini.nvim into Neovim's data directory when needed. Async unit cases execute
-serially so a wait inside one case cannot run other cases nested inside it.
+the pinned mini.nvim revision into Neovim's data directory when needed. Async
+unit cases execute serially so a wait inside one case cannot run other cases
+nested inside it.
 
 The [CI workflow](.github/workflows/ci.yaml) runs formatting, lint, type checking,
 and generated-vimdoc freshness checks. Full unit and E2E suites run on Ubuntu
@@ -42,6 +43,37 @@ To test another installed Neovim locally, use
 `just nvim=/absolute/path/to/nvim test-all` inside the development shell. The
 same override selects the runtime definitions used by `just typecheck`. CI's
 separate typecheck job uses the Neovim and Lua Language Server pinned by Nix.
+
+## Test Dependency Updates and Recovery
+
+Both test runners use the commit recorded in [tests/bootstrap.lua](tests/bootstrap.lua).
+The cache is `stdpath("data")/eda-test-deps/mini.nvim-<revision>`. A fresh run
+requires Git and network access to fetch that commit; subsequent runs work
+offline when the checkout matches the pin and its working tree is clean.
+
+The bootstrap rejects incomplete checkouts, a different HEAD, local changes,
+and untracked files. It reports the affected path and stops before collecting
+tests. Inspect and move that specific cache directory aside to preserve any
+local work, then rerun the tests. Other revisions and the old unversioned
+`mini.nvim` directory are left untouched.
+
+Concurrent fresh runs build separate staging directories and publish only
+validated checkouts. A failed fetch or checkout removes its own staging
+directory. Forcefully terminating a process can leave an unused
+`.mini.nvim-<revision>-<random>` directory; it is never used as a dependency.
+
+To update mini.test:
+
+1. Choose and review an upstream mini.nvim commit, then replace the full
+   40-character `revision` in `tests/bootstrap.lua`.
+2. Run `nix develop --command just test-all`. The new revision gets its own
+   cache, so this exercises a fresh fetch and checkout.
+3. Rerun `just test-all` to exercise the matching cache, and verify the minimum
+   supported Neovim as well as the development version. CI also checks stable,
+   nightly, and macOS.
+4. Commit the pin change with any required test adjustments. The unit suite's
+   bootstrap tests use local Git fixtures to cover cached, failed, and
+   concurrent setup without an external network dependency.
 
 ## Documentation Changes
 

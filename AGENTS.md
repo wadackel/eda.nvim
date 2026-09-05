@@ -40,7 +40,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 - Framework: mini.test (from mini.nvim)
 - Test files: `tests/` directory, mirroring `lua/eda/` structure with `test_` prefix
-- Test bootstrap: `tests/minit.lua` auto-clones mini.nvim to `~/.local/share/nvim/eda-test-deps/`
+- Test bootstrap: both runners use the mini.nvim commit pinned in `tests/bootstrap.lua`, cached under `stdpath("data")/eda-test-deps/mini.nvim-<revision>`. See CONTRIBUTING.md for cache recovery and pin updates.
 - Helper utilities in `tests/helpers.lua` (temp dirs, file creation, wait_for)
 - Async tests: use `helpers.wait_for(timeout_ms, predicate_fn)` for `vim.uv` callback completion
 - `tests/minit.lua` executes cases one at a time. `MiniTest.run()` schedules every case up front, so a `vim.wait` inside a case would run the remaining cases nested inside it and a timed-out wait would be reported as passing
