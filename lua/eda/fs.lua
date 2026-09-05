@@ -108,7 +108,17 @@ function M.copy(src, dst, cb, opts)
   end)
 end
 
----Move a file/directory to system trash (macOS).
+---@return string? backend
+---@return string? error
+function M.trash_backend()
+  local backend = vim.uv.os_uname().sysname == "Darwin" and "osascript" or "trash-put"
+  if vim.fn.executable(backend) == 1 then
+    return backend
+  end
+  local remedy = backend == "trash-put" and "Install trash-cli (trash-put)" or "Make osascript available"
+  return nil, "System trash unavailable: " .. remedy .. "; set delete_to_trash=false only for permanent deletion"
+end
+
 ---@param path string
 ---@param cb fun(err?: string)
 function M.trash(path, cb)
@@ -116,24 +126,38 @@ function M.trash(path, cb)
     cb("Path contains unsupported control characters: " .. path)
     return
   end
-  local sysname = vim.uv.os_uname().sysname
-  if sysname == "Darwin" then
-    vim.system({
-      "osascript",
+  local backend, backend_err = M.trash_backend()
+  if not backend then
+    cb(backend_err)
+    return
+  end
+  local command
+  if backend == "osascript" then
+    command = {
+      backend,
       "-e",
-      string.format('tell app "Finder" to delete POSIX file "%s"', path:gsub("\\", "\\\\"):gsub('"', '\\"')),
-    }, {}, function(result)
-      vim.schedule(function()
-        if result.code ~= 0 then
-          cb("Failed to trash: " .. (result.stderr or ""))
-        else
-          cb()
-        end
-      end)
-    end)
+      'on run argv\ntell application "Finder" to delete POSIX file (item 1 of argv)\nend run',
+      "--",
+      path,
+    }
   else
-    -- Fallback: use trash-cli or just delete
-    M.delete(path, cb)
+    command = { backend, "--", path }
+  end
+  local ok, err = pcall(
+    vim.system,
+    command,
+    { text = true },
+    vim.schedule_wrap(function(result)
+      if result.code ~= 0 then
+        local detail = result.stderr ~= "" and result.stderr or ("exit code " .. result.code)
+        cb("Failed to trash with " .. backend .. ": " .. detail)
+      else
+        cb()
+      end
+    end)
+  )
+  if not ok then
+    cb("Failed to start " .. backend .. ": " .. tostring(err))
   end
 end
 

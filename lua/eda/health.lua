@@ -17,8 +17,18 @@ function M.check()
     vim.health.warn("git not found (git integration will be disabled)")
   end
 
-  -- Icon provider
   local cfg = require("eda.config").get()
+  if cfg.delete_to_trash then
+    local backend, err = require("eda.fs").trash_backend()
+    if backend then
+      vim.health.ok("System trash: " .. backend)
+    else
+      vim.health.warn(err or "System trash unavailable")
+    end
+  else
+    vim.health.info("Permanent deletion is enabled (delete_to_trash=false)")
+  end
+
   local icon_provider = cfg.icon and cfg.icon.provider or "mini_icons"
   if icon_provider == "none" then
     vim.health.ok("Icon provider disabled")

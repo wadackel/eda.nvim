@@ -232,6 +232,7 @@ T["marks"]["delete action deletes hidden marked file"] = function()
       confirm = false,
       header = false,
       show_hidden = true,
+      delete_to_trash = false,
     })
   ]]
   )
@@ -284,6 +285,7 @@ T["marks"]["delete action skips dialog when confirm.delete is false"] = function
       icon = { provider = "none" },
       window = { kind = "split_left", width = 40 },
       confirm = { delete = false, move = false, create = false },
+      delete_to_trash = false,
       header = false,
     })
   ]]
