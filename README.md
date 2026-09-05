@@ -119,6 +119,8 @@ use({
 require("eda").setup()
 ```
 
+If you do not use an icon plugin, pass `icon = { provider = "none" }` to `setup`.
+
 Open the explorer with the `:Eda` command:
 
 ```vim
@@ -130,326 +132,36 @@ Open the explorer with the `:Eda` command:
 > [!TIP]
 > Set `hijack_netrw = true` to use eda as the default directory browser. See the [Replace netrw](#recipes) recipe for details.
 
-See [Configuration](#configuration) below for all options, or `:help eda.nvim` for the full reference.
+See [Configuration](#configuration) for a customization example, or the
+[full reference](doc/eda.md) for all options.
 
 ## Configuration
 
-Below are all available options with their default values. You only need to specify the options you want to change — everything is deep-merged with the defaults.
+Pass only the options you want to change; they are merged with the defaults.
+For example, use a sidebar with file preview and a mapping to toggle the preview:
 
 ```lua
 require("eda").setup({
-  -- Markers used to detect the project root
-  root_markers = { ".git", ".hg" },
-  -- Show hidden/dotfiles by default
-  show_hidden = true,
-  -- Show git-ignored files by default
-  show_gitignored = true,
-  -- Show only files with git changes (toggle via `gs`, default off)
-  show_only_git_changes = false,
-  -- Lua patterns matched against file/directory name (not glob)
-  -- Accepts a function: fun(root_path): string[]
-  ignore_patterns = {},
-
-  window = {
-    -- Layout: "float", "split_left", "split_right", "replace"
-    kind = "float",
-    -- Border style (see :help nvim_open_win)
-    border = "rounded",
-    -- Per-kind window dimensions (string percentage or number or function)
-    kinds = {
-      float = { width = "94%", height = "80%" },
-      replace = {},
-      split_left = { width = "30%" },
-      split_right = { width = "30%" },
-    },
-    -- Buffer-local options applied to the eda buffer
-    buf_opts = {
-      filetype = "eda",
-      buftype = "acwrite",
-    },
-    -- Window-local options applied to the eda window
-    win_opts = {
-      number = false,
-      relativenumber = false,
-      wrap = false,
-      signcolumn = "no",
-      cursorline = true,
-      foldcolumn = "0",
-    },
-  },
-
-  -- Use eda as the default directory browser (replaces netrw)
-  hijack_netrw = false,
-  -- Close explorer window after selecting a file
-  close_on_select = false,
-
-  -- Confirmation dialogs (boolean or table; true = all defaults below)
-  confirm = {
-    -- Confirm before deleting files
-    delete = true,
-    -- Confirm moves: true, false, or "overwrite_only"
-    move = "overwrite_only",
-    -- Confirm creation: true, false, or integer (threshold count)
-    create = false,
-    -- Path display in confirm dialogs: "full", "short", "minimal", or fun(path, root_path): string
-    path_format = "short",
-    -- Signs shown in confirm dialogs
-    signs = {
-      create = "", -- nf-oct-plus
-      delete = "", -- nf-oct-circle_slash
-      move = "",   -- nf-oct-arrow_right
-    },
-  },
-
-  delete_to_trash = true,
-  -- Follow symbolic links when scanning
-  follow_symlinks = true,
-  -- Directories with more entries than this skip sorting for performance
-  large_dir_threshold = 5000,
-  -- Maximum depth for initial directory expansion
-  expand_depth = 5,
-
-  -- Automatically reveal the focused file in the tree
-  update_focused_file = {
-    -- Enable auto-reveal
-    enable = false,
-    -- Also change the tree root to the file's project root
-    update_root = false,
-  },
-
-  icon = {
-    -- Separator between icon and file name
-    separator = " ",
-    -- Icon provider: "mini_icons", "nvim_web_devicons", or "none"
-    provider = "mini_icons",
-    -- Directory glyphs keyed by open/empty state
-    directory = {
-      collapsed = "󰉋",
-      expanded = "󰝰",
-      empty = "󰉖",
-      empty_open = "󰷏",
-    },
-    -- Optional hook to override icons per node. Returning nil falls through
-    -- to the built-in directory glyphs and the provider lookup.
-    -- See `doc/eda.md` for full reference.
-    --
-    -- custom = function(name, node)
-    --   if name == "justfile" then return "󱃔", "EdaFileIcon" end
-    --   return nil
-    -- end,
-    custom = nil,
-  },
-
-  git = {
-    -- Enable git status integration
-    enabled = true,
-    -- Git status icons
-    icons = {
-      untracked = "", -- nf-oct-question
-      added = "",     -- nf-oct-plus
-      modified = "",  -- nf-oct-diff
-      deleted = "",   -- nf-oct-circle_slash
-      renamed = "",   -- nf-oct-arrow_right
-      staged = "",    -- nf-oct-check
-      conflict = "",  -- nf-oct-alert
-      ignored = "◌",
-    },
-  },
-
-  indent = {
-    -- Indentation width per nesting level
-    width = 2,
-  },
-
-  preview = {
-    -- Enable file preview panel
-    enabled = false,
-    -- Debounce delay in milliseconds before showing preview
-    debounce = 100,
-    -- Maximum file size in bytes to preview (also accepts fun(path): integer)
-    max_file_size = 102400,
-    image = {
-      -- Render image files with the Kitty graphics protocol when the terminal supports it
-      enabled = true,
-      -- Maximum image file size in bytes; larger images show a text description instead
-      max_file_size = 10485760,
-      -- "auto": file path on the same host, byte stream over SSH; "file" / "direct": force either medium
-      transmission = "auto",
-    },
-  },
-
-  -- Show full filename in a floating window when truncated in narrow windows
-  full_name = {
-    -- Enable floating window for truncated filenames
-    enabled = true,
-  },
-
-  -- Marker icon displayed before the file/folder icon on marked nodes
-  -- Use `m` (default `mark_toggle`) to mark/unmark nodes. Marked nodes are
-  -- highlighted via EdaMarked / EdaMarkedIcon / EdaMarkedName and become the
-  -- default target for mark-aware actions (delete, cut, copy, duplicate, paste)
-  -- when no Visual selection is active.
-  mark = {
-    -- Set to "" to disable the prefix icon (name highlight still applies)
-    icon = "󰄲", -- nf-md-checkbox_marked (U+F0132)
-  },
-
-  -- Open nodes on the remote repository host via `gO`
-  open_in_browser = {
-    -- Ref used in generated URLs: "branch", "sha", or "default_branch"
-    ref = "branch",
-    -- Optional custom URL builder: fun(ctx): string?
-    url_builder = nil,
-  },
-
-  -- Header displayed above the tree (set to false to disable entirely)
-  header = {
-    -- Format: "short", or fun(root_path): string|false
-    format = "short",
-    -- Position: "left", "center", "right"
-    position = "left",
-    -- Show a divider line below the header
-    divider = false,
-  },
-
-  -- Set default_mappings = false to clear all defaults before applying yours
-  -- Key mappings: string = built-in action, function = custom, false = disable
+  window = { kind = "split_left" },
+  preview = { enabled = true },
   mappings = {
-    ["<CR>"] = "select",              -- Open file or toggle directory
-    ["<2-LeftMouse>"] = "select",     -- Open file or toggle directory
-    ["<C-t>"] = "select_tab",        -- Open file in new tab
-    ["|"] = "select_vsplit",          -- Open file in vertical split
-    ["-"] = "select_split",           -- Open file in horizontal split
-    ["q"] = "close",                  -- Close explorer
-    ["^"] = "parent",                 -- Navigate to parent directory
-    ["~"] = "cwd",                    -- Change root to cwd
-    ["gC"] = "cd",                    -- Change root to directory
-    ["W"] = "collapse_recursive",     -- Collapse directory recursively
-    ["E"] = "expand_recursive",       -- Expand directory recursively
-    ["gW"] = "collapse_all",          -- Collapse all directories
-    ["gE"] = "expand_all",            -- Expand all directories
-    ["yp"] = "yank_path",            -- Yank relative path
-    ["yP"] = "yank_path_absolute",   -- Yank absolute path
-    ["yn"] = "yank_name",            -- Yank file name
-    ["<C-l>"] = "refresh",           -- Refresh file tree
-    ["<C-h>"] = "collapse_node",     -- Collapse node or go to parent
-    ["g."] = "toggle_hidden",         -- Toggle hidden files
-    ["gi"] = "toggle_gitignored",    -- Toggle gitignored files
-    ["gs"] = "toggle_git_changes",   -- Toggle git-changes filter
-    ["[c"] = "prev_git_change",      -- Jump to previous git change
-    ["]c"] = "next_git_change",      -- Jump to next git change
-    ["m"] = "mark_toggle",           -- Mark/unmark node (Visual selection or cursor)
-    ["M"] = "mark_clear_all",        -- Clear all marks
-    ["D"] = "delete",                -- Delete target nodes (Visual > marks > cursor)
-    ["go"] = "system_open",          -- Open with system application
-    ["gO"] = "open_in_browser",      -- Open on the remote repository host
-    ["K"] = "debug",                 -- Print node data for debugging
-    ["<leader>i"] = "inspect",       -- Show node stat in a floating window
-    ["gd"] = "duplicate",            -- Duplicate target nodes (Visual > marks > cursor)
-    ["gx"] = "cut",                  -- Cut target nodes (Visual > marks > cursor)
-    ["gy"] = "copy",                 -- Copy target nodes (Visual > marks > cursor)
-    ["gp"] = "paste",                -- Paste from register
-    ["g?"] = "help",                 -- Show keymap help
-    ["ga"] = "actions",              -- Open action picker
-    ["!"] = "open_replace",          -- Reopen float explorer in replace mode
-    ["<C-f>"] = "preview_scroll_down", -- Scroll preview down (half page)
-    ["<C-b>"] = "preview_scroll_up",   -- Scroll preview up (half page)
-    ["<C-w>v"] = "split",            -- Open split pane
-    ["<C-w>s"] = "vsplit",           -- Open horizontal split pane
+    ["<C-p>"] = "toggle_preview",
   },
-
-  -- Callback to customize highlight groups: fun(groups: table)
-  on_highlight = nil,
-  -- Window picker function for file selection: fun(): integer?
-  select_window = nil,
 })
 ```
 
-> [!TIP]
-> See `:help eda.nvim` for detailed descriptions of each option, available actions, events, and highlight groups.
+See the [configuration reference](doc/eda.md#configuration) for every option and
+its defaults, and [mapping configuration](doc/eda.md#mappings) for custom keys.
 
 ## Actions
 
-All operations in eda.nvim are registered as named actions in an action registry. Built-ins and user-defined actions share the same namespace — anything registered can be bound to a key via `mappings`, dispatched programmatically, or discovered at runtime through the `actions` picker (`ga` by default).
+Built-in and custom actions can be bound through `mappings` or dispatched
+programmatically. Press `ga` to choose from registered actions, or `g?` to view
+keybinding help.
 
-### Built-in Actions
-
-The table below groups built-ins by role. See [`:help eda-actions`](doc/eda.nvim.txt) for per-action parameters, edge cases, and target-resolution rules.
-
-#### Navigation
-
-| Action | Description |
-| --- | --- |
-| `select` | Open file in the target window or toggle directory open/closed |
-| `select_split` | Open file in a horizontal split |
-| `select_vsplit` | Open file in a vertical split |
-| `select_tab` | Open file in a new tab |
-| `parent` | Navigate to the parent directory (changes root when invoked on root) |
-| `cwd` | Change root to the current working directory |
-| `cd` | Change root to the directory under the cursor |
-
-#### Tree Manipulation
-
-| Action | Description |
-| --- | --- |
-| `collapse_all` | Collapse all directories except root |
-| `collapse_node` | Collapse current directory, or move cursor to parent if already collapsed |
-| `collapse_recursive` | Recursively collapse a directory and all its children |
-| `expand_all` | Expand every directory up to `expand_depth` |
-| `expand_recursive` | Recursively expand the directory under the cursor up to `expand_depth` |
-
-#### Yank
-
-| Action | Description |
-| --- | --- |
-| `yank_path` | Yank the relative path to the system clipboard |
-| `yank_path_absolute` | Yank the absolute path to the system clipboard |
-| `yank_name` | Yank the filename to the system clipboard |
-
-#### File Operations
-
-Target resolution is unified across `delete` / `cut` / `copy` / `duplicate`: **Visual selection > marked nodes > cursor node**. The root node is always excluded.
-
-| Action | Description |
-| --- | --- |
-| `mark_toggle` | Mark/unmark target node(s). Normal mode toggles the cursor node and advances; Visual mode toggles each selected node |
-| `mark_clear_all` | Clear all marks across the tree |
-| `delete` | Delete target nodes (routes through `confirm.delete` dialog) |
-| `cut` | Move target paths into the register; `paste` later moves them |
-| `copy` | Copy target paths into the register; `paste` later duplicates them |
-| `paste` | Paste from the register into the directory under the cursor |
-| `duplicate` | Duplicate target nodes in place, appending `_copy` on name collision |
-
-#### Display
-
-| Action | Description |
-| --- | --- |
-| `toggle_hidden` | Toggle visibility of hidden files (dotfiles) |
-| `toggle_gitignored` | Toggle visibility of git-ignored files |
-| `toggle_git_changes` | Toggle filter showing only files with git changes |
-| `next_git_change` | Jump to the next git-changed file (wraps at end) |
-| `prev_git_change` | Jump to the previous git-changed file |
-| `toggle_preview` | Toggle the file preview pane |
-| `preview_scroll_down` | Scroll the preview down by half a page |
-| `preview_scroll_up` | Scroll the preview up by half a page |
-| `preview_scroll_page_down` | Scroll the preview down by a full page |
-| `preview_scroll_page_up` | Scroll the preview up by a full page |
-
-#### Misc
-
-| Action | Description |
-| --- | --- |
-| `refresh` | Rescan the filesystem and re-render the tree |
-| `close` | Close the explorer window |
-| `system_open` | Open the file with the system default application |
-| `open_in_browser` | Open on the remote repository host (GitHub/GHE) |
-| `debug` | Print node data to the console (developer API) |
-| `inspect` | Show node stat (size, permissions, timestamps, etc.) in a floating window |
-| `help` | Show keybinding help in a floating window |
-| `split` | Open the explorer in a new vertical split with the same root |
-| `vsplit` | Open the explorer in a new horizontal split with the same root |
-| `open_replace` | Reopen a float explorer in the previous window using replace layout |
-| `actions` | Open an action picker listing every registered action |
+The [action reference](doc/eda.md#actions) covers every built-in action, including
+[file-operation target selection](doc/eda.md#file-operations). See
+[default keybindings](doc/eda.md#mappings-1) for the complete mapping table.
 
 ### Defining Custom Actions
 
@@ -472,26 +184,9 @@ require("eda").setup({
 })
 ```
 
-#### `action.register(name, fn, opts?)`
-
-- `name` `string` — Action identifier used by `mappings` and dispatched calls.
-- `fn` `fun(ctx: eda.ActionContext)` — Action body. Receives the context described below.
-- `opts.desc` `string?` — Human-readable description shown in the `actions` picker.
-
-#### `ActionContext`
-
-Every action receives a context table with handles to the running explorer state:
-
-| Field | Type | Purpose |
-| --- | --- | --- |
-| `ctx.store` | `eda.Store` | Tree node store (lookup, mutations) |
-| `ctx.buffer` | `eda.Buffer` | Explorer buffer API (cursor node, line helpers) |
-| `ctx.window` | `eda.Window` | Explorer window (`winid`, focus helpers) |
-| `ctx.scanner` | `eda.Scanner` | Filesystem scanner |
-| `ctx.config` | `eda.Config` | Resolved configuration |
-| `ctx.explorer` | `eda.Explorer` | Current explorer instance (`root_path`, `instance_id`) |
-
-See [`:help eda-api`](doc/eda.nvim.txt) for the full public API, including the `action.dispatch` / `action.list` / `action.get_entry` helpers.
+See the [Action API](doc/eda.md#action-api) for registration and dispatch
+parameters, and [ActionContext](doc/eda.md#actioncontext) for the handles passed
+to each action.
 
 #### Example: open a terminal in the directory under the cursor
 
@@ -652,7 +347,12 @@ require("eda").setup({
 
 ## Documentation
 
-- `:help eda.nvim` — Full reference (configuration, actions, API, events, highlights)
+The maintained reference is [doc/eda.md](doc/eda.md), also available in Neovim as
+`:help eda.nvim`.
+
+- [Configuration](doc/eda.md#configuration) and [default keybindings](doc/eda.md#mappings-1)
+- [Actions](doc/eda.md#actions) and [API](doc/eda.md#api)
+- [Events](doc/eda.md#events) and [highlight groups](doc/eda.md#highlight-groups)
 - [CHANGELOG.md](CHANGELOG.md) — Release history
 - [ARCHITECTURE.md](docs/ARCHITECTURE.md) — Architecture, design philosophy, and trade-offs
 - [CONTRIBUTING.md](CONTRIBUTING.md) — Development setup and guidelines
