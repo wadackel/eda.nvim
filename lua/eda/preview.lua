@@ -11,7 +11,7 @@ local util = require("eda.util")
 ---@field scanner eda.Scanner?
 ---@field decorator_chain eda.DecoratorChain?
 ---@field painter eda.Painter?
----@field _debounced fun(node: eda.TreeNode)?
+---@field _debounced eda.Debounce?
 ---@field _pending_target integer|string|nil  Node id (dir mode) or path string (file mode)
 ---@field _current_target integer|string|nil  Node id (dir mode) or path string (file mode)
 local Preview = {}
@@ -298,6 +298,10 @@ end
 
 ---Close the preview window.
 function Preview:close()
+  if self._debounced then
+    self._debounced.dispose()
+    self._debounced = nil
+  end
   if self.bufnr and vim.api.nvim_buf_is_valid(self.bufnr) then
     image.detach(self.bufnr)
   end
@@ -416,7 +420,7 @@ function Preview:update(node)
     end)
   end
 
-  self._debounced(node)
+  self._debounced.call(node)
 end
 
 return Preview
