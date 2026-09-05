@@ -431,6 +431,14 @@ Maximum recursion depth for `expand_all` and `expand_recursive` actions.
   - `untracked`, `added`, `modified`, `deleted`, `renamed`, `staged`,
     `conflict`, `ignored`
 
+At most one status process runs for each repository. Requests made in the same
+event-loop turn are batched; requests arriving after a process starts share a
+subsequent refresh so later filesystem writes are included. Background status
+commands avoid optional index locks. During refresh, the last successful status
+remains visible, including after a temporary refresh failure. If the first
+status request fails, an active git-changes filter is disabled with a warning so
+the explorer remains usable. Refresh (`<C-l>`) retries status detection.
+
 ### indent
 
 `table`

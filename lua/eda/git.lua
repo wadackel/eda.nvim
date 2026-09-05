@@ -1,9 +1,9 @@
 local M = {}
 
 ---@class eda.GitCacheEntry
----@field statuses? table<string, string>  -- path → porcelain code (propagation 済み)
+---@field statuses? table<string, string>  -- path → porcelain code after propagation
 ---@field reported? table<string, true>    -- directly reported changed files only (before propagation)
----@field ready "loading"|"ready"|"no_repo"
+---@field ready "loading"|"ready"|"no_repo"|"error"
 
 ---@type table<string, eda.GitCacheEntry>
 local cache = {}
@@ -112,39 +112,120 @@ function M.find_git_root(root)
   return find_git_root(root)
 end
 
----Get git status for a directory asynchronously.
+---@class eda.GitRequest
+---@field epoch integer
+---@field callbacks fun(status: table<string, string>?)[]
+---@field finished? boolean
+
+---@class eda.GitRequestSlot
+---@field epoch integer
+---@field active? eda.GitRequest
+---@field pending? eda.GitRequest
+
+---@type table<string, eda.GitRequestSlot>
+local requests = {}
+
+---@param request eda.GitRequest
+---@param statuses? table<string, string>
+local function deliver(request, statuses)
+  local callbacks = request.callbacks
+  request.callbacks = {}
+  for _, callback in ipairs(callbacks) do
+    local ok, err = pcall(callback, statuses)
+    if not ok then
+      vim.schedule(function()
+        vim.notify("eda: Git status callback failed: " .. tostring(err), vim.log.levels.ERROR)
+      end)
+    end
+  end
+end
+
+---@type fun(root: string, slot: eda.GitRequestSlot)
+local start_pending
+
+---@param root string
+---@param slot eda.GitRequestSlot
+local function schedule_pending(root, slot)
+  local pending = slot.pending
+  if not pending or slot.active then
+    return
+  end
+  vim.schedule(function()
+    if slot.pending == pending and not slot.active then
+      start_pending(root, slot)
+    end
+  end)
+end
+
+start_pending = function(root, slot)
+  local request = slot.pending
+  if not request then
+    return
+  end
+  slot.pending = nil
+  slot.active = request
+  local function complete(result)
+    if request.finished then
+      return
+    end
+    request.finished = true
+    if slot.active ~= request then
+      deliver(request)
+      return
+    end
+    slot.active = nil
+    local statuses
+    if slot.epoch == request.epoch then
+      if result.code == 0 then
+        local reported = {}
+        statuses = parse_status(result.stdout or "", root, reported)
+        cache[root] = { statuses = statuses, reported = reported, ready = "ready" }
+      elseif not cache[root] or not cache[root].statuses then
+        cache[root] = { ready = slot.pending and "loading" or "error" }
+      end
+    end
+    schedule_pending(root, slot)
+    deliver(request, statuses)
+  end
+  local ok = pcall(
+    vim.system,
+    { "git", "--no-optional-locks", "-C", root, "status", "--porcelain=v1", "-z", "-uall", "--ignored=matching" },
+    {},
+    function(result)
+      vim.schedule(function()
+        complete(result)
+      end)
+    end
+  )
+  if not ok then
+    complete({ code = 1 })
+  end
+end
+
 ---@param root string Root directory path
 ---@param cb fun(status: table<string, string>?)
 function M.status(root, cb)
-  -- Find git root
   local git_root = find_git_root(root)
   if not git_root then
-    -- Non-git directory: record no_repo state under the input root path
     cache[root] = { ready = "no_repo" }
     cb(nil)
     return
   end
-
-  -- Mark as loading before the async call so UI can show a loading state
-  cache[git_root] = { ready = "loading" }
-
-  vim.system(
-    { "git", "-C", git_root, "status", "--porcelain=v1", "-z", "-uall", "--ignored=matching" },
-    {},
-    function(result)
-      vim.schedule(function()
-        if result.code ~= 0 then
-          cache[git_root] = nil
-          cb(nil)
-          return
-        end
-        local reported = {}
-        local statuses = parse_status(result.stdout or "", git_root, reported)
-        cache[git_root] = { statuses = statuses, reported = reported, ready = "ready" }
-        cb(statuses)
-      end)
-    end
-  )
+  if not cache[git_root] or not cache[git_root].statuses then
+    cache[git_root] = { ready = "loading" }
+  end
+  local slot = requests[git_root]
+  if not slot then
+    slot = { epoch = 0 }
+    requests[git_root] = slot
+  end
+  if slot.pending then
+    slot.pending.callbacks[#slot.pending.callbacks + 1] = cb
+    return
+  end
+  -- A request after process launch may follow a write that the running command has already missed.
+  slot.pending = { epoch = slot.epoch, callbacks = { cb } }
+  schedule_pending(git_root, slot)
 end
 
 ---Get cached git status (synchronous). Returns path→code map for backward compat.
@@ -175,7 +256,7 @@ end
 ---Get the readiness state of the git status cache for a root.
 ---Returns nil if status() has never been called for this root.
 ---@param root string
----@return "loading"|"ready"|"no_repo"|nil
+---@return "loading"|"ready"|"no_repo"|"error"|nil
 function M.get_status_ready(root)
   local git_root = find_git_root(root)
   if git_root then
@@ -193,6 +274,18 @@ function M.invalidate(root)
   local git_root = find_git_root(root)
   if git_root then
     cache[git_root] = nil
+    local slot = requests[git_root]
+    if slot then
+      slot.epoch = slot.epoch + 1
+      local pending = slot.pending
+      slot.pending = nil
+      if pending then
+        pending.finished = true
+        vim.schedule(function()
+          deliver(pending)
+        end)
+      end
+    end
   end
   -- Also clear the no_repo entry keyed under the input root path
   cache[root] = nil

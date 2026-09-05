@@ -57,9 +57,10 @@ end
 ---@param ctx eda.ActionContext
 local function refresh_git(ctx)
   if ctx.config.git.enabled then
+    local generation = ctx.explorer.generation
     git.status(ctx.explorer.root_path, function(_status)
       local util = require("eda.util")
-      if not util.is_valid_buf(ctx.buffer.bufnr) then
+      if ctx.explorer.generation ~= generation or not util.is_valid_buf(ctx.buffer.bufnr) then
         return
       end
       refresh(ctx)
@@ -383,7 +384,7 @@ local function navigate_git_change(ctx, dir)
 
   local root = ctx.explorer.root_path
   local ready = git.get_status_ready(root)
-  if ready == nil or ready == "loading" then
+  if ready == nil or ready == "loading" or ready == "error" then
     vim.notify("eda: git status not ready", vim.log.levels.WARN)
     return
   end
@@ -460,6 +461,11 @@ action.register("toggle_git_changes", function(ctx)
   local ready = git.get_status_ready(root)
   if ready == "no_repo" then
     vim.notify("eda: not a git repository", vim.log.levels.WARN)
+    return
+  end
+
+  if ready == "error" and not ctx.config.show_only_git_changes then
+    vim.notify("eda: git status unavailable", vim.log.levels.WARN)
     return
   end
 
@@ -1031,7 +1037,7 @@ action.register("open_in_browser", function(ctx)
 
   if ctx.config.git and ctx.config.git.enabled then
     local ready = git.get_status_ready(root)
-    if ready == "loading" then
+    if ready == "loading" or ready == "error" then
       vim.notify(git_url.MSG.loading, vim.log.levels.WARN)
       return
     end
