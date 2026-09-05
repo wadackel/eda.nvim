@@ -1,92 +1,141 @@
 # Architecture
 
-This document records the architecture, design philosophy, and trade-offs behind eda.nvim. It serves as a reference for developers and AI agents to understand the reasoning behind key design choices.
+eda.nvim represents a directory tree in an editable Neovim buffer. This document
+explains the data and execution boundaries; the [user reference](../doc/eda.md)
+contains configuration, actions, APIs, and event payloads.
 
-## Design Principles
+## Store, buffer identity, and snapshots
 
-### Buffer-Native File Operations
+[Store](../lua/eda/tree/store.lua) holds nodes by ID and indexes paths for lookup.
+IDs increase within a store. Reconciliation retains an existing node, its loaded
+descendants, and caches when its name, path, type, link metadata, and error state
+are unchanged. Replaced entries receive new IDs. A root change creates a new
+store; node IDs are not persistent filesystem identities.
 
-Edit the explorer buffer like any Vim buffer — rename by changing text, delete by removing lines, create by adding new lines — then `:w` to apply all changes to the real filesystem.
+Directories start unloaded and materialize children when scanned. Collapsing a
+directory changes its visibility and retains loaded children. Memory use grows
+with the loaded tree, cached metadata, and rendered rows; a small viewport does
+not bound the size of the store.
 
-This extends oil.nvim's buffer-editing paradigm to a full tree view. Each line carries a concealed node ID for reliable tracking. Invalidated extmarks (e.g. from external formatters mangling lines) are skipped during parsing, and the computed operations are then validated for structural errors — missing rename targets, duplicate destinations — before execution.
+[Painter](../lua/eda/render/painter.lua) places node IDs in the `ns_ids` extmark
+namespace, separate from buffer text and icon extmarks. The
+[parser](../lua/eda/buffer/parser.lua) uses valid ID marks to associate edited
+rows with existing nodes. Invalidated marks are excluded from that lookup;
+unmarked text can represent a new entry.
 
-### Tree View with Hierarchy
+A render snapshot maps painted node IDs to their paths and buffer rows. These
+are all tree rows in the buffer, including rows outside the viewport. Collapsed
+or filtered-out descendants are absent. The [diff](../lua/eda/tree/diff.lua)
+compares parsed edits against this snapshot, so a hidden descendant's absence
+from the buffer does not become a deletion. The snapshot is an editing baseline,
+not an atomic filesystem snapshot or a general conflict detector.
 
-Directories are displayed as a collapsible tree, not a flat per-directory listing. This is the core differentiation from oil.nvim — eda.nvim combines hierarchical tree navigation with buffer-native editing.
+## Scanning and refresh
 
-Collapsed (hidden) nodes are excluded from the diff on `:w`, preventing accidental deletion of files that aren't visible in the buffer.
+[Scanner](../lua/eda/tree/scanner.lua) enumerates directories with asynchronous
+`vim.uv` calls in batches of 64 entries. Up to 32 scans are active per scanner.
+Retained symlinks use the [metadata resolver](../lua/eda/tree/metadata.lua), with
+up to 32 asynchronous realpath/optional-stat chains active across that scanner's
+directories. Ordinary files require no per-entry metadata request. Scan slots
+remain occupied until metadata completion and child reconciliation.
 
-### Progressive Async Rendering
+Filtering, preparing entries, reconciling nodes, sorting, and render preparation
+still execute synchronously on Neovim's main loop. Symlink metadata completes
+before children are committed, so callback order does not determine display
+order. Disposal stops queued work; submitted requests drain without committing
+stale results. The scanner checks node, path, root, and generation ownership.
+These asynchronous scan operations do not imply that every filesystem access
+elsewhere in the plugin is asynchronous.
 
-Directory enumeration uses asynchronous `vim.uv` calls in 64-entry batches. Retained symlinks are resolved asynchronously with at most 32 metadata chains active per scanner across all directories; each chain resolves the real path and, when `follow_symlinks` is enabled, stats the target. Ordinary files require no per-entry metadata request. The existing 32-scan limit remains held through metadata completion, so callers and refresh guards observe a complete scan.
+[Refresh](../lua/eda/refresh.lua) watches the root and visible expanded
+directories. Known directory events are coalesced into scoped refreshes; unknown
+events require a broader refresh. A refresh waits while the buffer is modified,
+a write is in progress, or the active scanner is busy. It scans into a candidate
+store and adopts results only if buffer changedtick, render/store generations,
+root ownership, and write state still permit it. Otherwise it requests another
+refresh. Adoption reconciles the existing store instead of replacing IDs beneath
+pending edits. Unchanged structural results do not require a structural repaint;
+Git completion can still trigger a render.
 
-Filtering and preparing entries, reconciling store nodes, sorting, and render preparation/painting still run synchronously on Neovim's main loop. Symlink metadata completes before the directory's children are committed; completion order does not determine display order. Root changes and buffer disposal stop queued work and settle scan callbacks, while already submitted metadata requests drain without committing their results. Node identity, path, root identity, and scan generation are checked before committing.
+## Rendering and cursor placement
 
-The target file's ancestor chain is scanned before the initial render. Cached open directories and explicitly requested descendants may require further asynchronous scans.
+The render pipeline flattens the expanded, filtered tree, runs decorators, and
+paints text and cached display metadata. Its work is broader than the terminal's
+visible rows.
 
-Directory expand/collapse — the hot path for re-render — is applied incrementally: only the affected line range is replaced via `nvim_buf_set_lines`. Other changes fall back to a full repaint.
+For a compatible clean-buffer directory toggle, `paint_incremental` validates
+that surviving node order is unchanged and inserts or removes the affected
+contiguous range. It updates decorations and icon extmarks for the toggled and
+inserted nodes, plus the first surviving icon at an insertion boundary. Existing
+extmarks track the shift of other rows.
 
-### Stable Startup Experience
+The toggle still flattens and decorates the displayed tree. Incremental painting
+also builds whole-row ID lookup tables, row mappings, line lengths, and a fresh
+snapshot. It therefore does not make the entire toggle proportional only to the
+inserted or removed range. An incompatible hint, edited baseline, or other
+render path uses full painting, which rebuilds the node-ID and icon namespaces.
+Expanding or collapsing while preserving edits also captures and replays buffer
+changes; that path has additional parsing and painting costs.
 
-A `target_node_id` tracks which node the cursor should land on. As async scanning progresses and new nodes become paintable, the cursor is placed on the target as soon as its line is rendered — no jitter, no reset.
+A decoration provider applies ephemeral highlights to viewport rows during
+redraw, using metadata prepared during painting. Its `on_win` callback skips
+extmark resynchronization when changedtick is unchanged. User edits can require
+examining all ID/icon positions and rebuilding icon placement; visible-row
+highlighting does not remove that work.
 
-This directly solves the cursor instability seen in fyler.nvim, where async scan completion would reset the cursor position. The target is held until the user manually moves the cursor.
+Startup scans a requested target's ancestor chain before the initial render.
+Restored open directories and requested descendants can require subsequent
+scans. [Buffer.restore_cursor](../lua/eda/buffer/init.lua) prefers an explicit
+`focus_node_id` over a saved `target_node_id` and finds its row in the flattened
+list. The render path clears both targets after each paint. A target must be loaded
+and included in the current tree to be placed; there is no constant-time or
+instant-placement guarantee for large or slow filesystems.
 
-### Flexible Appearance
+[Benchmark methodology and recorded measurements](../benchmarks/README.md)
+distinguish full pipeline work, incremental painting, actual toggle actions,
+and redraw. Headless measurements do not establish host-terminal display
+latency. Performance changes need measurements of the path being changed.
 
-60+ highlight groups organized into six categories — structure (`EdaNormal`, `EdaBorder`, `EdaIndentMarker`), filesystem (`EdaDirectoryName`, `EdaFileName`, `EdaSymlink`, `EdaBrokenSymlink`), git status (`EdaGitModified`, `EdaGitAdded`, ...), operation confirmation (`EdaOpCreate`, `EdaOpDelete`, ...), confirm UI, and help / full-name popup.
+## Writes and mutation events
 
-A decorator chain (flatten → decorate → paint) allows icon providers, git status indicators, and custom decorators to be composed, replaced, or extended independently.
+A buffer write parses edits, computes operations from the painted baseline,
+validates their structure and destinations, and executes them sequentially.
+Directory toggles that preserve edits capture the current buffer state before
+repainting and replay it against the resulting tree. Refresh/write guards keep
+asynchronous results from silently replacing that editing baseline.
 
-### Extensible Action System
+[Mutation execution](../lua/eda/mutation.lua) surrounds a nonempty operation
+batch with one `EdaMutationPre` and one `EdaMutationPost`. The post event reports
+the completed prefix and any failed operation; it is delivered even if the
+originating explorer has closed. Integrations must use `results.completed` to
+report successful changes. The [LSP recipe](../doc/eda.md#lsp-rename-notifications)
+implements post-rename notifications, not pre-rename workspace edits.
 
-All operations (navigation, file manipulation, UI toggles) are registered in a named action registry and dispatched by string name. This replaces hardcoded keybinding functions with a discoverable, composable system.
+Validation and exclusive creation reduce destructive collisions, but the batch
+is not a transaction. An error stops later operations; completed operations are
+not rolled back, and a failed recursive operation can leave partial output.
+External processes can change paths between checks and filesystem operations.
+Recovery reconciles completed changes while retaining unapplied edits or action
+targets for retry; it does not provide isolation from external filesystem edits.
 
-Every action receives a unified `ActionContext` containing the `store`, `buffer`, `window`, `scanner`, `config`, and `explorer` instance. Cursor-position and marked-node state are reached through the `buffer` field, making custom actions first-class citizens with the same capabilities as built-in ones.
+## Integration boundaries
 
-### Multiple Window Layouts
-
-Four layout kinds serve different workflows:
-
-- **float** — Centered overlay for quick file picking
-- **split_left** / **split_right** — Persistent sidebar for ongoing navigation
-- **replace** — Inline buffer replacement (oil.nvim style)
-
-### Git Integration
-
-Asynchronous git status detection via `vim.system()`, surfaced through the decorator chain as file-level status icons. Runs as a standard decorator, maintaining rendering consistency with other display elements.
-
-### netrw Replacement
-
-With `hijack_netrw` enabled, `:edit <directory>` opens eda.nvim instead of netrw, providing a seamless default file browsing experience.
-
-### Event Hooks
-
-User autocommands (`EdaTreeOpen`, `EdaTreeClose`, `EdaMutationPre`, `EdaMutationPost`) enable integration with external plugins such as nvim-lsp-file-operations for automatic LSP workspace updates on file rename/move.
-
-## Architecture Decisions
-
-| Decision | Rationale |
-| --- | --- |
-| Flat store (`id → node`) | No path-segment splitting needed. `path_index` (`path → id`) provides O(1) lookup. Simpler than a Trie + EntryManager dual structure |
-| Two-phase render | Ancestor chain scanned first → cursor placed immediately → remaining dirs load async. Eliminates startup cursor jitter |
-| Action registry | String-name registration + dispatch. Easy to extend, easy to discover (`:Eda actions` / which-key integration) |
-| Decorator chain | Rendering split into flatten → decorate → paint. Each decorator is independently replaceable. Icon, git, and custom decorators compose via last-wins override |
-| Smart root resolution | Default: `cwd`. With `update_focused_file.update_root`, root follows the active buffer's project (via `vim.fs.root()` markers). Solves the "file outside cwd" problem |
-| Lazy child materialization | Unexpanded directories hold no children in memory (`children_state = "unloaded"`). Keeps memory usage bounded for 100k+ file repositories |
-| Render snapshot for diff | Buffer `:w` compares against the last painted snapshot, not the full store. Only visible (painted) nodes participate in diff — collapsed subtrees are safe |
-| Own Kitty graphics client for image preview | Delegating to snacks.image was rejected: its non-placeholder path (WezTerm) sends the cursor move and the placement as separate tmux passthrough chunks, and tmux homes the cursor between them, so images land at the screen origin; the upstream issue has been open since 2025. `eda.image` emits the move and placement in one write, adds tmux pane and status-line offsets, and mirrors the `vim.ui.img` API so it can be replaced by Neovim's built-in client later. New formats (PDF, video) plug into the converter table in `image/convert.lua` |
-
-## Comparison with Existing Plugins
-
-| Aspect | fyler.nvim | oil.nvim | eda.nvim |
-| --- | --- | --- | --- |
-| Paradigm | Tree + buffer editing | Flat (single dir) + buffer editing | Tree + buffer editing |
-| Tree storage | Trie + EntryManager (dual structure) | None (per-directory) | Flat store + path_index |
-| Initial render | Fully async (cursor bug source) | Synchronous | Async, ancestor-first scan |
-| Action system | Hardcoded functions | Action string indirection | Named registry + dispatch |
-| Highlight groups | ~23 (color-oriented) | Few | 60+ (structure / FS / git / operations / confirm / help) |
-| Root resolution | Always cwd | Buffer's directory | cwd + update_root (nvim-tree style) |
-| Rendering pipeline | Component tree (Row/Column/Text) | Direct buffer write | flatten → decorate → paint |
-| Extensibility | mappings with self | Adapter abstraction | ActionContext + Decorator chain + User autocmds |
-| Hierarchy display | Yes | No (no nesting) | Yes |
+- **Actions:** [the registry](../lua/eda/action/init.lua) maps names to functions.
+  Built-in and custom actions receive the same `ActionContext`. `ga` opens the
+  action picker; mappings and programmatic dispatch use registered names.
+- **Appearance:** decorators prepare icons, names, Git indicators, and marks.
+  Named highlight groups cover the tree, filesystem state, operations, dialogs,
+  and previews. The layouts are `float`, `split_left`, `split_right`, and `replace`.
+- **Git:** [the request coordinator](../lua/eda/git.lua) allows one active status
+  process and one queued round per repository. Requests before launch are
+  batched; requests after launch need a fresh round. Successful cached data stays
+  usable during refresh, while invalidation prevents old results from replacing
+  it. Raw NUL-delimited output preserves pathname boundaries.
+- **Image preview:** [the Kitty client](../lua/eda/image/kitty.lua) owns image
+  transmission and placement. Cursor movement and placement are emitted in one
+  write, with border and tmux offsets, to keep placement coordinates together.
+  Its interface follows `vim.ui.img` where possible; source cropping is an extra
+  operation that a future replacement would need to handle.
+- **Directory entry points:** `hijack_netrw` routes directory edits into the
+  explorer. Root selection and target-file navigation are separate: a target
+  does not automatically imply changing the configured root.
