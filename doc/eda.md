@@ -770,9 +770,20 @@ unsaved.
 parent directory.
 
 When you write the buffer (`:w`), eda.nvim computes a diff between the current
-buffer state and the last rendered snapshot. Operations are grouped and
-executed in order: creates (parents before children), deletes (children before
-parents), and moves.
+buffer state and the last rendered snapshot. Independent moves execute first,
+followed by deletes (children before parents) and creates (parents before
+children). Renaming an expanded directory also moves its unchanged descendants;
+those descendants are not moved a second time. Moving children out of a deleted
+directory happens before deleting that directory.
+
+Batches with overlapping paths, including name swaps, moving into a destination
+scheduled for deletion, or editing descendants while renaming their parent, are
+rejected before any filesystem operation. Save those changes separately.
+
+The buffer is temporarily unmodifiable while its filesystem operations run.
+If execution stops partway through, completed operations become the new baseline
+and pending edits remain unsaved. Correct the error and write again to retry only
+the remaining operations.
 
 Invalidated extmarks (e.g., from external formatters mangling lines) are
 skipped during parsing. The computed operations are then validated for

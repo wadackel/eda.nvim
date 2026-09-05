@@ -343,4 +343,21 @@ T["Fs.copy copies directory recursively"] = function()
   helpers.remove_temp_dir(tmpdir)
 end
 
+T["Fs.move reports parent creation failure without removing the source"] = function()
+  local dir = helpers.create_temp_dir()
+  helpers.create_file(dir .. "/source", "source")
+  helpers.create_file(dir .. "/blocked", "blocker")
+  local result
+  Fs.move(dir .. "/source", dir .. "/blocked/target", function(err)
+    result = err or false
+  end)
+  helpers.wait_for(5000, function()
+    return result ~= nil
+  end)
+  MiniTest.expect.equality(type(result), "string")
+  MiniTest.expect.equality(vim.fn.readfile(dir .. "/source"), { "source" })
+  MiniTest.expect.equality(vim.fn.readfile(dir .. "/blocked"), { "blocker" })
+  helpers.remove_temp_dir(dir)
+end
+
 return T

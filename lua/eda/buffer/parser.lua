@@ -7,6 +7,7 @@ local M = {}
 ---@field is_dir boolean Whether the entry is a directory (trailing /)
 ---@field parent_path string?
 ---@field full_path string?
+---@field line_nr integer?
 
 ---Parse a single buffer line.
 ---@param bufnr integer
@@ -115,6 +116,7 @@ function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines)
     local full_path = parent_path .. "/" .. name
 
     table.insert(result, {
+      line_nr = line_nr,
       indent = indent,
       node_id = mark_by_row[line_nr],
       name = name,

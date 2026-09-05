@@ -42,6 +42,7 @@ local next_instance_id = 0
 ---@field _no_repo_notified? boolean
 ---@field _initial_scan_complete boolean
 ---@field _pending_dispatch? { name: string, ctx: eda.ActionContext }
+---@field _writing? boolean
 
 ---@type eda.Explorer?
 M._current = nil
@@ -784,6 +785,10 @@ function M.open(opts)
   -- `get_cursor_node` would resolve to nil. Park the dispatch in a single
   -- slot and drain it in `on_initial_scan_complete` below; latest-write wins.
   buffer:set_mappings(cfg.mappings, function(action_name)
+    if explorer._writing then
+      vim.notify("eda: file operations are still running", vim.log.levels.WARN)
+      return
+    end
     local ctx = make_ctx(explorer)
     if not explorer._initial_scan_complete then
       explorer._pending_dispatch = { name = action_name, ctx = ctx }
@@ -1056,6 +1061,10 @@ end
 ---Handle :w in the eda buffer.
 ---@param explorer eda.Explorer
 function M._handle_write(explorer)
+  if explorer._writing then
+    vim.notify("eda: file operations are still running", vim.log.levels.WARN)
+    return
+  end
   local Parser = require("eda.buffer.parser")
   local Diff = require("eda.tree.diff")
   local Fs = require("eda.fs")
@@ -1090,44 +1099,72 @@ function M._handle_write(explorer)
   -- Check if confirmation is needed
   local needs_confirm = M._should_confirm(cfg.confirm, operations)
 
+  local write_tick = vim.api.nvim_buf_get_changedtick(buffer.bufnr)
+  local generation = explorer.generation
   local function execute()
-    fire_event("EdaMutationPre", { operations = operations })
+    if not util.is_valid_buf(buffer.bufnr) or explorer.generation ~= generation then
+      return
+    end
+    if vim.api.nvim_buf_get_changedtick(buffer.bufnr) ~= write_tick or explorer._writing then
+      vim.notify("eda: buffer changed before confirmation; save again", vim.log.levels.WARN)
+      return
+    end
+    local modifiable = vim.bo[buffer.bufnr].modifiable
+    explorer._writing = true
+    vim.bo[buffer.bufnr].modifiable = false
+    local function release()
+      explorer._writing = false
+      if util.is_valid_buf(buffer.bufnr) then
+        vim.bo[buffer.bufnr].modifiable = modifiable
+      end
+    end
+
+    local pre_ok, pre_err = pcall(fire_event, "EdaMutationPre", { operations = operations })
+    if not pre_ok then
+      release()
+      vim.notify("eda: mutation hook failed: " .. tostring(pre_err), vim.log.levels.ERROR)
+      return
+    end
     Fs.execute_operations(operations, { delete_to_trash = cfg.delete_to_trash }, function(result)
       vim.schedule(function()
-        if not util.is_valid_buf(buffer.bufnr) then
+        if not util.is_valid_buf(buffer.bufnr) or explorer.generation ~= generation then
+          release()
           return
         end
-        fire_event("EdaMutationPost", { operations = operations, results = result })
-        if result.error and #result.completed == 0 then
-          -- No operations succeeded; keep buffer dirty
+        local post_ok, post_err = pcall(fire_event, "EdaMutationPost", { operations = operations, results = result })
+        if not post_ok then
+          vim.notify("eda: mutation hook failed: " .. tostring(post_err), vim.log.levels.ERROR)
+        end
+        if not util.is_valid_buf(buffer.bufnr) or explorer.generation ~= generation then
+          release()
           return
         end
-        -- Re-scan and re-render (even on partial failure, reflect successful operations)
+        if result.error then
+          release()
+          if #result.completed > 0 then
+            -- Rescanning would discard the IDs needed to distinguish completed and pending edits.
+            require("eda.buffer.reconcile").apply(buffer, store, result.completed, parsed)
+            explorer._render_preserving_edits()
+            vim.notify("Applied " .. #result.completed .. " operation(s), error: " .. result.error, vim.log.levels.WARN)
+          end
+          return
+        end
         explorer.scanner:rescan_preserving_state(store.root_id, function()
           vim.schedule(function()
-            if not util.is_valid_buf(buffer.bufnr) then
+            if not util.is_valid_buf(buffer.bufnr) or explorer.generation ~= generation then
+              release()
               return
             end
-            if result.error then
-              -- Partial failure: rescan completed but keep buffer dirty, report error
-              buffer:render(store)
-              vim.notify(
-                "Applied " .. #result.completed .. " operation(s), error: " .. result.error,
-                vim.log.levels.WARN
-              )
-            else
-              vim.bo[buffer.bufnr].modified = false
-              buffer:render(store)
-              vim.notify("Applied " .. #result.completed .. " operation(s)")
-              -- Refresh git status after successful file operations
-              if cfg.git.enabled then
-                git.status(explorer.root_path, function(_status)
-                  if not util.is_valid_buf(buffer.bufnr) then
-                    return
-                  end
+            vim.bo[buffer.bufnr].modified = false
+            buffer:render(store)
+            release()
+            vim.notify("Applied " .. #result.completed .. " operation(s)")
+            if cfg.git.enabled then
+              git.status(explorer.root_path, function(_status)
+                if util.is_valid_buf(buffer.bufnr) and explorer.generation == generation then
                   buffer:render(store)
-                end)
-              end
+                end
+              end)
             end
           end)
         end)
