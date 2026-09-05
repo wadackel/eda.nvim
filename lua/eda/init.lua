@@ -603,6 +603,7 @@ function M.open(opts)
         vim.bo[buf.bufnr].modifiable = false
         buf.flat_lines = {}
         explorer._last_painted_gen = explorer._render_gen
+        explorer.refresh:sync_watchers()
         explorer._incremental_hint = nil
         explorer._empty_state_rendered = true
         buf.target_node_id = nil
@@ -704,6 +705,7 @@ function M.open(opts)
     buf.target_node_id = nil
     buf.focus_node_id = nil
     explorer._last_painted_gen = explorer._render_gen
+    explorer.refresh:sync_watchers()
     if k == "float" then
       refresh_float_title(explorer)
     end
@@ -1009,12 +1011,7 @@ function M.open(opts)
         end)
       end
 
-      local gen = explorer.generation
-      watcher:watch(root_path, function()
-        if explorer.generation == gen and util.is_valid_buf(buffer.bufnr) then
-          explorer.refresh:request()
-        end
-      end)
+      explorer.refresh:sync_watchers()
     end)
   end
 
@@ -1337,11 +1334,7 @@ function M._change_root(explorer, new_path, opts)
         end)
       end
 
-      explorer.watcher:watch(new_path, function()
-        if explorer.generation == gen and util.is_valid_buf(explorer.buffer.bufnr) then
-          explorer.refresh:request()
-        end
-      end)
+      explorer.refresh:sync_watchers()
     end)
   end
 
@@ -1448,6 +1441,13 @@ end
 function M.refresh_all()
   for _, explorer in ipairs(M._instances) do
     explorer.refresh:request()
+  end
+end
+
+---@param result eda.ExecuteResult
+function M._refresh_after_mutation(result)
+  for _, explorer in ipairs(M._instances) do
+    explorer.refresh:after_mutation(result)
   end
 end
 

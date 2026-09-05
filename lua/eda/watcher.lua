@@ -3,7 +3,6 @@ local util = require("eda.util")
 ---@class eda.Watcher
 ---@field _handles table<string, uv.uv_fs_event_t>
 ---@field _debounced table<string, eda.Debounce>
----@field pending_operations table<string, boolean>
 local Watcher = {}
 Watcher.__index = Watcher
 
@@ -13,7 +12,6 @@ function Watcher.new()
   return setmetatable({
     _handles = {},
     _debounced = {},
-    pending_operations = {},
   }, Watcher)
 end
 
@@ -31,11 +29,6 @@ function Watcher:watch(path, callback)
   end
 
   local debounced = util.debounce(50, function(filename, events)
-    -- Check if this is an echo from our own operation
-    local full_path = path .. "/" .. (filename or "")
-    if self.pending_operations[full_path] then
-      return
-    end
     callback(filename, events)
   end)
 
@@ -44,9 +37,10 @@ function Watcher:watch(path, callback)
 
   local ok = handle:start(path, {}, function(err, filename, events)
     if err then
-      return
+      debounced.call(nil, events)
+    else
+      debounced.call(filename, events)
     end
-    debounced.call(filename, events)
   end)
 
   if not ok then
@@ -75,18 +69,6 @@ function Watcher:unwatch_all()
   for path in pairs(self._handles) do
     self:unwatch(path)
   end
-end
-
----Add a pending operation (suppress watcher echo).
----@param path string
-function Watcher:add_pending(path)
-  self.pending_operations[path] = true
-end
-
----Remove a pending operation.
----@param path string
-function Watcher:remove_pending(path)
-  self.pending_operations[path] = nil
 end
 
 return Watcher

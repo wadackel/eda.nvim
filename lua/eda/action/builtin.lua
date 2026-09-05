@@ -127,8 +127,12 @@ action.register("select", function(ctx)
     node.open = not node.open
     ctx.explorer._incremental_hint = { toggled_node_id = node.id }
     if node.open and node.children_state == "unloaded" then
-      ctx.scanner:scan(node.id, function()
+      local generation = ctx.explorer.generation
+      ctx.scanner:scan_expanded(node.id, function()
         vim.schedule(function()
+          if ctx.explorer.generation ~= generation or not require("eda.util").is_valid_buf(ctx.buffer.bufnr) then
+            return
+          end
           refresh_preserving(ctx)
         end)
       end)
@@ -677,7 +681,7 @@ local function finish_targets(ctx, from_marks, result, verb)
       end
     end
   end
-  get_eda().refresh_all()
+  get_eda()._refresh_after_mutation(result)
   if not result.error then
     vim.notify(verb .. " " .. #result.completed .. " item(s)")
   elseif #result.completed > 0 then
@@ -1203,7 +1207,7 @@ action.register("paste", function(ctx)
           register.clear()
         end
       end
-      get_eda().refresh_all()
+      get_eda()._refresh_after_mutation(result)
     end
   )
 end, { desc = "Paste from register" })

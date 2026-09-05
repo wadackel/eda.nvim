@@ -489,7 +489,6 @@ T["refresh preserves directory open states"] = function()
     end
   end
 
-  -- Simulate refresh: next_generation + re-scan root (destroys children)
   store:next_generation()
   scanned = false
   scanner:scan(store.root_id, function()
@@ -499,9 +498,9 @@ T["refresh preserves directory open states"] = function()
     return scanned
   end)
 
-  -- After root re-scan, all open states are lost
   local a_after_scan = store:get_by_path(tmp .. "/a")
-  MiniTest.expect.equality(a_after_scan.open, false)
+  MiniTest.expect.equality(a_after_scan == a, true)
+  MiniTest.expect.equality(a_after_scan.open, true)
 
   -- Restore open states via scan_open_unloaded
   local done = false

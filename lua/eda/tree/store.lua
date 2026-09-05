@@ -130,35 +130,89 @@ function Store:remove(id)
   self.nodes[id] = nil
 end
 
----Remove all children and descendants of a node from the store.
----The parent node itself is kept with an empty children_ids.
+local function purge(store, id)
+  local node = store.nodes[id]
+  if not node then
+    return
+  end
+  for _, child_id in ipairs(node.children_ids or {}) do
+    purge(store, child_id)
+  end
+  store.path_index[util.nfc_normalize(node.path)] = nil
+  store.nodes[id] = nil
+end
+
 ---@param parent_id integer
 function Store:remove_children(parent_id)
   local parent = self.nodes[parent_id]
-  if not parent or not parent.children_ids then
+  if not parent then
     return
   end
-
-  local function purge(id)
-    local node = self.nodes[id]
-    if not node then
-      return
-    end
-    if node.children_ids then
-      for _, child_id in ipairs(node.children_ids) do
-        purge(child_id)
-      end
-    end
-    self.path_index[util.nfc_normalize(node.path)] = nil
-    self.nodes[id] = nil
-  end
-
-  for _, child_id in ipairs(parent.children_ids) do
-    purge(child_id)
+  for _, child_id in ipairs(parent.children_ids or {}) do
+    purge(self, child_id)
   end
   parent.children_ids = {}
   parent._sorted_children_ids = nil
   parent._sorted_children = nil
+end
+
+---@param parent_id integer
+---@param entries table[]
+---@return boolean changed
+function Store:reconcile_children(parent_id, entries)
+  local parent = self.nodes[parent_id]
+  if not parent then
+    return false
+  end
+  local remaining, by_path = {}, {}
+  for _, id in ipairs(parent.children_ids or {}) do
+    local child = self.nodes[id]
+    if child then
+      remaining[id] = true
+      by_path[util.nfc_normalize(child.path)] = child
+    end
+  end
+  local children, changed = {}, false
+  for _, fields in ipairs(entries) do
+    local previous = by_path[util.nfc_normalize(fields.path)]
+    if previous then
+      remaining[previous.id] = nil
+    end
+    local unchanged = previous
+      and previous.name == fields.name
+      and previous.path == fields.path
+      and previous.type == fields.type
+      and previous.link_target == fields.link_target
+      and previous.link_broken == (fields.link_broken or false)
+      and previous.error == fields.error
+    if unchanged then
+      children[#children + 1] = previous.id
+    else
+      if previous then
+        -- Reusing a followed symlink's children would keep entries from its former target.
+        purge(self, previous.id)
+      end
+      fields.parent_id = parent_id
+      local id = self:add(fields)
+      self.nodes[id]._marked = fields._marked
+      children[#children + 1] = id
+      changed = true
+    end
+  end
+  for id in pairs(remaining) do
+    purge(self, id)
+    changed = true
+  end
+  if changed or parent.children_ids == nil then
+    parent.children_ids = children
+    parent._sorted_children_ids = nil
+    parent._sorted_children = nil
+  end
+  parent.children_state = "loaded"
+  if changed then
+    self:next_generation()
+  end
+  return changed
 end
 
 local sort_key_cache = {}
