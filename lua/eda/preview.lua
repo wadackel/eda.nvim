@@ -6,6 +6,7 @@ local util = require("eda.util")
 ---@field winid integer?
 ---@field bufnr integer?
 ---@field config eda.PreviewConfig
+---@field enabled boolean  Runtime toggle state; seeded from config but never written back
 ---@field window eda.Window?
 ---@field store eda.Store?
 ---@field scanner eda.Scanner?
@@ -34,6 +35,7 @@ function Preview.new(config)
     winid = nil,
     bufnr = nil,
     config = config,
+    enabled = config.enabled and true or false,
     window = nil,
     store = nil,
     scanner = nil,
@@ -44,6 +46,20 @@ function Preview.new(config)
     _pending_target = nil,
     _current_target = nil,
   }, Preview)
+end
+
+---Whether this explorer's preview is turned on.
+---@return boolean
+function Preview:is_enabled()
+  return self.enabled
+end
+
+---Turn this explorer's preview on or off. Runtime toggles are per-instance:
+---writing back to `self.config` would leak the choice into every other explorer,
+---because `config.get()` hands out one shared table.
+---@param value boolean
+function Preview:set_enabled(value)
+  self.enabled = value and true or false
 end
 
 ---Attach the filer window and (optionally) tree dependencies for directory preview.
@@ -73,7 +89,7 @@ end
 ---@param request_id integer
 ---@return boolean
 function Preview:_is_current(target, request_id)
-  return self.config.enabled and self._pending_target == target and self._request_id == request_id
+  return self:is_enabled() and self._pending_target == target and self._request_id == request_id
 end
 
 ---Check if a file is binary (contains NUL byte in first 512 bytes).
@@ -125,7 +141,7 @@ end
 ---Show preview for a file.
 ---@param path string
 function Preview:show(path)
-  if not self.config.enabled then
+  if not self:is_enabled() then
     self:close()
     return
   end
@@ -269,7 +285,7 @@ end
 ---Show a directory preview using eda's tree-render style.
 ---@param node eda.TreeNode
 function Preview:show_directory(node)
-  if not self.config.enabled then
+  if not self:is_enabled() then
     self:close()
     return
   end
@@ -440,7 +456,7 @@ end
 ---tree-render path and files to the byte-content path.
 ---@param node eda.TreeNode?
 function Preview:update(node)
-  if not self.config.enabled then
+  if not self:is_enabled() then
     self:close()
     return
   end

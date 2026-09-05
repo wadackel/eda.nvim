@@ -92,6 +92,32 @@ T["Preview.new initial state"] = function()
   MiniTest.expect.equality(p.bufnr, nil)
 end
 
+-- PR-11: enabled state is per-instance, not shared through the config table
+T["Preview enabled state is instance-local"] = function()
+  config.setup({ preview = { enabled = false } })
+  local cfg = config.get()
+  local a = Preview.new(cfg.preview)
+  local b = Preview.new(cfg.preview)
+  MiniTest.expect.equality(a:is_enabled(), false)
+  MiniTest.expect.equality(b:is_enabled(), false)
+
+  a:set_enabled(true)
+  MiniTest.expect.equality(a:is_enabled(), true)
+  MiniTest.expect.equality(b:is_enabled(), false)
+  MiniTest.expect.equality(cfg.preview.enabled, false)
+end
+
+-- PR-12: a new instance starts from the configured default, not another instance's toggle
+T["Preview initial enabled follows config"] = function()
+  config.setup({ preview = { enabled = true } })
+  local cfg = config.get()
+  local a = Preview.new(cfg.preview)
+  a:set_enabled(false)
+  local b = Preview.new(cfg.preview)
+  MiniTest.expect.equality(b:is_enabled(), true)
+  MiniTest.expect.equality(cfg.preview.enabled, true)
+end
+
 -- PR-2: attach sets window reference
 T["Preview:attach sets window"] = function()
   config.setup()

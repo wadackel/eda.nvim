@@ -844,9 +844,8 @@ end, { desc = "Open with system application" })
 
 action.register("toggle_preview", function(ctx)
   local preview = ctx.explorer.preview
-  local cfg = ctx.config.preview
-  cfg.enabled = not cfg.enabled
-  if cfg.enabled then
+  preview:set_enabled(not preview:is_enabled())
+  if preview:is_enabled() then
     local node = ctx.buffer:get_cursor_node(ctx.window.winid)
     preview:update(node)
   else

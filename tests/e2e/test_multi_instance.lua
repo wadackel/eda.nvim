@@ -64,6 +64,105 @@ T["multi instance"]["split action creates two independent explorers"] = function
   MiniTest.expect.equality(both_eda, true)
 end
 
+T["multi instance"]["toggle_preview only changes the acting explorer"] = function()
+  e2e.open_eda(child, tmp)
+
+  e2e.exec(
+    child,
+    [[
+    local action = require("eda.action")
+    local eda = require("eda")
+    local explorer = eda.get_current()
+    local ctx = {
+      store = explorer.store,
+      buffer = explorer.buffer,
+      window = explorer.window,
+      scanner = explorer.scanner,
+      config = require("eda.config").get(),
+      explorer = explorer,
+    }
+    action.dispatch("split", ctx)
+  ]]
+  )
+  e2e.wait_until(child, "#require('eda').get_all() == 2", 10000)
+
+  -- Every instance starts from the configured default (preview is off by default).
+  local before = e2e.exec(
+    child,
+    [[
+    local states = {}
+    for _, inst in ipairs(require("eda").get_all()) do
+      table.insert(states, inst.preview:is_enabled())
+    end
+    return { states = states, shared = require("eda.config").get().preview.enabled }
+  ]]
+  )
+  MiniTest.expect.equality(before.states, { false, false })
+  MiniTest.expect.equality(before.shared, false)
+
+  -- Toggle in the first explorer only.
+  local after = e2e.exec(
+    child,
+    [[
+    local action = require("eda.action")
+    local eda = require("eda")
+    local explorer = eda.get_all()[1]
+    local ctx = {
+      store = explorer.store,
+      buffer = explorer.buffer,
+      window = explorer.window,
+      scanner = explorer.scanner,
+      config = require("eda.config").get(),
+      explorer = explorer,
+    }
+    action.dispatch("toggle_preview", ctx)
+    local states = {}
+    for _, inst in ipairs(eda.get_all()) do
+      table.insert(states, inst.preview:is_enabled())
+    end
+    return { states = states, shared = require("eda.config").get().preview.enabled }
+  ]]
+  )
+  MiniTest.expect.equality(after.states, { true, false })
+  MiniTest.expect.equality(after.shared, false)
+end
+
+T["multi instance"]["a newly opened explorer uses the configured default, not the last toggle"] = function()
+  e2e.open_eda(child, tmp)
+
+  e2e.exec(
+    child,
+    [[
+    local action = require("eda.action")
+    local eda = require("eda")
+    local explorer = eda.get_current()
+    local ctx = {
+      store = explorer.store,
+      buffer = explorer.buffer,
+      window = explorer.window,
+      scanner = explorer.scanner,
+      config = require("eda.config").get(),
+      explorer = explorer,
+    }
+    action.dispatch("toggle_preview", ctx)
+    action.dispatch("split", ctx)
+  ]]
+  )
+  e2e.wait_until(child, "#require('eda').get_all() == 2", 10000)
+
+  local states = e2e.exec(
+    child,
+    [[
+    local states = {}
+    for _, inst in ipairs(require("eda").get_all()) do
+      table.insert(states, inst.preview:is_enabled())
+    end
+    return states
+  ]]
+  )
+  MiniTest.expect.equality(states, { true, false })
+end
+
 local child_a, child_b, shared_tmp
 
 T["cross-process swap conflict"] = MiniTest.new_set({

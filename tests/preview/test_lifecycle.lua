@@ -75,7 +75,7 @@ for _, action in ipairs({ "close", "disable", "disable_and_close" }) do
   T[action .. " prevents a pending text read from opening a preview"] = function()
     show_read(tmp .. "/file.txt", 1)
     if action ~= "close" then
-      preview.config.enabled = false
+      preview:set_enabled(false)
     end
     if action ~= "disable" then
       preview:close()
@@ -183,7 +183,7 @@ T["disabled updates do not reconfigure a filer that has no preview"] = function(
     changes = changes + 1
   end
   preview.window.kind = "float"
-  preview.config.enabled = false
+  preview:set_enabled(false)
   local ok, err = pcall(function()
     preview:update(nil)
   end)
