@@ -12,10 +12,19 @@ local util = require("eda.util")
 ---@field decorator_chain eda.DecoratorChain?
 ---@field painter eda.Painter?
 ---@field _debounced eda.Debounce?
+---@field _request_id integer
 ---@field _pending_target integer|string|nil  Node id (dir mode) or path string (file mode)
 ---@field _current_target integer|string|nil  Node id (dir mode) or path string (file mode)
 local Preview = {}
 Preview.__index = Preview
+
+-- bufhidden=wipe cannot free a buffer when presentation was cancelled before its first window opened.
+---@param bufnr integer?
+local function wipe_hidden_buffer(bufnr)
+  if bufnr and vim.api.nvim_buf_is_valid(bufnr) and #vim.fn.win_findbuf(bufnr) == 0 then
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end
+end
 
 ---Create a new preview manager.
 ---@param config eda.PreviewConfig
@@ -31,6 +40,7 @@ function Preview.new(config)
     decorator_chain = nil,
     painter = nil,
     _debounced = nil,
+    _request_id = 0,
     _pending_target = nil,
     _current_target = nil,
   }, Preview)
@@ -41,12 +51,29 @@ end
 ---@param window eda.Window
 ---@param deps? { store: eda.Store, scanner: eda.Scanner, decorator_chain: eda.DecoratorChain }
 function Preview:attach(window, deps)
+  self:close()
   self.window = window
-  if deps then
-    self.store = deps.store
-    self.scanner = deps.scanner
-    self.decorator_chain = deps.decorator_chain
+  self.store = deps and deps.store or nil
+  self.scanner = deps and deps.scanner or nil
+  self.decorator_chain = deps and deps.decorator_chain or nil
+end
+
+---@param target integer|string?
+---@return integer
+function Preview:_begin_request(target)
+  self._request_id = self._request_id + 1
+  self._pending_target = target
+  if self._debounced then
+    self._debounced.cancel()
   end
+  return self._request_id
+end
+
+---@param target integer|string
+---@param request_id integer
+---@return boolean
+function Preview:_is_current(target, request_id)
+  return self.config.enabled and self._pending_target == target and self._request_id == request_id
 end
 
 ---Check if a file is binary (contains NUL byte in first 512 bytes).
@@ -99,12 +126,15 @@ end
 ---@param path string
 function Preview:show(path)
   if not self.config.enabled then
+    self:close()
     return
   end
 
   if not self.window or not util.is_valid_win(self.window.winid) then
     return
   end
+
+  local request_id = self:_begin_request(path)
 
   -- Check file size
   local stat = vim.uv.fs_stat(path)
@@ -115,7 +145,7 @@ function Preview:show(path)
   -- Images bypass max_file_size and binary detection; they carry their own limit
   local image_cfg = self.config.image
   if type(image_cfg) == "table" and image_cfg.enabled and image.is_image(path) then
-    self:_show_image(path, stat)
+    self:_show_image(path, stat, request_id)
     return
   end
   local max_size = self.config.max_file_size
@@ -131,9 +161,6 @@ function Preview:show(path)
     return
   end
 
-  -- Mark this path as pending for async guard
-  self._pending_target = path
-
   -- Read file content asynchronously
   vim.uv.fs_open(path, "r", 438, function(err, fd)
     if err or not fd then
@@ -145,7 +172,7 @@ function Preview:show(path)
         return
       end
       vim.schedule(function()
-        self:_present(path, {
+        self:_present(path, request_id, {
           fill = function(bufnr)
             local lines = vim.split(data, "\n", { plain = true })
             if #lines > 0 and lines[#lines] == "" then
@@ -167,12 +194,11 @@ end
 ---backend can size its placement against the visible preview window.
 ---@param path string
 ---@param stat uv.fs_stat.result
-function Preview:_show_image(path, stat)
-  self._pending_target = path
-
+---@param request_id integer
+function Preview:_show_image(path, stat, request_id)
   local limit = self.config.image.max_file_size
   if stat.size > limit then
-    self:_present(path, {
+    self:_present(path, request_id, {
       fill = function(bufnr)
         vim.bo[bufnr].filetype = ""
         image.describe(bufnr, path, string.format("Image exceeds preview.image.max_file_size (%d bytes).", limit))
@@ -181,14 +207,14 @@ function Preview:_show_image(path, stat)
     return
   end
 
-  self:_present(path, {
+  self:_present(path, request_id, {
     fill = function(bufnr)
       vim.bo[bufnr].filetype = ""
       image.loading(bufnr, path)
     end,
     after = function(bufnr, winid)
       image.render(bufnr, winid, path, function()
-        return self._pending_target == path and self.bufnr == bufnr and self.winid == winid
+        return self:_is_current(path, request_id) and self.bufnr == bufnr and self.winid == winid
       end, { transmission = self.config.image.transmission })
     end,
   })
@@ -198,13 +224,11 @@ end
 ---@field fill fun(bufnr: integer) writes the buffer content for the target
 ---@field after? fun(bufnr: integer, winid: integer) runs once the preview window is visible
 
----Shared presentation for every target kind. Callers set `_pending_target`
----synchronously before any asynchronous work; a caller whose target went stale in
----the meantime is dropped here.
 ---@param target integer|string
+---@param request_id integer
 ---@param opts eda.PreviewPresentOpts
-function Preview:_present(target, opts)
-  if self._pending_target ~= target then
+function Preview:_present(target, request_id, opts)
+  if not self:_is_current(target, request_id) then
     return
   end
   if not self.window or not util.is_valid_win(self.window.winid) then
@@ -220,7 +244,13 @@ function Preview:_present(target, opts)
 
   self:_ensure_buffer()
   self.painter:reset()
-  opts.fill(self.bufnr)
+  local bufnr = assert(self.bufnr, "preview buffer was not created")
+  opts.fill(bufnr)
+
+  if not self:_is_current(target, request_id) then
+    wipe_hidden_buffer(bufnr)
+    return
+  end
 
   self:_open_or_reuse_window(layout)
 
@@ -240,41 +270,44 @@ end
 ---@param node eda.TreeNode
 function Preview:show_directory(node)
   if not self.config.enabled then
+    self:close()
     return
   end
   if not self.window or not util.is_valid_win(self.window.winid) then
     return
   end
-  if not self.store or not self.scanner or not self.decorator_chain then
-    -- Tree deps not attached; cannot render directory preview.
+  local store, scanner = self.store, self.scanner
+  if not store or not scanner or not self.decorator_chain then
+    self:close()
     return
   end
 
-  self._pending_target = node.id
+  local request_id = self:_begin_request(node.id)
 
   if node.children_state == "loaded" then
-    self:_render_directory(node)
+    self:_render_directory(node, request_id)
     return
   end
 
-  self.scanner:scan(node.id, function()
+  scanner:scan(node.id, function()
     vim.schedule(function()
-      if self._pending_target ~= node.id then
+      if not self:_is_current(node.id, request_id) or self.store ~= store then
         return
       end
-      local fresh = self.store:get(node.id)
+      local fresh = store:get(node.id)
       if not fresh or fresh.children_state ~= "loaded" then
         return
       end
-      self:_render_directory(fresh)
+      self:_render_directory(fresh, request_id)
     end)
   end)
 end
 
 ---Paint the directory subtree into the preview buffer.
 ---@param node eda.TreeNode
-function Preview:_render_directory(node)
-  self:_present(node.id, {
+---@param request_id integer
+function Preview:_render_directory(node, request_id)
+  self:_present(node.id, request_id, {
     fill = function(bufnr)
       vim.bo[bufnr].filetype = ""
 
@@ -298,20 +331,26 @@ end
 
 ---Close the preview window.
 function Preview:close()
+  local winid, bufnr = self.winid, self.bufnr
+  self:_begin_request(nil)
+  self._current_target = nil
   if self._debounced then
     self._debounced.dispose()
     self._debounced = nil
   end
-  if self.bufnr and vim.api.nvim_buf_is_valid(self.bufnr) then
-    image.detach(self.bufnr)
-  end
-  if util.is_valid_win(self.winid) then
-    vim.api.nvim_win_close(self.winid, true)
-  end
   self.winid = nil
+  self.bufnr = nil
+  self.painter = nil
+  if bufnr and vim.api.nvim_buf_is_valid(bufnr) then
+    image.detach(bufnr)
+  end
+  if winid and util.is_valid_win(winid) then
+    vim.api.nvim_win_close(winid, true)
+  end
+  wipe_hidden_buffer(bufnr)
 
   -- Restore filer to original size in float mode
-  if self.window and self.window.kind == "float" and util.is_valid_win(self.window.winid) then
+  if winid and self.window and self.window.kind == "float" and util.is_valid_win(self.window.winid) then
     local Window = require("eda.window")
     local orig = Window._compute_layout("float", self.window.config)
     vim.api.nvim_win_set_config(self.window.winid, {
@@ -402,6 +441,7 @@ end
 ---@param node eda.TreeNode?
 function Preview:update(node)
   if not self.config.enabled then
+    self:close()
     return
   end
 
@@ -409,6 +449,8 @@ function Preview:update(node)
     self:close()
     return
   end
+
+  self:_begin_request(nil)
 
   if not self._debounced then
     self._debounced = util.debounce(self.config.debounce, function(target)
