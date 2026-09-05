@@ -1229,19 +1229,48 @@ Fired when the explorer window closes.
 
 EDAMUTATIONPRE ~
 
-Fired before file operations are executed.
+Fired once for each executed batch from buffer writes, delete, duplicate, and
+copy/cut paste. It runs after planning and any required confirmation, before
+filesystem operations begin. Empty or cancelled batches emit no mutation
+events.
 
 `data`: `{ operations = table[] }`
+
+`operations` lists the planned operations in execution order:
+
+  Type     Fields
+  -------- ------------------------------------------
+  create   path, entry_type ("file" or "directory")
+  delete   path, entry_type ("file" or "directory")
+  move     src, dst, path (same as dst)
+  copy     src, dst, path (same as dst)
+Mutation hooks are notifications, not cancellation hooks. A hook error is
+reported and does not cancel the batch or suppress its completion callback.
 
 
 EDAMUTATIONPOST ~
 
-Fired after file operations complete.
+Fired once after the batch finishes or stops at its first error, before any
+optional explorer refresh. It is delivered even if the originating explorer was
+closed while operations were running. The tree may still show its previous
+state when this event fires.
 
 `data`: `{ operations = table[], results = table }`
 
-Useful for integration with plugins like nvim-lsp-file-operations to
-automatically update LSP workspace paths on file rename/move.
+`operations` is the complete plan from `EdaMutationPre`. `results` contains:
+
+- `completed`: successfully completed operations, in execution order; empty if
+    the first operation failed.
+- `failed`: the operation that failed, or `nil` on success.
+- `error`: the failure message, or `nil` on success.
+
+Operations after `failed` are not attempted. Failed and unattempted targets
+stay available in marks or the paste register for retry; completed entries are
+removed. A failed recursive operation may leave partial filesystem changes and
+is not included in `completed`.
+
+Integrations such as LSP workspace notifications must use `results.completed`,
+rather than the full `operations` plan, to report successful changes only.
 
 
 EDAROOTCHANGED ~
