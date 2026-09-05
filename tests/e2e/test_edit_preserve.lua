@@ -258,4 +258,89 @@ T["edit preserving repaint"]["clean buffer operations work as before"] = functio
   )
 end
 
+for _, from_child in ipairs({ false, true }) do
+  local target = from_child and "child" or "directory"
+  T["edit preserving repaint"]["collapse from " .. target .. " captures once and preserves successive edits"] = function()
+    e2e.create_file(tmp .. "/delete.txt", "delete")
+    e2e.create_file(tmp .. "/replace.txt", "replace")
+    e2e.open_eda(child, tmp)
+    move_to_line(child, "dir_b/")
+    e2e.feed(child, "<CR>")
+    e2e.wait_for_node_loaded(child, tmp .. "/dir_b")
+    move_to_line(child, "file_b.txt")
+    e2e.exec(
+      child,
+      [[
+      local ex = require("eda").get_current()
+      local buf = ex.buffer.bufnr
+      local function row(name)
+        for i, text in ipairs(vim.api.nvim_buf_get_lines(buf, 0, -1, false)) do
+          if text == name then return i - 1 end
+        end
+        error("Missing " .. name)
+      end
+      local rename = row("root.txt")
+      vim.api.nvim_buf_set_text(buf, rename, 0, rename, #"root.txt", { "renamed.txt" })
+      local deleted = row("delete.txt")
+      vim.api.nvim_buf_set_lines(buf, deleted, deleted + 1, false, {})
+      local replaced = row("replace.txt")
+      vim.api.nvim_buf_set_lines(buf, replaced, replaced + 1, false, { "replacement.txt" })
+      vim.api.nvim_buf_set_lines(buf, -1, -1, false, { "first.txt", "second.txt" })
+      _G.expected_dirty = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+      local preserve = require("eda.buffer.edit_preserve")
+      local capture = preserve.capture
+      _G.capture_calls = 0
+      preserve.capture = function(...)
+        _G.capture_calls = _G.capture_calls + 1
+        return capture(...)
+      end
+    ]]
+    )
+    for iteration = 1, 3 do
+      move_to_line(child, from_child and "file_b.txt" or "dir_b/")
+      local calls = e2e.exec(
+        child,
+        [[
+        _G.capture_calls = 0
+        local ex = require("eda").get_current()
+        require("eda.action").dispatch("collapse_node", {
+          explorer = ex, buffer = ex.buffer, store = ex.store, scanner = ex.scanner,
+          window = ex.window, config = require("eda.config").get(),
+        })
+        return _G.capture_calls
+      ]]
+      )
+      MiniTest.expect.equality(calls, 1)
+      MiniTest.expect.equality(buf_has_line(child, "file_b.txt"), false)
+      move_to_line(child, "dir_b/")
+      e2e.expand_and_wait_for_render(child)
+      MiniTest.expect.equality(
+        e2e.exec(
+          child,
+          [[
+        return vim.bo.modified and vim.deep_equal(vim.api.nvim_buf_get_lines(0, 0, -1, false), _G.expected_dirty)
+      ]]
+        ),
+        true
+      )
+      if iteration == 1 then
+        move_to_line(child, "second.txt")
+        e2e.feed(child, "o")
+        e2e.feed_insert(child, "third.txt")
+        e2e.feed(child, "u")
+        e2e.wait_until(
+          child,
+          [[not table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n"):find("third.txt", 1, true)]]
+        )
+        e2e.feed(child, "<C-r>")
+        e2e.wait_until(
+          child,
+          [[table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n"):find("third.txt", 1, true) ~= nil]]
+        )
+        e2e.exec(child, "_G.expected_dirty = vim.api.nvim_buf_get_lines(0, 0, -1, false)")
+      end
+    end
+  end
+end
+
 return T
