@@ -32,7 +32,14 @@ local T = MiniTest.new_set({
       vim.api.nvim_win_set_buf(filer, buffer)
       vim.api.nvim_win_set_width(filer, math.floor(vim.o.columns * 0.3))
       preview = Preview.new(config.get().preview)
-      preview:attach({ winid = filer, kind = "split_left", config = config.get() })
+      preview:attach({
+        winid = filer,
+        kind = "split_left",
+        config = config.get(),
+        is_visible = function()
+          return true
+        end,
+      })
       reads = {}
       original_read = vim.uv.fs_read
       vim.uv.fs_read = function(fd, _, _, callback)
@@ -191,6 +198,97 @@ T["disabled updates do not reconfigure a filer that has no preview"] = function(
   preview.window.kind = "split_left"
   assert(ok, err)
   MiniTest.expect.equality(changes, 0)
+end
+
+T["suspending rejects a pending text read"] = function()
+  show_read(tmp .. "/file.txt", 1)
+  preview:suspend()
+  reads[1].finish("STALE")
+  flush()
+  MiniTest.expect.equality(preview.winid, nil)
+end
+
+T["suspending does not change the enabled state"] = function()
+  preview:suspend()
+  MiniTest.expect.equality(preview:is_enabled(), true)
+  MiniTest.expect.equality(preview:_is_suspended(), true)
+  preview:resume()
+  MiniTest.expect.equality(preview:is_enabled(), true)
+end
+
+local function counting_window()
+  local resolved = 0
+  local window = {
+    winid = filer,
+    kind = "split_left",
+    config = config.get(),
+    is_visible = function()
+      return true
+    end,
+  }
+  preview:attach(window, nil, function()
+    resolved = resolved + 1
+    return nil
+  end)
+  return function()
+    return resolved
+  end
+end
+
+T["resume ignores a suspension that was never set"] = function()
+  local resolved = counting_window()
+  preview:resume()
+  MiniTest.expect.equality(preview:_is_suspended(), false)
+  -- Dropping resume()'s guard would take this through try_resume and resolve a target.
+  MiniTest.expect.equality(resolved(), 0)
+end
+
+T["reattaching clears suspension so a reattached preview cannot wedge"] = function()
+  preview:suspend()
+  MiniTest.expect.equality(preview:_is_suspended(), true)
+  preview:attach({
+    winid = filer,
+    kind = "split_left",
+    config = config.get(),
+    is_visible = function()
+      return true
+    end,
+  })
+  MiniTest.expect.equality(preview:_is_suspended(), false)
+end
+
+T["try_resume keeps a preview hidden while the suspension stands"] = function()
+  local resolved = counting_window()
+  preview:suspend()
+
+  preview:try_resume()
+  MiniTest.expect.equality(preview:_is_suspended(), true)
+  MiniTest.expect.equality(preview.winid, nil)
+  -- Dropping try_resume()'s suspension guard would resolve a target here.
+  MiniTest.expect.equality(resolved(), 0)
+
+  preview:resume()
+  MiniTest.expect.equality(preview:_is_suspended(), false)
+  MiniTest.expect.equality(resolved(), 1)
+end
+
+T["try_resume does not resolve a target while the owner hides the explorer"] = function()
+  preview:attach(
+    {
+      winid = filer,
+      kind = "split_left",
+      config = config.get(),
+      is_visible = function()
+        return false
+      end,
+    },
+    nil,
+    function()
+      error("target must not be resolved for a hidden explorer")
+    end
+  )
+  preview:try_resume()
+  MiniTest.expect.equality(preview.winid, nil)
 end
 
 return T

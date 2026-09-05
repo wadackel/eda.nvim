@@ -26,6 +26,15 @@ Explore as a tree, edit as a buffer — a file explorer for Neovim that combines
 |--------------|-------------------|
 | ![File Preview](./docs/assets/preview-file.png) | ![Directory Preview](./docs/assets/preview-directory.png) |
 
+In the `replace` layout the preview is drawn as an overlay inside the explorer's
+own window, so no split is created and neighbouring windows keep their sizes.
+Each explorer owns its preview, so two of them can sit side by side with a
+different preview in each.
+
+| Replace Overlay | Two Explorers |
+|-----------------|---------------|
+| ![Replace Overlay](./docs/assets/preview-replace.png) | ![Two Explorers](./docs/assets/preview-replace-dual.png) |
+
 ### Filter & Inspect
 
 | Git Changes Filter | Inspect Float |

@@ -107,19 +107,25 @@ end
 
 ---Setup eda.nvim in the child Neovim with E2E test defaults.
 ---@param child table child object from MiniTest.new_child_neovim()
-function M.setup_eda(child)
+---@param overrides? string Lua source for a table merged over the defaults, e.g.
+---  `[[{ window = { kind = "replace" }, preview = { enabled = true, debounce = 0 } }]]`
+function M.setup_eda(child, overrides)
   M.exec(
     child,
-    [[
-    require("eda").setup({
+    string.format(
+      [[
+    local opts = {
       git = { enabled = false },
       icon = { provider = "none" },
       window = { kind = "split_left", width = 40 },
       confirm = false,
       delete_to_trash = false,
       header = false,
-    })
-  ]]
+    }
+    require("eda").setup(vim.tbl_deep_extend("force", opts, %s))
+  ]],
+      overrides or "{}"
+    )
   )
 end
 
