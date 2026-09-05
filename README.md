@@ -534,21 +534,11 @@ require("eda").setup({
 <details>
 <summary>LSP file operations</summary>
 
-Notify language servers when files are renamed or moved via the `EdaMutationPost` event. Works with [nvim-lsp-file-operations](https://github.com/antosha417/nvim-lsp-file-operations) or a manual handler.
-
-```lua
-vim.api.nvim_create_autocmd("User", {
-  pattern = "EdaMutationPost",
-  callback = function(ev)
-    -- ev.data.operations contains { type, src, dst } entries
-    -- ev.data.results contains the operation outcomes
-    local ok, lsp_ops = pcall(require, "lsp-file-operations")
-    if ok then
-      lsp_ops.did_rename(ev.data.operations)
-    end
-  end,
-})
-```
+Use the [native LSP rename-notification recipe](doc/eda.md#lsp-rename-notifications)
+to notify supporting servers about successfully completed moves, including
+partially failed batches. It documents capability setup, workspace and file
+filters, and a live-server smoke check. This post-operation handler does not
+request pre-rename workspace edits or guarantee updated imports.
 
 </details>
 
