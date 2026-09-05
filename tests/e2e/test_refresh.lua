@@ -253,6 +253,16 @@ end
 T["refresh"]["reconciles a deferred event after undo discards edits"] = function()
   e2e.create_file(tmp .. "/remove.txt", "remove me")
   intercept_watcher()
+  e2e.exec(
+    child,
+    [[
+    local create_autocmd = vim.api.nvim_create_autocmd
+    vim.api.nvim_create_autocmd = function(event, opts)
+      assert(event ~= "BufModifiedSet", "BufModifiedSet is unavailable")
+      return create_autocmd(event, opts)
+    end
+  ]]
+  )
   e2e.open_eda(child, tmp)
   delete_pending_line()
   e2e.create_file(tmp .. "/external.txt", "external")

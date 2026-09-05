@@ -16,20 +16,28 @@ Refresh.__index = Refresh
 ---@return eda.Refresh
 function Refresh.new(explorer)
   local self = setmetatable({ explorer = explorer, pending = false, running = false, epoch = 0 }, Refresh)
-  vim.api.nvim_create_autocmd("BufModifiedSet", {
-    buffer = explorer.buffer.bufnr,
-    callback = function()
+  local function flush_later()
+    if self.pending then
       -- Flushing synchronously would see the temporary clean state before edit replay.
       vim.schedule(function()
         self:flush()
       end)
-    end,
+    end
+  end
+  vim.api.nvim_create_autocmd({ "TextChanged", "TextChangedI" }, {
+    buffer = explorer.buffer.bufnr,
+    callback = flush_later,
+  })
+  local option_event = vim.api.nvim_create_autocmd("OptionSet", {
+    pattern = "modified",
+    callback = flush_later,
   })
   vim.api.nvim_create_autocmd("BufWipeout", {
     buffer = explorer.buffer.bufnr,
     callback = function()
       self:reset()
       explorer.watcher:unwatch_all()
+      vim.api.nvim_del_autocmd(option_event)
     end,
   })
   return self
