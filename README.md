@@ -40,24 +40,24 @@ Explore as a tree, edit as a buffer — a file explorer for Neovim that combines
 
 ## Why eda.nvim?
 
-- ✏️ **Buffer-native editing meets tree view** — Edit the buffer to rename, delete, create, and move files, then `:w` to apply. Combines oil.nvim's buffer-editing paradigm with a full collapsible tree view
-- ⚡ **Progressive async rendering** — The target file's ancestor chain is scanned first, so the cursor lands instantly even in large repositories. Remaining directories load in the background
+- ✏️ **Buffer-native editing meets tree view** — Edit the buffer to rename, delete, create, and move files, then `:w` to apply
+- ⚡ **Async filesystem scanning** — The requested target's ancestor chain is scanned before the initial render. Directory enumeration and symlink metadata use asynchronous I/O
 - 🧩 **Extensible action system** — Every operation lives in a named registry. Custom actions receive the same `ActionContext` as built-in ones, making them first-class citizens
-- 🎨 **Rich customization** — 60+ highlight groups across 6 categories, function-based config options (`header.format`, `ignore_patterns`, `preview.max_file_size`), and event hooks for plugin integration
+- 🎨 **Rich customization** — Highlight groups, function-based config options (`header.format`, `ignore_patterns`, `preview.max_file_size`), and event hooks for plugin integration
 
 > For architecture and design decisions, see [ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Features
 
 - **Buffer-native editing** — Rename, delete, and create files by editing the buffer, then `:w` to apply
-- **Tree view with hierarchy** — Collapsible directory tree, not flat per-directory listing
-- **Progressive async rendering** — Ancestor chain scanned first for instant cursor placement
+- **Tree view with hierarchy** — Expand and collapse directories within one buffer
+- **Async filesystem scanning** — Directory enumeration and symlink resolution run asynchronously; tree preparation and painting run on the main loop
 - **Git integration** — Async status detection with visual indicators
 - **Image preview** — PNG/JPEG/GIF/WebP/BMP rendered in the preview pane via the Kitty graphics protocol (kitty, Ghostty, WezTerm, including inside tmux)
 - **Multiple layouts** — `float`, `split_left`, `split_right`, `replace`
 - **Extensible action system** — Named registry with custom actions as first-class citizens
 - **netrw replacement** — `hijack_netrw` option for seamless default browsing
-- **60+ highlight groups** — Full appearance customization across 6 categories
+- **Highlight groups** — Customize the tree, filesystem state, operations, dialogs, and previews
 - **Event hooks** — `EdaTreeOpen`, `EdaTreeClose`, `EdaMutationPre`, `EdaMutationPost`, `EdaRootChanged` for plugin integration. See [`doc/eda.nvim.txt`](doc/eda.nvim.txt) for event payload details.
 
 ## Requirements
