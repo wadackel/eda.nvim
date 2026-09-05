@@ -980,7 +980,13 @@ success (partial failures keep the marks for the failed/unattempted entries).
 - **paste** — Paste from the register into the directory under the cursor
     (or the parent of a file under the cursor; falls back to the explorer
     root). Appends `_copy` suffix on name collision and falls back to `_2`,
-    `_3`… counters.
+    `_3`… counters. Destinations are reserved in register order before any
+    operation starts, including when several sources have the same name.
+    Existing files, directories, and broken symlinks occupy their names.
+    Paste stops at the first error and keeps only failed and unattempted
+    entries in the register for retry. A newer register is preserved if it
+    changes while paste is running. A failed copy may leave a partial
+    destination; a failed cut may leave both source and destination.
 - **duplicate** — Duplicate each target node into its parent directory with
     the same `_copy` collision-resolution as `paste`. No prompt; works on
     files and directories.

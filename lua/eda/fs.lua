@@ -55,7 +55,12 @@ end
 ---@param src string
 ---@param dst string
 ---@param cb fun(err?: string)
-function M.move(src, dst, cb)
+---@param opts? { no_replace?: boolean }
+function M.move(src, dst, cb, opts)
+  if opts and opts.no_replace then
+    require("eda.fs.exclusive").move(src, dst, cb)
+    return
+  end
   -- Ensure destination parent exists before renaming
   vim.schedule(function()
     local parent = vim.fn.fnamemodify(dst, ":h")
@@ -80,7 +85,12 @@ end
 ---@param src string
 ---@param dst string
 ---@param cb fun(err?: string)
-function M.copy(src, dst, cb)
+---@param opts? { no_replace?: boolean }
+function M.copy(src, dst, cb, opts)
+  if opts and opts.no_replace then
+    require("eda.fs.exclusive").copy(src, dst, cb)
+    return
+  end
   vim.schedule(function()
     local parent = vim.fn.fnamemodify(dst, ":h")
     vim.fn.mkdir(parent, "p")

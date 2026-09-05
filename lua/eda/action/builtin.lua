@@ -767,11 +767,22 @@ end
 --- appends `_copy` (dotfile/no-extension aware) and falls back to `_2`, `_3`... counter.
 ---@param dir string  Target directory (without trailing slash).
 ---@param name string  Candidate filename.
+---@param reserved? table<string, boolean>
 ---@return string  Absolute destination path that does not currently exist.
-local function resolve_unique_dst(dir, name)
+local function resolve_unique_dst(dir, name, reserved)
+  local util = require("eda.util")
+  local function occupied(path)
+    return (reserved and reserved[util.nfc_normalize(path)]) or vim.uv.fs_lstat(path) ~= nil
+  end
+  local function reserve(path)
+    if reserved then
+      reserved[util.nfc_normalize(path)] = true
+    end
+    return path
+  end
   local dst = dir .. "/" .. name
-  if not vim.uv.fs_stat(dst) then
-    return dst
+  if not occupied(dst) then
+    return reserve(dst)
   end
   local copy_name = generate_copy_name(name)
   dst = dir .. "/" .. copy_name
@@ -779,7 +790,7 @@ local function resolve_unique_dst(dir, name)
   local orig_base = orig_ext ~= "" and name:sub(1, -(#orig_ext + 2)) or name
   local is_dotfile = orig_base == "" or orig_base == "."
   local counter = 2
-  while vim.uv.fs_stat(dst) do
+  while occupied(dst) do
     if is_dotfile or orig_ext == "" then
       dst = dir .. "/" .. copy_name .. "_" .. counter
     else
@@ -788,7 +799,7 @@ local function resolve_unique_dst(dir, name)
     end
     counter = counter + 1
   end
-  return dst
+  return reserve(dst)
 end
 
 M._resolve_unique_dst = resolve_unique_dst
@@ -1236,12 +1247,18 @@ action.register("quickfix", function(ctx)
   end
 end, { desc = "Create quickfix from target nodes (Visual > marks > cursor)" })
 
+local active_pastes = {}
+
 action.register("paste", function(ctx)
   local register = require("eda.register")
   local Fs = require("eda.fs")
   local reg = register.get()
   if not reg then
     vim.notify("Register is empty")
+    return
+  end
+  if active_pastes[reg] then
+    vim.notify("Paste is already running", vim.log.levels.WARN)
     return
   end
   -- Determine target directory
@@ -1254,43 +1271,60 @@ action.register("paste", function(ctx)
   else
     target_dir = ctx.explorer.root_path
   end
-  -- Check for self-paste (directory into itself)
+  local real_target = vim.uv.fs_realpath(target_dir) or target_dir
   for _, src_path in ipairs(reg.paths) do
-    if target_dir == src_path or target_dir:sub(1, #src_path + 1) == src_path .. "/" then
+    local real_source = vim.uv.fs_realpath(src_path) or src_path
+    if real_target == real_source or real_target:sub(1, #real_source + 1) == real_source .. "/" then
       vim.notify("Cannot paste into itself: " .. vim.fn.fnamemodify(src_path, ":t"), vim.log.levels.ERROR)
       return
     end
   end
-  -- Execute operations
-  local remaining = #reg.paths
-  local errors = {}
+
+  local planned, reserved = {}, {}
   for _, src_path in ipairs(reg.paths) do
-    local name = vim.fn.fnamemodify(src_path, ":t")
-    local dst = resolve_unique_dst(target_dir, name)
-    local function on_done(err)
+    planned[#planned + 1] = {
+      src = src_path,
+      dst = resolve_unique_dst(target_dir, vim.fn.fnamemodify(src_path, ":t"), reserved),
+    }
+  end
+  active_pastes[reg] = true
+  local index = 0
+  local function finish(err)
+    active_pastes[reg] = nil
+    if register.get() == reg then
       if err then
-        table.insert(errors, err)
-      end
-      remaining = remaining - 1
-      if remaining == 0 then
-        if #errors == 0 then
-          register.clear()
+        local pending = {}
+        for i = index, #planned do
+          pending[#pending + 1] = planned[i].src
         end
-        vim.schedule(function()
-          if #errors > 0 then
-            vim.notify(table.concat(errors, "\n"), vim.log.levels.ERROR)
-          end
-          -- Refresh all instances
-          get_eda().refresh_all()
-        end)
+        register.set(pending, reg.operation)
+      else
+        register.clear()
       end
+    end
+    if err then
+      vim.notify(err, vim.log.levels.ERROR)
+    end
+    get_eda().refresh_all()
+  end
+  local function next_entry(err)
+    if err then
+      finish(err)
+      return
+    end
+    index = index + 1
+    local entry = planned[index]
+    if not entry then
+      finish()
+      return
     end
     if reg.operation == "cut" then
-      Fs.move(src_path, dst, on_done)
+      Fs.move(entry.src, entry.dst, next_entry, { no_replace = true })
     else
-      Fs.copy(src_path, dst, on_done)
+      Fs.copy(entry.src, entry.dst, next_entry, { no_replace = true })
     end
   end
+  next_entry()
 end, { desc = "Paste from register" })
 
 action.register("help", function(ctx)
