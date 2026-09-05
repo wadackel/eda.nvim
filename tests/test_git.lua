@@ -125,42 +125,42 @@ T["git porcelain status format for renamed files"] = function()
 end
 
 T["parse_status: ignored + untracked mixed dir gets untracked status"] = function()
-  local result = git._parse_status("!! dir/ignored.txt\n?? dir/new.txt", "/root")
+  local result = git._parse_status("!! dir/ignored.txt\0?? dir/new.txt\0", "/root")
   MiniTest.expect.equality(result["/root/dir"], "?")
   MiniTest.expect.equality(result["/root/dir/ignored.txt"], "!")
   MiniTest.expect.equality(result["/root/dir/new.txt"], "?")
 end
 
 T["parse_status: ignored + modified mixed dir gets modified status"] = function()
-  local result = git._parse_status("!! dir/.env\n M dir/main.lua", "/root")
+  local result = git._parse_status("!! dir/.env\0 M dir/main.lua\0", "/root")
   MiniTest.expect.equality(result["/root/dir"], "M")
 end
 
 T["parse_status: multiple statuses dir gets highest priority"] = function()
-  local result = git._parse_status("?? dir/new.txt\n M dir/changed.lua\nUU dir/conflict.lua", "/root")
+  local result = git._parse_status("?? dir/new.txt\0 M dir/changed.lua\0UU dir/conflict.lua\0", "/root")
   MiniTest.expect.equality(result["/root/dir"], "U")
 end
 
 T["parse_status: deep nesting propagates to all ancestors"] = function()
-  local result = git._parse_status(" M a/b/c/file.lua", "/root")
+  local result = git._parse_status(" M a/b/c/file.lua\0", "/root")
   MiniTest.expect.equality(result["/root/a/b/c"], "M")
   MiniTest.expect.equality(result["/root/a/b"], "M")
   MiniTest.expect.equality(result["/root/a"], "M")
 end
 
 T["parse_status: explicit ignored dir after child does not downgrade"] = function()
-  local result = git._parse_status("?? vendor/used.txt\n!! vendor/", "/root")
+  local result = git._parse_status("?? vendor/used.txt\0!! vendor/\0", "/root")
   MiniTest.expect.equality(result["/root/vendor"], "?")
 end
 
 T["parse_status: ignored file does not propagate to parent"] = function()
-  local result = git._parse_status("!! dir/secret.txt", "/root")
+  local result = git._parse_status("!! dir/secret.txt\0", "/root")
   MiniTest.expect.equality(result["/root/dir/secret.txt"], "!")
   MiniTest.expect.equality(result["/root/dir"], nil)
 end
 
 T["parse_status: ignored deep nesting does not propagate to ancestors"] = function()
-  local result = git._parse_status("!! a/b/c/ignored.log", "/root")
+  local result = git._parse_status("!! a/b/c/ignored.log\0", "/root")
   MiniTest.expect.equality(result["/root/a/b/c/ignored.log"], "!")
   MiniTest.expect.equality(result["/root/a/b/c"], nil)
   MiniTest.expect.equality(result["/root/a/b"], nil)
@@ -234,7 +234,7 @@ end
 
 T["parse_status with reported_out collects direct changed file paths"] = function()
   local reported = {}
-  git._parse_status(" M a/b/file.lua\n?? new.txt", "/root", reported)
+  git._parse_status(" M a/b/file.lua\0?? new.txt\0", "/root", reported)
   MiniTest.expect.equality(reported["/root/a/b/file.lua"], true)
   MiniTest.expect.equality(reported["/root/new.txt"], true)
   -- dir propagation should NOT appear in reported set
@@ -244,21 +244,21 @@ end
 
 T["parse_status with reported_out excludes ignored entries"] = function()
   local reported = {}
-  git._parse_status("!! dir/secret.txt\n M dir/code.lua", "/root", reported)
+  git._parse_status("!! dir/secret.txt\0 M dir/code.lua\0", "/root", reported)
   MiniTest.expect.equality(reported["/root/dir/secret.txt"], nil)
   MiniTest.expect.equality(reported["/root/dir/code.lua"], true)
 end
 
 T["parse_status with reported_out excludes ignored directory entries (--ignored=matching)"] = function()
   local reported = {}
-  git._parse_status("!! node_modules/\n?? new.txt", "/root", reported)
+  git._parse_status("!! node_modules/\0?? new.txt\0", "/root", reported)
   MiniTest.expect.equality(reported["/root/node_modules"], nil)
   MiniTest.expect.equality(reported["/root/new.txt"], true)
 end
 
 T["parse_status with reported_out stores renamed file's new path"] = function()
   local reported = {}
-  git._parse_status("R  old.txt -> new.txt", "/root", reported)
+  git._parse_status("R  new.txt\0old.txt\0", "/root", reported)
   MiniTest.expect.equality(reported["/root/new.txt"], true)
   MiniTest.expect.equality(reported["/root/old.txt"], nil)
 end

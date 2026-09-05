@@ -39,25 +39,20 @@ local function parent_dir(path)
   return path:match("^(.*)/[^/]*$") or path
 end
 
----Parse git status --porcelain output into a path→status map.
----Optionally collects directly reported changed file paths into `reported_out`
----(before propagation, excluding ignored entries). Used for jump/filter features.
 ---@param output string
 ---@param root string Git root directory
 ---@param reported_out? table<string, true>  Optional set to populate with reported changed paths
 ---@return table<string, string>
 local function parse_status(output, root, reported_out)
   local result = {}
-  for line in output:gmatch("[^\n]+") do
-    -- Format: XY path (or XY path -> new_path for renames)
-    local status_code = line:sub(1, 2)
-    local path = line:sub(4)
+  local records = output:gmatch("([^%z]+)%z")
+  for record in records do
+    local status_code = record:sub(1, 2)
+    local path = record:sub(4)
 
-    -- Handle renames: "R  old -> new"
-    -- Use plain=true because `-` is a Lua pattern quantifier otherwise.
-    local arrow = path:find(" -> ", 1, true)
-    if arrow then
-      path = path:sub(arrow + 4)
+    -- Arrows and newlines are literal pathname bytes; -z puts rename/copy sources in the next field.
+    if status_code:find("[RC]") then
+      records()
     end
 
     -- Determine the effective status
@@ -134,8 +129,8 @@ function M.status(root, cb)
   cache[git_root] = { ready = "loading" }
 
   vim.system(
-    { "git", "-C", git_root, "status", "--porcelain", "-uall", "--ignored=matching" },
-    { text = true },
+    { "git", "-C", git_root, "status", "--porcelain=v1", "-z", "-uall", "--ignored=matching" },
+    {},
     function(result)
       vim.schedule(function()
         if result.code ~= 0 then
