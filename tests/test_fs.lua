@@ -3,6 +3,97 @@ local helpers = require("helpers")
 
 local T = MiniTest.new_set()
 
+local function create_and_wait(path, is_dir)
+  local done, result = false, nil
+  Fs.create(path, is_dir, function(err)
+    result = err
+    done = true
+  end)
+  helpers.wait_for(3000, function()
+    return done
+  end)
+  return result
+end
+
+T["create rejects an existing file without changing its contents"] = function()
+  local dir = helpers.create_temp_dir()
+  local path = dir .. "/keep.txt"
+  helpers.create_file(path, "keep this content")
+  MiniTest.expect.equality(type(create_and_wait(path, false)), "string")
+  MiniTest.expect.equality(vim.fn.readfile(path), { "keep this content" })
+  helpers.remove_temp_dir(dir)
+end
+
+T["create rejects an existing directory"] = function()
+  local dir = helpers.create_temp_dir()
+  MiniTest.expect.equality(type(create_and_wait(dir, true)), "string")
+  MiniTest.expect.equality(vim.fn.isdirectory(dir), 1)
+  helpers.remove_temp_dir(dir)
+end
+
+T["create rejects valid and broken symlink destinations"] = function()
+  local dir = helpers.create_temp_dir()
+  local target = dir .. "/target.txt"
+  helpers.create_file(target, "keep target")
+  for _, source in ipairs({ target, dir .. "/missing.txt" }) do
+    local path = dir .. "/link-" .. vim.fn.fnamemodify(source, ":t")
+    assert(vim.uv.fs_symlink(source, path))
+    MiniTest.expect.equality(type(create_and_wait(path, false)), "string")
+    MiniTest.expect.equality(vim.uv.fs_readlink(path), source)
+  end
+  MiniTest.expect.equality(vim.fn.readfile(target), { "keep target" })
+  MiniTest.expect.equality(vim.uv.fs_stat(dir .. "/missing.txt"), nil)
+  helpers.remove_temp_dir(dir)
+end
+
+T["create protects a file appearing after preflight"] = function()
+  local dir = helpers.create_temp_dir()
+  local path = dir .. "/race.txt"
+  local operations = { { type = "create", path = path, entry_type = "file" } }
+  local store = require("eda.tree.store").new()
+  store:set_root(dir)
+  MiniTest.expect.equality(require("eda.tree.diff").validate(operations, store).valid, true)
+  helpers.create_file(path, "external writer")
+  local result
+  Fs.execute_operations(operations, { delete_to_trash = false }, function(value)
+    result = value
+  end)
+  helpers.wait_for(3000, function()
+    return result ~= nil
+  end)
+  MiniTest.expect.equality(#result.completed, 0)
+  MiniTest.expect.equality(type(result.error), "string")
+  MiniTest.expect.equality(vim.fn.readfile(path), { "external writer" })
+  helpers.remove_temp_dir(dir)
+end
+
+T["create makes missing parents for exclusive files and directories"] = function()
+  local dir = helpers.create_temp_dir()
+  MiniTest.expect.equality(create_and_wait(dir .. "/a/b/file.txt", false), nil)
+  MiniTest.expect.equality(create_and_wait(dir .. "/c/d/nested", true), nil)
+  MiniTest.expect.equality(vim.fn.filereadable(dir .. "/a/b/file.txt"), 1)
+  MiniTest.expect.equality(vim.fn.isdirectory(dir .. "/c/d/nested"), 1)
+  helpers.remove_temp_dir(dir)
+end
+
+T["create preserves filesystem resolution through symlink parents"] = function()
+  local dir = helpers.create_temp_dir()
+  helpers.create_dir(dir .. "/real/nested")
+  assert(vim.uv.fs_symlink(dir .. "/real/nested", dir .. "/link"))
+  MiniTest.expect.equality(create_and_wait(dir .. "/link/../file.txt", false), nil)
+  MiniTest.expect.equality(vim.fn.filereadable(dir .. "/real/file.txt"), 1)
+  MiniTest.expect.equality(vim.fn.filereadable(dir .. "/file.txt"), 0)
+  helpers.remove_temp_dir(dir)
+end
+
+T["create reports parent errors through its callback"] = function()
+  local dir = helpers.create_temp_dir()
+  helpers.create_file(dir .. "/parent", "not a directory")
+  MiniTest.expect.equality(type(create_and_wait(dir .. "/parent/file.txt", false)), "string")
+  MiniTest.expect.equality(vim.fn.readfile(dir .. "/parent"), { "not a directory" })
+  helpers.remove_temp_dir(dir)
+end
+
 T["execute_operations module loads"] = function()
   MiniTest.expect.equality(type(Fs.create), "function")
   MiniTest.expect.equality(type(Fs.delete), "function")
