@@ -307,6 +307,49 @@ T["Preview"]["transmission = file overrides the SSH heuristic"] = function()
   teardown_preview(p, env)
 end
 
+-- Two explorers each showing an image: suspending one must not disturb the other.
+-- kitty.hide_all is deliberately not used for suspension because it unplaces every
+-- image in the process, including images belonging to other explorers.
+T["Preview"]["suspending one owner leaves another owner's placement intact"] = function()
+  stub_terminal()
+  local first, env = setup_preview()
+  local cfg = config.get()
+  local second = Preview.new(cfg.preview)
+  local second_winid, second_buf = open_filer_split(cfg)
+  second:attach({
+    winid = second_winid,
+    kind = "split_left",
+    config = cfg,
+    is_visible = function()
+      return true
+    end,
+  })
+
+  first:show(env.png)
+  helpers.wait_for(1000, function()
+    return count("a=p") >= 1
+  end)
+  second:show(env.png)
+  helpers.wait_for(1000, function()
+    return count("a=p") >= 2
+  end)
+
+  captured = {}
+  first:suspend()
+  -- Exactly one placement is torn down: the suspended owner's.
+  MiniTest.expect.equality(count("d=I"), 1)
+  MiniTest.expect.equality(first.winid, nil)
+  MiniTest.expect.equality(second:_is_suspended(), false)
+  MiniTest.expect.equality(vim.api.nvim_win_is_valid(second.winid), true)
+
+  captured = {}
+  second:close()
+  MiniTest.expect.equality(count("d=I"), 1)
+
+  cleanup({ { win = second_winid, buf = second_buf }, { buf = second.bufnr } })
+  teardown_preview(first, env)
+end
+
 T["Preview"]["switching to a text file frees the image"] = function()
   stub_terminal()
   local p, env = setup_preview()
