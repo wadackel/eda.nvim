@@ -14,6 +14,7 @@ local M = {}
 ---@field prev_node_id integer? nearest extmark-bearing line above (primary anchor)
 ---@field parent_path string from parser (fallback anchor)
 ---@field indent integer depth level (fallback anchor)
+---@field follows_create? boolean
 
 ---Check whether a capture contains any edits.
 ---@param capture eda.EditCapture
@@ -61,7 +62,7 @@ function M.capture(bufnr, painter, store, root_path, indent_width)
       if node_id then
         local idx = index_by_node_id[node_id]
         if idx then
-          local row = header_lines + idx - 1
+          local row = parsed[idx].line_nr or header_lines + idx - 1
           local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
           if line then
             moves[node_id] = line
@@ -79,7 +80,7 @@ function M.capture(bufnr, painter, store, root_path, indent_width)
   -- Collect CREATE entries: parsed lines without node_id
   for i, pl in ipairs(parsed) do
     if not pl.node_id and pl.name ~= "" then
-      local row = header_lines + i - 1
+      local row = pl.line_nr or header_lines + i - 1
       local line = vim.api.nvim_buf_get_lines(bufnr, row, row + 1, false)[1]
       if line then
         -- Find prev_node_id: scan upward for nearest extmark-bearing line
@@ -96,6 +97,7 @@ function M.capture(bufnr, painter, store, root_path, indent_width)
           prev_node_id = prev_node_id,
           parent_path = pl.parent_path,
           indent = pl.indent,
+          follows_create = i > 1 and parsed[i - 1].node_id == nil,
         })
       end
     end
@@ -134,6 +136,12 @@ function M.replay(bufnr, painter, capture, store)
     local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns_id, node_id, {})
     if pos and pos[1] then
       vim.api.nvim_buf_set_lines(bufnr, pos[1], pos[1] + 1, false, { text })
+      -- An invalidated ID would turn the pending rename into a delete and create on save.
+      vim.api.nvim_buf_set_extmark(bufnr, ns_id, pos[1], 0, {
+        id = node_id,
+        right_gravity = true,
+        invalidate = true,
+      })
     end
   end
 
@@ -156,11 +164,12 @@ function M.replay(bufnr, painter, capture, store)
   -- Track insertion offsets per anchor to preserve ordering of consecutive CREATEs
   -- sharing the same prev_node_id (e.g., `o foo`, `o bar` both anchor to file_a)
   local anchor_offsets = {}
+  local previous_create_row
   for _, cr in ipairs(capture.creates) do
-    local insert_row = nil
+    local insert_row = cr.follows_create and previous_create_row and previous_create_row + 1 or nil
 
     -- Primary anchor: prev_node_id
-    if cr.prev_node_id then
+    if not insert_row and cr.prev_node_id then
       local anchor_id = cr.prev_node_id --[[@as integer]]
       local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns_id, anchor_id, {})
       local anchor_row = pos and pos[1]
@@ -214,6 +223,10 @@ function M.replay(bufnr, painter, capture, store)
     if not insert_row and cr.parent_path then
       local parent_node = store:get_by_path(cr.parent_path)
       if parent_node then
+        if parent_node.id == store.root_id then
+          -- Looking up a root ID mark would drop unanchored creates when the header is hidden.
+          insert_row = painter.header_lines or 0
+        end
         local pos = vim.api.nvim_buf_get_extmark_by_id(bufnr, ns_id, parent_node.id, {})
         if pos and pos[1] then
           -- Insert after parent's last visible child
@@ -251,6 +264,7 @@ function M.replay(bufnr, painter, capture, store)
     if insert_row then
       vim.api.nvim_buf_set_lines(bufnr, insert_row, insert_row, false, { cr.text })
     end
+    previous_create_row = insert_row
   end
 
   -- Restore undo levels

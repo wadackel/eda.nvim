@@ -59,7 +59,11 @@ function M.move(src, dst, cb)
   -- Ensure destination parent exists before renaming
   vim.schedule(function()
     local parent = vim.fn.fnamemodify(dst, ":h")
-    vim.fn.mkdir(parent, "p")
+    local ok, parent_err = pcall(vim.fn.mkdir, parent, "p")
+    if not ok then
+      cb("Failed to create destination parent: " .. tostring(parent_err))
+      return
+    end
     vim.uv.fs_rename(src, dst, function(err)
       vim.schedule(function()
         if err then
