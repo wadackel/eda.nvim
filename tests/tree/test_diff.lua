@@ -368,4 +368,29 @@ T["validate rejects duplicate destination from move and create"] = function()
   MiniTest.expect.equality(result.errors[1], "Duplicate destination path: /project/target.lua")
 end
 
+T["validate rejects occupied CREATE paths including aliases and broken links"] = function()
+  local helpers = require("helpers")
+  local dir = helpers.create_temp_dir()
+  local store = Store.new()
+  store:set_root(dir)
+  helpers.create_file(dir .. "/keep.txt", "keep")
+  assert(vim.uv.fs_symlink(dir .. "/missing.txt", dir .. "/broken"))
+  for _, path in ipairs({ dir .. "/keep.txt", dir .. "/./keep.txt", dir .. "/broken", dir }) do
+    local result = Diff.validate({ { type = "create", path = path, entry_type = "file" } }, store)
+    MiniTest.expect.equality(result.valid, false)
+    MiniTest.expect.equality(result.errors[1], "Create destination already exists: " .. path)
+  end
+  helpers.remove_temp_dir(dir)
+end
+
+T["validate rejects equivalent destination spellings"] = function()
+  local store = Store.new()
+  store:set_root("/project")
+  local result = Diff.validate({
+    { type = "create", path = "/project/new.txt", entry_type = "file" },
+    { type = "create", path = "/project/./new.txt", entry_type = "file" },
+  }, store)
+  MiniTest.expect.equality(result.valid, false)
+end
+
 return T

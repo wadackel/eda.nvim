@@ -782,7 +782,10 @@ Collapsed subtrees are excluded from the diff, so files hidden under a
 collapsed directory are safe.
 
 **Create** — Add a new line with a name. Append `/` to create a directory
-instead of a file.
+instead of a file. Existing destinations, including symbolic links, are
+rejected without replacing their contents. If another process creates the
+destination before the operation executes, creation fails and the edit remains
+unsaved.
 
 **Move** — Change the indentation of a line to move it under a different
 parent directory.

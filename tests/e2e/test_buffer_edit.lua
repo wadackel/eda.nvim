@@ -176,4 +176,30 @@ T["buffer edit"]["deletes a directory via dd with confirm dialog"] = function()
   MiniTest.expect.equality(vim.fn.isdirectory(dir_path), 0)
 end
 
+T["buffer edit"]["duplicate filename is rejected without truncating content"] = function()
+  e2e.exec(
+    child,
+    [[
+    local cfg = require("eda.config")
+    cfg.get().confirm = cfg._normalize_confirm(true)
+    vim.notify = function(message) vim.g.create_error = message end
+    vim.g.completed_creates = 0
+    vim.api.nvim_create_autocmd("User", {
+      pattern = "EdaMutationPost",
+      callback = function(ev) vim.g.completed_creates = #ev.data.results.completed end,
+    })
+  ]]
+  )
+  e2e.open_eda(child, tmp)
+  e2e.exec(child, "vim.api.nvim_win_set_cursor(0, {1, 0})")
+  e2e.feed(child, "o")
+  e2e.feed_insert(child, "hello.txt")
+  e2e.feed(child, ":w<CR>")
+  e2e.wait_until(child, "vim.g.create_error ~= nil")
+  MiniTest.expect.equality(vim.fn.readfile(tmp .. "/hello.txt"), { "hello" })
+  MiniTest.expect.equality(e2e.exec(child, "return vim.bo.modified"), true)
+  MiniTest.expect.equality(e2e.exec(child, "return vim.g.completed_creates"), 0)
+  MiniTest.expect.equality(e2e.exec(child, 'return vim.g.create_error:find("already exists", 1, true) ~= nil'), true)
+end
+
 return T

@@ -5,40 +5,36 @@ local M = {}
 ---@param is_dir boolean
 ---@param cb fun(err?: string)
 function M.create(path, is_dir, cb)
-  if is_dir then
-    vim.uv.fs_mkdir(path, 493, function(err) -- 0755
-      if err then
-        -- Try mkdir -p equivalent
-        vim.schedule(function()
-          local ok = vim.fn.mkdir(path, "p")
-          cb(ok == 0 and ("Failed to create directory: " .. path) or nil)
-        end)
-      else
-        vim.schedule(function()
-          cb()
-        end)
-      end
-    end)
-  else
-    -- Ensure parent directory exists
+  vim.schedule(function()
     local parent = vim.fn.fnamemodify(path, ":h")
-    vim.schedule(function()
-      vim.fn.mkdir(parent, "p")
-      vim.uv.fs_open(path, "w", 420, function(err, fd) -- 0644
+    local ok, parent_err = pcall(vim.fn.mkdir, parent, "p")
+    if not ok then
+      cb("Failed to create parent directory: " .. tostring(parent_err))
+      return
+    end
+    if is_dir then
+      vim.uv.fs_mkdir(path, 493, function(err)
+        vim.schedule(function()
+          cb(err and ("Failed to create directory: " .. err) or nil)
+        end)
+      end)
+    else
+      -- A preflight check cannot prevent another writer from creating the path before open.
+      vim.uv.fs_open(path, "wx", 420, function(err, fd)
         if err then
           vim.schedule(function()
             cb("Failed to create file: " .. err)
           end)
           return
         end
-        vim.uv.fs_close(fd, function()
+        vim.uv.fs_close(fd, function(close_err)
           vim.schedule(function()
-            cb()
+            cb(close_err and ("Failed to close created file: " .. close_err) or nil)
           end)
         end)
       end)
-    end)
-  end
+    end
+  end)
 end
 
 ---Delete a file or directory recursively.

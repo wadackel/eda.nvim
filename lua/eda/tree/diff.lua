@@ -1,3 +1,5 @@
+local util = require("eda.util")
+
 local M = {}
 
 ---@class eda.Operation
@@ -101,6 +103,8 @@ function M.validate(operations, _store)
       elseif op.src == op.dst then
         table.insert(errors, "Move operation has same src and dst: " .. op.src)
       end
+    elseif op.type == "create" and vim.uv.fs_lstat(op.path) then
+      table.insert(errors, "Create destination already exists: " .. op.path)
     end
   end
 
@@ -114,10 +118,11 @@ function M.validate(operations, _store)
       dst = op.path
     end
     if dst then
-      if dst_paths[dst] then
+      local key = util.nfc_normalize(vim.fs.normalize(dst))
+      if dst_paths[key] then
         table.insert(errors, "Duplicate destination path: " .. dst)
       end
-      dst_paths[dst] = true
+      dst_paths[key] = true
     end
   end
 
