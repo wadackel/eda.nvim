@@ -19,6 +19,143 @@ local M = {}
 
 local next_instance_id = 0
 
+-- `WinResized` misses a pure move (`wincmd r` emits no autocmd), so the decoration
+-- provider's `on_win` is the authoritative signal for following the owner window.
+-- One provider for the module, not one per Preview: the cost stays flat in the number
+-- of explorers and there is a single teardown path. It stays registered while any
+-- replace explorer exists rather than while a preview window is open, because a
+-- size-suspended preview has no window and would lose the signal that revives it.
+-- The enabled state is not part of the condition either: it changes on a toggle, and
+-- the only re-sync points are opening and closing an explorer.
+local geometry_ns = vim.api.nvim_create_namespace("")
+local geometry_registered = false
+local geometry_augroup = nil
+
+---@param winid integer
+---@return string
+local function owner_signature(winid)
+  local pos = vim.api.nvim_win_get_position(winid)
+  return table.concat({
+    pos[1],
+    pos[2],
+    vim.api.nvim_win_get_width(winid),
+    vim.api.nvim_win_get_height(winid),
+    -- `getwininfo().winbar` agrees with this for a normal window, global winbar
+    -- included, but costs three times as much and this runs on every redraw.
+    vim.wo[winid].winbar ~= "" and 1 or 0,
+  }, ",")
+end
+
+---@param bufnr integer
+---@return eda.Explorer?
+local function replace_explorer_for_buf(bufnr)
+  for _, inst in ipairs(M._instances) do
+    if inst.window.kind == "replace" and inst.buffer.bufnr == bufnr then
+      return inst
+    end
+  end
+  return nil
+end
+
+---Bring one explorer's overlay back in line with its owner.
+---@param explorer eda.Explorer
+local function follow_owner(explorer)
+  if not explorer.window:is_visible() then
+    return
+  end
+  if util.is_valid_win(explorer.preview.winid) then
+    explorer.preview:reposition()
+  else
+    explorer.preview:try_resume()
+  end
+end
+
+---Whether the overlay must step aside for what the user is doing. Matched against
+---`mode(1)` rather than a `ModeChanged` pattern: `i:*`-style patterns fire when a mode
+---is left rather than entered, `gR` reports `Rv` which no `R` pattern matches, and
+---pattern matching follows filename case rules, so `*:v` and `*:V` collapse into one
+---on a case-insensitive filesystem.
+---@param mode string
+---@return boolean
+local function mode_hides_overlay(mode)
+  -- `^ni` covers the i_CTRL-O pending modes (niI / niR / niV), which are still
+  -- text input even though they report a leading "n".
+  return mode:match("^[iRvV\22sS\19]") ~= nil or mode:match("^ni") ~= nil
+end
+
+local function geometry_watch_needed()
+  for _, inst in ipairs(M._instances) do
+    if inst.window.kind == "replace" then
+      return true
+    end
+  end
+  return false
+end
+
+---Register or release the shared geometry watcher to match the current instances.
+local function sync_geometry_watcher()
+  local needed = geometry_watch_needed()
+
+  if needed and not geometry_registered then
+    geometry_registered = true
+    vim.api.nvim_set_decoration_provider(geometry_ns, {
+      on_win = function(_, winid, bufnr)
+        local explorer = replace_explorer_for_buf(bufnr)
+        if not explorer or winid ~= explorer.window.winid then
+          return false
+        end
+        local signature = owner_signature(winid)
+        if explorer._owner_signature == signature then
+          return false
+        end
+        explorer._owner_signature = signature
+        -- Reconfiguring a window from inside a redraw is not allowed.
+        vim.schedule(function()
+          follow_owner(explorer)
+        end)
+        return false
+      end,
+    })
+
+    geometry_augroup = vim.api.nvim_create_augroup("eda_geometry", { clear = true })
+    vim.api.nvim_create_autocmd("WinResized", {
+      group = geometry_augroup,
+      callback = function()
+        for _, inst in ipairs(M._instances) do
+          if inst.window.kind == "replace" then
+            follow_owner(inst)
+          end
+        end
+      end,
+    })
+    vim.api.nvim_create_autocmd("ModeChanged", {
+      group = geometry_augroup,
+      pattern = "*:*",
+      callback = function()
+        -- Matching on the current buffer, not just the window: a replace window
+        -- survives its explorer buffer being swapped out, and window identity alone
+        -- would match an explorer the user has already navigated away from.
+        local explorer = replace_explorer_for_buf(vim.api.nvim_get_current_buf())
+        if not explorer or explorer.window.winid ~= vim.api.nvim_get_current_win() then
+          return
+        end
+        if mode_hides_overlay(vim.fn.mode(1)) then
+          explorer.preview:suspend()
+        else
+          explorer.preview:resume()
+        end
+      end,
+    })
+  elseif not needed and geometry_registered then
+    vim.api.nvim_set_decoration_provider(geometry_ns, {})
+    geometry_registered = false
+    if geometry_augroup then
+      vim.api.nvim_del_augroup_by_id(geometry_augroup)
+      geometry_augroup = nil
+    end
+  end
+end
+
 ---@class eda.Explorer
 ---@field instance_id integer
 ---@field is_split boolean
@@ -41,6 +178,7 @@ local next_instance_id = 0
 ---@field _empty_state_rendered? boolean
 ---@field _no_repo_notified? boolean
 ---@field _initial_scan_complete boolean
+---@field _owner_signature? string  Cached owner geometry for the replace overlay watcher
 ---@field _pending_dispatch? { name: string, ctx: eda.ActionContext }
 ---@field _writing? boolean
 
@@ -545,6 +683,7 @@ function M.open(opts)
   explorer.refresh = Refresh.new(explorer)
   M._current = explorer
   table.insert(M._instances, explorer)
+  sync_geometry_watcher()
 
   -- Track current explorer on buffer focus
   vim.api.nvim_create_autocmd("BufEnter", {
@@ -864,7 +1003,9 @@ function M.open(opts)
 
   -- Open window
   window:open(buffer.bufnr)
-  preview:attach(window, { store = store, scanner = scanner, decorator_chain = chain })
+  preview:attach(window, { store = store, scanner = scanner, decorator_chain = chain }, function()
+    return buffer:get_cursor_node(window.winid)
+  end)
 
   -- Register WinClosed handler for float windows
   if kind == "float" then
@@ -881,6 +1022,25 @@ function M.open(opts)
 
   -- Setup VimResized for repositioning float windows
   local resize_augroup = vim.api.nvim_create_augroup("eda_resize_" .. buffer.bufnr, { clear = true })
+  if kind == "replace" then
+    -- A replace explorer shares its window with whatever the user opens next, so the
+    -- window staying valid is no signal at all: `select` swaps the buffer underneath a
+    -- still-open overlay. BufWinLeave is the event that actually reports that.
+    vim.api.nvim_create_autocmd("BufWinLeave", {
+      group = resize_augroup,
+      buffer = buffer.bufnr,
+      callback = function()
+        preview:close()
+      end,
+    })
+    vim.api.nvim_create_autocmd("WinClosed", {
+      group = resize_augroup,
+      pattern = tostring(window.winid),
+      callback = function()
+        preview:close()
+      end,
+    })
+  end
   vim.api.nvim_create_autocmd("VimResized", {
     group = resize_augroup,
     callback = function()
@@ -1235,7 +1395,9 @@ function M._change_root(explorer, new_path, opts)
     store = new_store,
     scanner = new_scanner,
     decorator_chain = explorer.decorator_chain,
-  })
+  }, function()
+    return explorer.buffer:get_cursor_node(explorer.window.winid)
+  end)
 
   -- Update buffer name for uniqueness
   local buf_name = "eda://" .. new_path
@@ -1397,11 +1559,12 @@ function M.close()
 
   current.preview:close()
   current.full_name:destroy()
-  pcall(vim.api.nvim_del_augroup_by_name, "eda_preview_" .. current.buffer.bufnr)
+  pcall(vim.api.nvim_del_augroup_by_name, "eda_resize_" .. current.buffer.bufnr)
   current.refresh:reset()
   current.watcher:unwatch_all()
   current.buffer:destroy()
   current.window:close()
+  sync_geometry_watcher()
   fire_event("EdaTreeClose")
 end
 
@@ -1523,5 +1686,8 @@ function M.open_replace(explorer)
     vim.notify("eda: failed to reopen in replace mode: " .. tostring(err), vim.log.levels.ERROR)
   end
 end
+
+-- Exported for testing
+M._mode_hides_overlay = mode_hides_overlay
 
 return M

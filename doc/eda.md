@@ -458,7 +458,11 @@ the explorer remains usable. Refresh (`<C-l>`) retries status detection.
 `table`
 
 - `enabled` `boolean` (default: `false`)
-  Enable the file preview pane.
+  Whether the preview pane starts enabled. Each explorer keeps its own toggle
+  state, seeded from this value when the explorer opens. `toggle_preview` in one
+  explorer therefore leaves every other explorer alone, and a newly opened
+  explorer always starts from this configured value rather than inheriting the
+  last toggle. This setting is not rewritten at runtime.
 
 - `debounce` `integer` (default: `100`)
   Debounce time in milliseconds before updating the preview.
@@ -562,6 +566,46 @@ Known limitations of image preview:
   on every attach, so among several attached clients the last one decides.
   With a local and an SSH client attached at the same time, images may stay
   blank on one of them; set `transmission = "direct"` to serve both.
+
+#### Preview placement per window kind
+
+In `float`, `split_left`, and `split_right` layouts the preview occupies its own
+area beside the tree.
+
+In the `replace` layout — used by `:edit <directory>` with `hijack_netrw`, by an
+explicit `kind = "replace"`, by `open_replace`, and by the split actions — the
+explorer occupies an ordinary window, so the preview is drawn as a floating
+overlay across the right-hand part of that same window. No split is created, the
+explorer window is not converted into a float, and neighbouring windows keep
+their sizes and positions. The tree keeps its real window width; the overlay
+simply covers part of it. The proportions match the float layout: roughly 35% of
+the window is left uncovered for the tree, with a minimum of 20 columns.
+
+Two `replace` explorers can therefore sit side by side with a preview open in
+each, which is convenient for comparing directories or copying files between
+them.
+
+#### Temporary suspension
+
+A `replace` overlay hides itself while it would get in the way, and comes back on
+its own. The explorer's enabled state is never changed by this, so the preview
+returns without the user toggling anything.
+
+- **Text input and selection.** Entering Insert, Replace, Visual, or Select mode
+  (including their variants) hides that explorer's overlay so it cannot cover
+  what is being typed or selected. Returning to Normal mode restores it for the
+  cursor's current target. A mode change in one explorer never affects another.
+- **Insufficient space.** An overlay that no longer fits — fewer than 10 content
+  columns or 3 content rows once the tree's minimum width and the border are
+  accounted for — is hidden until the window grows again. It returns
+  automatically, including while a different explorer holds focus.
+
+Conditions compose: widening a window that is still in Insert mode does not
+reveal the overlay until Normal mode returns.
+
+An overlay is removed outright, rather than suspended, when its explorer window
+closes or stops displaying the explorer buffer — for example after opening a
+file with `select` in the same window.
 
 ### full_name
 
@@ -979,7 +1023,9 @@ success (partial failures keep the marks for the failed/unattempted entries).
   ancestors are scanned and expanded automatically so the jump succeeds.
 - **prev_git_change** — Jump to the previous git-changed file (reverse of
   `next_git_change`).
-- **toggle_preview** — Toggle the file preview pane.
+- **toggle_preview** — Toggle the file preview pane for the current explorer
+  only. Other explorers keep their own state, and the `preview.enabled` setting
+  is left unchanged.
   *No default mapping.*
 - **preview_scroll_down** — Scroll the preview window down by half a page.
   When preview is not visible, falls back to Neovim default `<C-f>`.

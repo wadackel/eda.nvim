@@ -7,6 +7,8 @@ local util = require("eda.util")
 ---@field bufnr integer?
 ---@field config eda.PreviewConfig
 ---@field enabled boolean  Runtime toggle state; seeded from config but never written back
+---@field _suspended boolean  Temporarily withheld while the user types or selects
+---@field _target? fun(): eda.TreeNode?  Resolves the explorer's current preview target
 ---@field window eda.Window?
 ---@field store eda.Store?
 ---@field scanner eda.Scanner?
@@ -45,6 +47,8 @@ function Preview.new(config)
     _request_id = 0,
     _pending_target = nil,
     _current_target = nil,
+    _suspended = false,
+    _target = nil,
   }, Preview)
 end
 
@@ -62,16 +66,65 @@ function Preview:set_enabled(value)
   self.enabled = value and true or false
 end
 
+---Whether presentation is temporarily withheld. Distinct from `enabled`, which is
+---the user's toggle: a suspended preview comes back on its own, a disabled one does not.
+---@return boolean
+function Preview:_is_suspended()
+  return self._suspended
+end
+
+---Withhold presentation and tear down what is on screen. The teardown runs through
+---`close()`, so outstanding reads, scans, and image conversions are rejected by the
+---existing request guard rather than merely hidden. Running out of room is deliberately
+---not routed through here: `_present` re-decides that from the layout on every attempt,
+---so it needs no explicit release.
+function Preview:suspend()
+  if self._suspended then
+    return
+  end
+  self._suspended = true
+  self:close()
+end
+
+---Allow presentation again and bring the preview back if it still fits.
+function Preview:resume()
+  if not self._suspended then
+    return
+  end
+  self._suspended = false
+  self:try_resume()
+end
+
+---Re-present the current target if nothing is withholding the preview any more.
+---Retrying is skipped while a preview is already on screen.
+function Preview:try_resume()
+  if not self:is_enabled() or self:_is_suspended() then
+    return
+  end
+  if not self.window or not self.window:is_visible() then
+    return
+  end
+  if util.is_valid_win(self.winid) then
+    return
+  end
+  self:update(self._target and self._target() or nil)
+end
+
 ---Attach the filer window and (optionally) tree dependencies for directory preview.
 ---When `deps` is omitted, only file preview is supported.
 ---@param window eda.Window
 ---@param deps? { store: eda.Store, scanner: eda.Scanner, decorator_chain: eda.DecoratorChain }
-function Preview:attach(window, deps)
+---@param target? fun(): eda.TreeNode? resolves the current target when the preview returns
+function Preview:attach(window, deps, target)
   self:close()
+  -- Reset after close(): a stale suspension would leave the reattached preview
+  -- invisible with no user-reachable recovery.
+  self._suspended = false
   self.window = window
   self.store = deps and deps.store or nil
   self.scanner = deps and deps.scanner or nil
   self.decorator_chain = deps and deps.decorator_chain or nil
+  self._target = target or self._target
 end
 
 ---@param target integer|string?
@@ -89,7 +142,10 @@ end
 ---@param request_id integer
 ---@return boolean
 function Preview:_is_current(target, request_id)
-  return self:is_enabled() and self._pending_target == target and self._request_id == request_id
+  return self:is_enabled()
+    and not self:_is_suspended()
+    and self._pending_target == target
+    and self._request_id == request_id
 end
 
 ---Check if a file is binary (contains NUL byte in first 512 bytes).
@@ -141,7 +197,7 @@ end
 ---Show preview for a file.
 ---@param path string
 function Preview:show(path)
-  if not self:is_enabled() then
+  if not self:is_enabled() or self:_is_suspended() then
     self:close()
     return
   end
@@ -285,7 +341,7 @@ end
 ---Show a directory preview using eda's tree-render style.
 ---@param node eda.TreeNode
 function Preview:show_directory(node)
-  if not self:is_enabled() then
+  if not self:is_enabled() or self:_is_suspended() then
     self:close()
     return
   end
@@ -456,7 +512,7 @@ end
 ---tree-render path and files to the byte-content path.
 ---@param node eda.TreeNode?
 function Preview:update(node)
-  if not self:is_enabled() then
+  if not self:is_enabled() or self:_is_suspended() then
     self:close()
     return
   end

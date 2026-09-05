@@ -238,6 +238,21 @@ function Window:get_target_winid()
   return nil
 end
 
+---Build the preview float descriptor from the geometry a layout branch computed.
+---@param config eda.Config
+---@param geom { width: integer, height: integer, row: integer, col: integer }
+---@return table
+local function preview_win(config, geom)
+  return vim.tbl_extend("error", geom, {
+    relative = "editor",
+    border = config.window.border,
+    style = "minimal",
+    focusable = false,
+    mouse = true,
+    zindex = 51,
+  })
+end
+
 ---@class eda.PreviewLayout
 ---@field preview table
 ---@field filer? table
@@ -249,7 +264,34 @@ end
 ---@return eda.PreviewLayout?
 local function compute_preview_layout(filer_kind, filer_winid, config)
   if filer_kind == "replace" then
-    return nil
+    local filer_pos = vim.api.nvim_win_get_position(filer_winid)
+    local filer_width = vim.api.nvim_win_get_width(filer_winid)
+    -- nvim_win_get_height counts the winbar row, and nvim_win_get_position reports it,
+    -- so an overlay sized from those directly would paint over the owner's status line.
+    local winbar_height = vim.fn.getwininfo(filer_winid)[1].winbar or 0
+    local text_height = vim.api.nvim_win_get_height(filer_winid) - winbar_height
+
+    local tree_width = math.max(math.floor(filer_width * 0.35), MIN_FILER_WIDTH)
+    -- Two cells are reserved on each axis whatever the border is. Deriving the reserve
+    -- from the border style would let "shadow" (which grows one cell right and down)
+    -- spill past the owner, and the float layout already reserves a fixed two.
+    local preview_width = filer_width - tree_width - 2
+    local preview_height = text_height - 2
+
+    if preview_width < MIN_PREVIEW_WIDTH or preview_height < MIN_PREVIEW_HEIGHT then
+      return nil
+    end
+
+    -- The tree keeps its real window width; the preview floats over its right-hand part,
+    -- so no `filer` entry is returned and no existing split is resized.
+    return {
+      preview = preview_win(config, {
+        width = preview_width,
+        height = preview_height,
+        row = filer_pos[1] + winbar_height,
+        col = filer_pos[2] + tree_width,
+      }),
+    }
   end
 
   if filer_kind == "split_left" or filer_kind == "split_right" then
@@ -271,18 +313,12 @@ local function compute_preview_layout(filer_kind, filer_winid, config)
     end
 
     return {
-      preview = {
-        relative = "editor",
+      preview = preview_win(config, {
         width = preview_width,
         height = filer_height,
         row = filer_pos[1],
         col = preview_col,
-        border = config.window.border,
-        style = "minimal",
-        focusable = false,
-        mouse = true,
-        zindex = 51,
-      },
+      }),
     }
   end
 
@@ -296,18 +332,12 @@ local function compute_preview_layout(filer_kind, filer_winid, config)
     end
 
     return {
-      preview = {
-        relative = "editor",
+      preview = preview_win(config, {
         width = preview_width,
         height = orig.height,
         row = orig.row,
         col = orig.col + filer_width + 2,
-        border = config.window.border,
-        style = "minimal",
-        focusable = false,
-        mouse = true,
-        zindex = 51,
-      },
+      }),
       filer = {
         relative = "editor",
         width = filer_width,
