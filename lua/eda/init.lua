@@ -589,6 +589,11 @@ function M.open(opts)
       end
     end
 
+    if cfg_now.show_only_git_changes and git.get_status_ready(rp) == "error" then
+      cfg_now.show_only_git_changes = false
+      vim.notify("eda: git status unavailable, git changes filter disabled", vim.log.levels.WARN)
+    end
+
     -- Empty-state branch: "Git status loading..." when filter is on but status not yet ready
     -- (either still loading after git.status() was invoked, or not yet invoked = nil).
     -- Excludes "ready" and "no_repo" states.

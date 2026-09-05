@@ -266,3 +266,62 @@ materialization; this change does not make every scan stage asynchronous.
 Normal-file scans remain in the same range. The synthetic case demonstrates
 that metadata latency no longer becomes an equally long main-loop stall;
 its speedup is specific to the injected delay and bounded overlapping work.
+
+## Git status during a burst of saves
+
+`git-burst.lua` opens three real explorer splits over a 1,000-file Git fixture.
+Each burst writes 25 loaded buffers through normal Neovim `:write` commands;
+filesystem watchers trigger refresh without explicit refresh calls. Git status
+uses real subprocesses. One warmup burst precedes five measured bursts.
+
+Create a disposable fixture once (the workload rewrites files 1 through 25):
+
+```sh
+export EDA_BENCH_DIR="$(mktemp -d)"
+python3 - <<'PYTHON'
+import os
+import subprocess
+from pathlib import Path
+root = Path(os.environ["EDA_BENCH_DIR"])
+for index in range(1000):
+    (root / f"file-{index:04d}.txt").write_text("tracked\n")
+subprocess.run(["git", "init", str(root)], check=True)
+subprocess.run(["git", "-C", str(root), "add", "."], check=True)
+subprocess.run(["git", "-C", str(root), "-c", "user.name=Benchmark",
+                "-c", "user.email=benchmark@example.invalid", "-c", "commit.gpgsign=false",
+                "commit", "-m", "fixture"], check=True)
+PYTHON
+EDA_BENCH_OUTPUT=/tmp/eda-git-burst.json \
+  nvim --headless -l benchmarks/git-burst.lua
+```
+
+The output records logical status requests, settled callbacks, process launches,
+peak concurrent processes, time spent saving, and time from the last save to the
+last status callback. It verifies that all 25 saved paths have modified status.
+A 100 ms quiet period checks settlement but is excluded from the recorded times.
+These are headless watcher/status measurements, not terminal display latency.
+
+### Recorded Git request coordination comparison
+
+Measured sequentially on macOS arm64 with Neovim 0.12.5, comparing `d48272a`
+with per-repository request coordination on the same fixture and workload.
+All five bursts issued three requests and settled all three callbacks.
+
+| Metric per burst | Before | After |
+| --- | ---: | ---: |
+| Status processes | 3 in every sample | 2, 2, 2, 2, 3 |
+| Peak concurrent status processes | 3 in every sample | 1 in every sample |
+| Save duration, ms | 121.225 ± 3.975 | 120.760 ± 1.597 |
+| Last save to last status callback, ms | 161.749 ± 4.498 | 178.652 ± 3.156 |
+| First save to last status callback, ms | 282.974 ± 6.281 | 299.412 ± 3.607 |
+
+Times are means ± sample standard deviations across five bursts. Process
+coordination reduced overlapping work, but this workload's completion latency
+increased by about 17 ms. Requests arriving after a process starts share a fresh
+follow-up round: later writes cannot safely rely on a command that may already
+have read the worktree. Watcher timing can place a third request after that
+follow-up starts, producing three sequential commands, as in the last sample.
+There is no fixed total-process bound for a continuing stream of writes; the
+bound is one active command and one queued round per repository. The fixture's
+local filesystem and small Git workload do not establish network-filesystem or
+large-repository latency improvements.

@@ -1175,4 +1175,185 @@ T["git"]["git status refreshes after renaming a file via buffer edit"] = functio
   )
 end
 
+T["git"]["initial status failure releases the changes filter and can recover"] = function()
+  e2e.exec(
+    child,
+    [[
+    _G.original_system = vim.system
+    _G.git_warnings = {}
+    vim.notify = function(message) _G.git_warnings[#_G.git_warnings + 1] = message end
+    vim.system = function(command, opts, callback)
+      if vim.tbl_contains(command, "status") then
+        vim.schedule(function() callback({ code = 128, stdout = "", stderr = "failed" }) end)
+        return { kill = function() end }
+      end
+      return _G.original_system(command, opts, callback)
+    end
+    require("eda").setup({ git = { enabled = true }, icon = { provider = "none" },
+      window = { kind = "split_left" }, header = false, show_only_git_changes = true })
+  ]]
+  )
+  e2e.open_eda(child, tmp)
+  e2e.wait_until(
+    child,
+    string.format(
+      [[
+    return require("eda.git").get_status_ready(%q) == "error"
+      and not require("eda.config").get().show_only_git_changes
+  ]],
+      tmp
+    )
+  )
+  MiniTest.expect.equality(
+    e2e.exec(
+      child,
+      [[
+    local text = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+    return text:find("tracked.txt", 1, true) ~= nil and text:find("loading", 1, true) == nil
+  ]]
+    ),
+    true
+  )
+  MiniTest.expect.equality(
+    e2e.exec(
+      child,
+      [[
+    local count = 0
+    for _, message in ipairs(_G.git_warnings) do
+      if message:find("git changes filter disabled", 1, true) then count = count + 1 end
+    end
+    return count
+  ]]
+    ),
+    1
+  )
+  e2e.exec(child, [[vim.system = _G.original_system; require("eda").refresh_all()]])
+  e2e.wait_until(child, string.format([[require("eda.git").get_status_ready(%q) == "ready"]], tmp))
+end
+
+T["git"]["refresh failure keeps the previous changes visible"] = function()
+  e2e.create_file(tmp .. "/untracked.txt", "untracked")
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({ git = { enabled = true }, icon = { provider = "none" },
+      window = { kind = "split_left" }, header = false, show_only_git_changes = true })
+  ]]
+  )
+  e2e.open_eda(child, tmp)
+  e2e.wait_until(child, string.format([[require("eda.git").get_status_ready(%q) == "ready"]], tmp))
+  e2e.wait_until(
+    child,
+    [[table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n"):find("untracked.txt", 1, true) ~= nil]]
+  )
+  e2e.exec(
+    child,
+    [[
+    local system = vim.system
+    vim.system = function(command, opts, callback)
+      if vim.tbl_contains(command, "status") then
+        _G.complete_status = callback
+        return { kill = function() end }
+      end
+      return system(command, opts, callback)
+    end
+    require("eda").refresh_all()
+  ]]
+  )
+  e2e.wait_until(child, "_G.complete_status ~= nil")
+  MiniTest.expect.equality(
+    e2e.exec(child, string.format([[return require("eda.git").get_status_ready(%q)]], tmp)),
+    "ready"
+  )
+  MiniTest.expect.equality(
+    e2e.exec(
+      child,
+      [[
+    return table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n"):find("untracked.txt", 1, true) ~= nil
+  ]]
+    ),
+    true
+  )
+  e2e.exec(
+    child,
+    [[
+    _G.complete_status({ code = 128, stdout = "", stderr = "failed" })
+    vim.schedule(function() vim.schedule(function() _G.failed_refresh_done = true end) end)
+  ]]
+  )
+  e2e.wait_until(child, "_G.failed_refresh_done == true")
+  MiniTest.expect.equality(
+    e2e.exec(
+      child,
+      [[
+    local text = table.concat(vim.api.nvim_buf_get_lines(0, 0, -1, false), "\n")
+    return require("eda.config").get().show_only_git_changes
+      and text:find("untracked.txt", 1, true) ~= nil and text:find("loading", 1, true) == nil
+  ]]
+    ),
+    true
+  )
+end
+T["git"]["old-root status completion cannot disturb the new root"] = function()
+  local nested = tmp .. "/nested"
+  e2e.create_file(nested .. "/new.txt", "new")
+  e2e.create_git_repo(nested)
+  e2e.exec(
+    child,
+    [[
+    local system = vim.system
+    _G.git_jobs = {}
+    vim.system = function(command, opts, callback)
+      if vim.tbl_contains(command, "status") then
+        for i, arg in ipairs(command) do
+          if arg == "-C" then
+            local root = command[i + 1]
+            _G.git_jobs[root] = callback
+          end
+        end
+        return { kill = function() end }
+      end
+      return system(command, opts, callback)
+    end
+    require("eda").setup({ git = { enabled = true }, icon = { provider = "none" },
+      window = { kind = "split_left" }, header = false, show_only_git_changes = true })
+  ]]
+  )
+  e2e.open_eda(child, tmp)
+  e2e.wait_until(child, string.format("_G.git_jobs[%q] ~= nil", tmp))
+  e2e.exec(child, string.format([[require("eda")._change_root(require("eda").get_current(), %q)]], nested))
+  e2e.wait_until(child, string.format("_G.git_jobs[%q] ~= nil", nested))
+  e2e.exec(child, string.format([[_G.git_jobs[%q]({ code = 0, stdout = " M new.txt\0" })]], nested))
+  e2e.wait_until(child, string.format([[require("eda.git").get_status_ready(%q) == "ready"]], nested))
+  e2e.wait_for_path_in_snapshot(child, nested .. "/new.txt")
+  e2e.exec(
+    child,
+    string.format(
+      [[
+    _G.git_jobs[%q]({ code = 128, stdout = "" })
+    vim.schedule(function() vim.schedule(function() _G.old_root_done = true end) end)
+  ]],
+      tmp
+    )
+  )
+  e2e.wait_until(child, "_G.old_root_done == true")
+  MiniTest.expect.equality(
+    e2e.exec(
+      child,
+      string.format(
+        [[
+    local ex = require("eda").get_current()
+    local text = table.concat(vim.api.nvim_buf_get_lines(ex.buffer.bufnr, 0, -1, false), "\n")
+    return ex.root_path == %q and require("eda.config").get().show_only_git_changes
+      and require("eda.git").get_cached(%q)[%q] == "M"
+      and text:find("new.txt", 1, true) ~= nil and text:find("loading", 1, true) == nil
+  ]],
+        nested,
+        nested,
+        nested .. "/new.txt"
+      )
+    ),
+    true
+  )
+end
 return T
