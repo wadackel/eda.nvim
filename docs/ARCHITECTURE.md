@@ -18,7 +18,11 @@ Collapsed (hidden) nodes are excluded from the diff on `:w`, preventing accident
 
 ### Progressive Async Rendering
 
-All filesystem scanning is fully asynchronous via `vim.uv`. The target file's ancestor chain is scanned first, so the relevant portion of the tree appears immediately. Remaining directories load progressively in the background.
+Directory enumeration uses asynchronous `vim.uv` calls in 64-entry batches. Retained symlinks are resolved asynchronously with at most 32 metadata chains active per scanner across all directories; each chain resolves the real path and, when `follow_symlinks` is enabled, stats the target. Ordinary files require no per-entry metadata request. The existing 32-scan limit remains held through metadata completion, so callers and refresh guards observe a complete scan.
+
+Filtering and preparing entries, reconciling store nodes, sorting, and render preparation/painting still run synchronously on Neovim's main loop. Symlink metadata completes before the directory's children are committed; completion order does not determine display order. Root changes and buffer disposal stop queued work and settle scan callbacks, while already submitted metadata requests drain without committing their results. Node identity, path, root identity, and scan generation are checked before committing.
+
+The target file's ancestor chain is scanned before the initial render. Cached open directories and explicitly requested descendants may require further asynchronous scans.
 
 Directory expand/collapse — the hot path for re-render — is applied incrementally: only the affected line range is replaced via `nvim_buf_set_lines`. Other changes fall back to a full repaint.
 

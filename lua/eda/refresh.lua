@@ -12,6 +12,7 @@ local git = require("eda.git")
 ---@field paths table<string, boolean>
 ---@field full boolean
 ---@field _scheduled boolean
+---@field _scanner eda.Scanner?
 local Refresh = {}
 Refresh.__index = Refresh
 
@@ -42,6 +43,7 @@ function Refresh.new(explorer)
     buffer = explorer.buffer.bufnr,
     callback = function()
       self:reset()
+      explorer.scanner:dispose()
       explorer.watcher:unwatch_all()
       vim.api.nvim_del_autocmd(option_event)
     end,
@@ -56,6 +58,11 @@ function Refresh:reset()
   self.paths = {}
   self.full = false
   self._scheduled = false
+  local scanner = self._scanner
+  self._scanner = nil
+  if scanner then
+    scanner:dispose()
+  end
 end
 
 ---@param path string
@@ -183,6 +190,7 @@ function Refresh:flush()
   candidate:set_root(ex.root_path)
   local cfg = config.get()
   local scanner = Scanner.new(candidate, cfg)
+  self._scanner = scanner
   local roots = {}
 
   local function commit()
@@ -190,6 +198,7 @@ function Refresh:flush()
       return
     end
     self.running = false
+    self._scanner = nil
     if ex.generation ~= generation or not util.is_valid_buf(bufnr) then
       return
     end

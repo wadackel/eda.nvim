@@ -904,7 +904,7 @@ function M.open(opts)
   -- Scan, fetch git status, and render
   local function on_initial_scan_complete()
     vim.schedule(function()
-      if not util.is_valid_buf(buffer.bufnr) then
+      if explorer.scanner ~= scanner or not util.is_valid_buf(buffer.bufnr) then
         return
       end
 
@@ -919,7 +919,7 @@ function M.open(opts)
           if resolved then
             scanner:scan_ancestors(resolved, function()
               vim.schedule(function()
-                if not util.is_valid_buf(buffer.bufnr) then
+                if explorer.scanner ~= scanner or not util.is_valid_buf(buffer.bufnr) then
                   return
                 end
                 local resolved_node = store:get_by_path(resolved)
@@ -952,7 +952,7 @@ function M.open(opts)
         -- Phase 2: Iteratively scan open+unloaded directories
         scanner:scan_open_unloaded(cached.open_dirs, function()
           vim.schedule(function()
-            if not util.is_valid_buf(buffer.bufnr) then
+            if explorer.scanner ~= scanner or not util.is_valid_buf(buffer.bufnr) then
               return
             end
             -- Restore cursor position from cache if no target_path
@@ -972,7 +972,7 @@ function M.open(opts)
       if expand_path then
         scanner:scan_ancestors(expand_path, function()
           vim.schedule(function()
-            if not util.is_valid_buf(buffer.bufnr) then
+            if explorer.scanner ~= scanner or not util.is_valid_buf(buffer.bufnr) then
               return
             end
             local ep_node = store:get_by_path(expand_path)
@@ -1001,7 +1001,7 @@ function M.open(opts)
       -- Fetch git status after initial render
       if cfg.git.enabled then
         git.status(root_path, function(_status)
-          if not util.is_valid_buf(buffer.bufnr) then
+          if explorer.scanner ~= scanner or not util.is_valid_buf(buffer.bufnr) then
             return
           end
           -- Always re-render after git.status resolves (ready/no_repo/error) so
@@ -1206,6 +1206,7 @@ function M._change_root(explorer, new_path, opts)
   -- Increment generation to invalidate stale callbacks
   explorer.generation = explorer.generation + 1
   explorer.refresh:reset()
+  explorer.scanner:dispose()
 
   -- Reset the pre-render dispatch gate: after a root change, the new scan is
   -- in flight and `flat_lines` is empty until `on_scan_complete` below. Treat

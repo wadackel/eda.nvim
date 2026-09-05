@@ -1,13 +1,22 @@
 local Node = require("eda.tree.node")
+local Metadata = require("eda.tree.metadata")
+
+---@class eda.ScanIdentity
+---@field node eda.TreeNode
+---@field root eda.TreeNode?
+---@field path string
 
 ---@class eda.Scanner
 ---@field store eda.Store
 ---@field config table
 ---@field _scanning table<integer, boolean>
+---@field _metadata eda.MetadataResolver
+---@field _disposed boolean
+---@field _draining boolean
 ---@field _active_fds integer
 ---@field _max_concurrent_fds integer
 ---@field _node_gen table<integer, integer>
----@field _pending_scans { node_id: integer, callback: fun(err?: string), gen: integer }[]
+---@field _pending_scans { node_id: integer, callback: fun(err?: string), gen: integer, identity: eda.ScanIdentity }[]
 ---@field _waiters table<integer, fun(err?: string)[]>
 local Scanner = {}
 Scanner.__index = Scanner
@@ -21,6 +30,9 @@ function Scanner.new(store, config)
     store = store,
     config = config or {},
     _scanning = {},
+    _metadata = Metadata.new(),
+    _disposed = false,
+    _draining = false,
     _node_gen = {},
     _active_fds = 0,
     _max_concurrent_fds = 32,
@@ -45,11 +57,16 @@ end
 ---Drain pending scans while under the fd limit.
 ---@private
 function Scanner:_drain_pending()
+  if self._draining then
+    return
+  end
+  self._draining = true
   while #self._pending_scans > 0 and self._active_fds < self._max_concurrent_fds do
     local entry = table.remove(self._pending_scans, 1)
     self._active_fds = self._active_fds + 1
-    self:_do_scan_io(entry.node_id, entry.callback, entry.gen)
+    self:_do_scan_io(entry.node_id, entry.callback, entry.gen, entry.identity)
   end
+  self._draining = false
 end
 
 ---Release one fd slot and drain pending scans.
@@ -63,6 +80,10 @@ end
 ---@param node_id integer
 ---@param callback fun(err?: string)
 function Scanner:scan(node_id, callback)
+  if self._disposed then
+    callback("scan cancelled")
+    return
+  end
   local node = self.store:get(node_id)
   if not node or not Node.is_dir(node) then
     if callback then
@@ -85,12 +106,13 @@ function Scanner:scan(node_id, callback)
   local gen = (self._node_gen[node_id] or 0) + 1
   self._node_gen[node_id] = gen
   node.children_state = "loading"
+  local identity = { node = node, root = self.store:get(self.store.root_id), path = node.path }
 
   if self._active_fds < self._max_concurrent_fds then
     self._active_fds = self._active_fds + 1
-    self:_do_scan_io(node_id, callback, gen)
+    self:_do_scan_io(node_id, callback, gen, identity)
   else
-    table.insert(self._pending_scans, { node_id = node_id, callback = callback, gen = gen })
+    table.insert(self._pending_scans, { node_id = node_id, callback = callback, gen = gen, identity = identity })
   end
 end
 
@@ -99,17 +121,26 @@ end
 ---@private
 ---@param node_id integer
 ---@param callback fun(err?: string)?
-function Scanner:_settle(node_id, callback)
-  if callback then
-    callback()
-  end
+---@param err? string
+function Scanner:_settle(node_id, callback, err)
+  self._scanning[node_id] = nil
   local waiters = self._waiters[node_id]
-  if waiters then
-    self._waiters[node_id] = nil
-    for _, w in ipairs(waiters) do
-      w()
-    end
+  self._waiters[node_id] = nil
+  if callback then
+    callback(err)
   end
+  for _, waiter in ipairs(waiters or {}) do
+    waiter(err)
+  end
+end
+
+function Scanner:dispose()
+  if self._disposed then
+    return
+  end
+  self._disposed = true
+  self._metadata:dispose()
+  self:_drain_pending()
 end
 
 ---Perform the actual I/O for a directory scan.
@@ -117,25 +148,38 @@ end
 ---@param node_id integer
 ---@param callback fun(err?: string)
 ---@param gen integer
-function Scanner:_do_scan_io(node_id, callback, gen)
-  local node = self.store:get(node_id)
-  if not node then
-    callback("node not found")
+---@param identity eda.ScanIdentity
+function Scanner:_do_scan_io(node_id, callback, gen, identity)
+  local node, root, path = identity.node, identity.root, identity.path
+  local function valid()
+    return not self._disposed
+      and node ~= nil
+      and self.store:get(node_id) == node
+      and self.store:get(self.store.root_id) == root
+      and node.path == path
+      and self._node_gen[node_id] == gen
+  end
+  local function finish(err)
+    if err and self.store:get(node_id) == node and node then
+      node.children_state = "unloaded"
+    end
+    self:_release_fd()
+    self:_settle(node_id, callback, err)
+  end
+  if not valid() or not node then
+    finish("scan cancelled")
     return
   end
 
   vim.uv.fs_opendir(node.path, function(err, dir)
     if err then
       vim.schedule(function()
-        self:_release_fd()
-        self._scanning[node_id] = nil
-        if self._node_gen[node_id] ~= gen then
-          self:_settle(node_id, callback)
+        if not valid() then
+          finish("scan cancelled")
           return
         end
         node.children_state = "loaded"
         self.store:remove_children(node_id)
-        -- Create error child node
         self.store:add({
           name = err,
           path = node.path .. "/__error__",
@@ -143,38 +187,41 @@ function Scanner:_do_scan_io(node_id, callback, gen)
           parent_id = node_id,
           error = "permission_denied",
         })
-        self:_settle(node_id, callback)
+        finish()
       end)
       return
     end
 
     local entries = {}
-
+    local function close(read_err)
+      vim.uv.fs_closedir(dir, function()
+        vim.schedule(function()
+          if not valid() then
+            finish("scan cancelled")
+          elseif read_err then
+            finish(read_err)
+          else
+            self:_apply_entries(node_id, entries, finish, valid)
+          end
+        end)
+      end)
+    end
     local function read_next()
+      if not valid() then
+        close("scan cancelled")
+        return
+      end
       vim.uv.fs_readdir(dir, function(read_err, ents)
         if read_err or not ents then
-          vim.uv.fs_closedir(dir, function()
-            vim.schedule(function()
-              self:_release_fd()
-              self._scanning[node_id] = nil
-              if self._node_gen[node_id] ~= gen then
-                self:_settle(node_id, callback)
-                return
-              end
-              self:_apply_entries(node_id, entries)
-              self:_settle(node_id, callback)
-            end)
-          end)
+          close(read_err)
           return
         end
-
         for _, ent in ipairs(ents) do
-          table.insert(entries, ent)
+          entries[#entries + 1] = ent
         end
         read_next()
       end)
     end
-
     read_next()
   end, 64)
 end
@@ -182,10 +229,18 @@ end
 ---Apply scanned entries to the store.
 ---@param node_id integer
 ---@param entries table[]
-function Scanner:_apply_entries(node_id, entries)
+---@param callback? fun(err?: string)
+---@param valid? fun(): boolean
+function Scanner:_apply_entries(node_id, entries, callback, valid)
   local node = self.store:get(node_id)
   if not node then
+    if callback then
+      callback("node not found")
+    end
     return
+  end
+  valid = valid or function()
+    return not self._disposed and self.store:get(node_id) == node
   end
 
   local children = {}
@@ -222,28 +277,18 @@ function Scanner:_apply_entries(node_id, entries)
       parent_id = node_id,
     }
 
-    if child_type == "link" then
-      local target = vim.uv.fs_realpath(child_path)
-      if target then
-        fields.link_target = target
-        fields.link_broken = false
-        if follow_symlinks then
-          local target_stat = vim.uv.fs_stat(target)
-          if target_stat and target_stat.type == "directory" then
-            fields.type = "directory"
-          end
-        end
-      else
-        fields.link_target = nil
-        fields.link_broken = true
-      end
-    end
-
     table.insert(children, fields)
     ::continue_entry::
   end
 
-  self.store:reconcile_children(node_id, children)
+  self._metadata:resolve(children, follow_symlinks, valid, function(err)
+    if not err and valid() then
+      self.store:reconcile_children(node_id, children)
+    end
+    if callback then
+      callback(err)
+    end
+  end)
 end
 
 ---Scan ancestor directories from root to target path.
@@ -281,7 +326,13 @@ function Scanner:scan_ancestors(target_path, callback)
   local idx = 0
 
   local function scan_next()
-    self:scan(current_id, function()
+    self:scan(current_id, function(err)
+      if err then
+        if callback then
+          callback()
+        end
+        return
+      end
       idx = idx + 1
       if idx > #segments then
         if callback then
@@ -318,7 +369,11 @@ end
 ---@param node_id integer
 ---@param callback fun()
 function Scanner:scan_expanded(node_id, callback)
-  self:scan(node_id, function()
+  self:scan(node_id, function(err)
+    if err then
+      callback()
+      return
+    end
     local open_dirs = {}
     local function collect(id)
       local node = self.store:get(id)
@@ -340,14 +395,20 @@ end
 ---@param max_depth integer
 ---@param callback fun()
 function Scanner:scan_recursive(node_id, max_depth, callback)
-  if max_depth <= 0 then
+  if self._disposed or max_depth <= 0 then
     if callback then
       callback()
     end
     return
   end
 
-  self:scan(node_id, function()
+  self:scan(node_id, function(err)
+    if err then
+      if callback then
+        callback()
+      end
+      return
+    end
     local node = self.store:get(node_id)
     if not node or not node.children_ids then
       if callback then
@@ -380,7 +441,11 @@ function Scanner:scan_recursive(node_id, max_depth, callback)
         self:scan_recursive(dirs[i], max_depth - 1, function()
           batch_completed = batch_completed + 1
           if batch_completed == (end_idx - start_idx + 1) then
-            if end_idx < #dirs then
+            if self._disposed then
+              if callback then
+                callback()
+              end
+            elseif end_idx < #dirs then
               scan_batch(end_idx + 1)
             elseif callback then
               callback()
@@ -399,6 +464,10 @@ end
 ---@param open_dirs table<string, boolean> path→true map of dirs that should be open
 ---@param callback fun()
 function Scanner:scan_open_unloaded(open_dirs, callback)
+  if self._disposed then
+    callback()
+    return
+  end
   -- Apply open states using path index (O(|open_dirs|) instead of O(|all_nodes|))
   for path in pairs(open_dirs) do
     local node = self.store:get_by_path(path)
@@ -431,12 +500,18 @@ function Scanner:scan_open_unloaded(open_dirs, callback)
   end
 
   local remaining = #dirs_to_scan
+  local failed = false
   for _, nid in ipairs(dirs_to_scan) do
-    self:scan(nid, function()
+    self:scan(nid, function(err)
+      failed = failed or err ~= nil
       remaining = remaining - 1
       if remaining == 0 then
         vim.schedule(function()
-          self:scan_open_unloaded(open_dirs, callback)
+          if failed then
+            callback()
+          else
+            self:scan_open_unloaded(open_dirs, callback)
+          end
         end)
       end
     end)
