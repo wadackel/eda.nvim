@@ -106,6 +106,7 @@ function M.setup_eda(child)
       icon = { provider = "none" },
       window = { kind = "split_left", width = 40 },
       confirm = false,
+      delete_to_trash = false,
       header = false,
     })
   ]]

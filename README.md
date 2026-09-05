@@ -68,6 +68,12 @@ Explore as a tree, edit as a buffer — a file explorer for Neovim that combines
 - A terminal that implements the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/) (optional, for image preview; verified with kitty, Ghostty, and WezTerm, detected through the protocol's own capability query so other implementations work too)
 - [ImageMagick](https://imagemagick.org/) `magick` (optional, for previewing image formats other than PNG and for downscaling large PNGs)
 
+Deletion uses system trash by default: Finder through `osascript` on macOS,
+or [trash-cli](https://github.com/andreafrancia/trash-cli)'s `trash-put` on other
+platforms. If the backend is missing or fails, eda reports an error and never
+falls back to permanent deletion. Run `:checkhealth eda` to check availability,
+or explicitly set `delete_to_trash = false` to permanently delete files.
+
 ## Installation
 
 <details>
@@ -195,7 +201,6 @@ require("eda").setup({
     },
   },
 
-  -- Use trash instead of permanent delete
   delete_to_trash = true,
   -- Follow symbolic links when scanning
   follow_symlinks = true,

@@ -117,6 +117,7 @@ T["buffer edit"]["deletes a directory via dd with confirm dialog"] = function()
       icon = { provider = "none" },
       window = { kind = "split_left", width = 40 },
       confirm = true,
+      delete_to_trash = false,
       header = false,
     })
   ]]

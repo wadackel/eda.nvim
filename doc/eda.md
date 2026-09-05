@@ -326,6 +326,10 @@ Granular table fields:
 `boolean` (default: `true`)
 
 Send deleted files to the system trash instead of permanently removing them.
+macOS uses Finder through `osascript`; other platforms require `trash-put`
+from `trash-cli`. Missing backends or backend failures return an error without
+falling back to permanent deletion. Run `:checkhealth eda` to check backend
+availability. Set this option to `false` to explicitly enable permanent deletion.
 
 ### follow_symlinks
 
