@@ -19,21 +19,51 @@ jobs:
           just lint
 
   test:
-    runs-on: ubuntu-latest
+    name: test (${{ matrix.label }})
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
-        neovim: [stable, nightly]
+        include:
+          - os: ubuntu-latest
+            neovim: v0.11.0
+            label: v0.11.0
+          - os: ubuntu-latest
+            neovim: stable
+            label: stable
+          - os: ubuntu-latest
+            neovim: nightly
+            label: nightly
+          - os: macos-15
+            neovim: stable
+            label: macos-15, stable
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
         with:
           neovim: true
           version: ${{ matrix.neovim }}
+      - name: Prepare isolated test directories
+        run: |
+          for kind in CONFIG DATA STATE CACHE; do
+            printf 'XDG_%s_HOME=%s/eda-test-%s\n' "$kind" "$RUNNER_TEMP" "$kind"
+          done >> "$GITHUB_ENV"
+      - name: Record Neovim version
+        run: |
+          command -v nvim
+          nvim --version
       - name: Run tests
         run: nvim --headless -l tests/minit.lua
       - name: Run E2E tests
         run: nvim --headless -l tests/e2e_minit.lua
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: ./.github/actions/setup-nix
+      - name: Typecheck
+        run: nix develop .#typecheck --command just typecheck
 
   docs:
     runs-on: ubuntu-latest

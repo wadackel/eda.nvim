@@ -3,12 +3,22 @@ local helpers = require("helpers")
 local M = {}
 
 local plugin_root = vim.fn.getcwd()
+local reported_child = false
 
 ---Spawn a child Neovim instance for E2E testing via MiniTest.new_child_neovim().
 ---@return table child object from MiniTest.new_child_neovim()
 function M.spawn()
   local child = MiniTest.new_child_neovim()
   child.start()
+  if not reported_child then
+    local runtime = child.lua("return { path = vim.v.progpath, version = tostring(vim.version()) }")
+    io.write(string.format("E2E child Neovim: %s (%s)\n", runtime.path, runtime.version))
+    if runtime.path ~= vim.v.progpath or runtime.version ~= tostring(vim.version()) then
+      child.stop()
+      error("E2E child Neovim does not match its parent")
+    end
+    reported_child = true
+  end
   -- Add eda.nvim to runtimepath
   child.lua("vim.opt.rtp:prepend(...)", { plugin_root })
   return child

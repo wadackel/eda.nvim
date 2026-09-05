@@ -21,14 +21,16 @@
             pkgs.stylua
             selene-luajit
           ];
+          typecheckPackages = [
+            pkgs.just
+            pkgs.jq
+            pkgs.neovim
+            pkgs.lua-language-server
+          ];
         in
         {
           default = pkgs.mkShell {
-            packages = lintPackages ++ [
-              pkgs.just
-              pkgs.jq
-              pkgs.neovim
-              pkgs.lua-language-server
+            packages = lintPackages ++ typecheckPackages ++ [
               pkgs.git
               pkgs.panvimdoc
               pkgs.vhs
@@ -40,6 +42,10 @@
               pkgs.just
               pkgs.panvimdoc
             ];
+          };
+
+          typecheck = pkgs.mkShell {
+            packages = typecheckPackages;
           };
         }
       );
