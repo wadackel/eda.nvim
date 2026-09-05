@@ -822,6 +822,20 @@ A refresh already in progress cannot replace the snapshot used by a new edit.
 If a file operation fails because the filesystem changed, the edit remains
 unsaved and the error is reported.
 
+The explorer watches its root and visible, expanded directories using
+nonrecursive filesystem watches. Collapsing or hiding a directory releases its
+watch; expanding it again reloads its contents and any previously open
+descendants. Changing the root or closing the explorer releases the old
+watches.
+
+Notifications with a known directory scope rescan that directory’s direct
+children. Bursts are coalesced, unchanged nodes keep their identity, and an
+unchanged result skips structural repainting. Git status may still require a
+repaint. If a notification has no filename, eda conservatively refreshes the
+root and open subtrees. `<C-l>` also performs a full refresh and discards
+pending buffer edits. Filesystem watch delivery depends on the operating system
+and filesystem; use `<C-l>` when a filesystem does not deliver notifications.
+
 
 MAPPINGS                                          *eda.nvim-eda.nvim-mappings*
 

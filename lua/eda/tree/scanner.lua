@@ -188,7 +188,7 @@ function Scanner:_apply_entries(node_id, entries)
     return
   end
 
-  self.store:remove_children(node_id)
+  local children = {}
 
   local follow_symlinks = self.config.follow_symlinks ~= false
   local show_hidden = self.config.show_hidden ~= false
@@ -239,11 +239,11 @@ function Scanner:_apply_entries(node_id, entries)
       end
     end
 
-    self.store:add(fields)
+    table.insert(children, fields)
     ::continue_entry::
   end
 
-  node.children_state = "loaded"
+  self.store:reconcile_children(node_id, children)
 end
 
 ---Scan ancestor directories from root to target path.
@@ -313,6 +313,26 @@ function Scanner:scan_ancestors(target_path, callback)
   end
 
   scan_next()
+end
+
+---@param node_id integer
+---@param callback fun()
+function Scanner:scan_expanded(node_id, callback)
+  self:scan(node_id, function()
+    local open_dirs = {}
+    local function collect(id)
+      local node = self.store:get(id)
+      if not node or not Node.is_dir(node) or not node.open then
+        return
+      end
+      open_dirs[node.path] = true
+      for _, child_id in ipairs(node.children_ids or {}) do
+        collect(child_id)
+      end
+    end
+    collect(node_id)
+    self:scan_open_unloaded(open_dirs, callback)
+  end)
 end
 
 ---Recursively scan open directories up to a depth limit.
@@ -391,7 +411,14 @@ function Scanner:scan_open_unloaded(open_dirs, callback)
   local dirs_to_scan = {}
   for path in pairs(open_dirs) do
     local node = self.store:get_by_path(path)
-    if node and Node.is_dir(node) and node.open and node.children_state == "unloaded" then
+    local parent = node and node.parent_id and self.store:get(node.parent_id)
+    if
+      node
+      and Node.is_dir(node)
+      and node.open
+      and node.children_state == "unloaded"
+      and (not parent or parent.children_state == "loaded")
+    then
       dirs_to_scan[#dirs_to_scan + 1] = node.id
     end
   end
@@ -432,6 +459,12 @@ function Scanner:rescan_preserving_state(root_id, callback, state_store)
       if node._marked then
         marked_by_path[node.path] = true
       end
+    end
+  end
+  for path in pairs(open_by_path) do
+    local node = self.store:get_by_path(path)
+    if node then
+      node.children_state = "unloaded"
     end
   end
   self:scan(root_id, function()
