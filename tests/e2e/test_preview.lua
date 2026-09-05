@@ -473,8 +473,8 @@ end
 T["preview"]["root changes rebind preview dependencies and show the new tree"] = function()
   e2e.setup_eda(child)
   e2e.create_file(tmp .. "/next/visible.txt", "NEW ROOT")
-  e2e.exec(child, [[require("eda.config").get().preview.enabled = true]])
   e2e.open_eda(child, tmp)
+  e2e.exec(child, [[require("eda").get_current().preview:set_enabled(true)]])
   e2e.exec(
     child,
     string.format(
