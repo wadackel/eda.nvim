@@ -368,6 +368,10 @@ end
 ---Setup configuration with user options.
 ---@param opts? table
 function M.setup(opts)
+  local threshold = opts and opts.large_dir_threshold
+  if threshold ~= nil and (type(threshold) ~= "number" or threshold < 0 or threshold % 1 ~= 0) then
+    error("eda: large_dir_threshold must be a non-negative integer", 2)
+  end
   if opts then
     if opts.default_mappings == false then
       local base = vim.deepcopy(defaults)

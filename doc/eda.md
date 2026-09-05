@@ -346,8 +346,15 @@ Broken symlinks show `EdaBrokenSymlink` highlight but no target suffix.
 
 `integer` (default: `5000`)
 
-When a directory contains more entries than this threshold, eda.nvim shows
-a warning before scanning.
+Warn when a directory contains strictly more entries than this threshold.
+Set to `0` to disable warnings; other values must be positive integers.
+
+The count includes all immediate filesystem entries, including hidden and ignored
+entries, before visibility filtering. Each symlink counts once; descendants are
+not included. The warning appears after asynchronous directory enumeration
+completes, before filtering and symlink resolution. Scanning continues normally.
+Each directory path warns at most once per Neovim session, including across
+refreshes, multiple explorers, and closing/reopening the explorer.
 
 ### expand_depth
 

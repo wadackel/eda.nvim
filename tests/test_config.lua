@@ -7,6 +7,9 @@ T["setup"] = MiniTest.new_set({
     pre_case = function()
       config.setup()
     end,
+    post_case = function()
+      config.setup()
+    end,
   },
 })
 
@@ -273,4 +276,24 @@ T["get"]["returns config table"] = function()
   MiniTest.expect.equality(type(c.root_markers), "table")
 end
 
+T["setup"]["large directory threshold accepts zero and positive integers"] = function()
+  MiniTest.expect.equality(config.get().large_dir_threshold, 5000)
+  for _, value in ipairs({ 0, 1, 5000 }) do
+    config.setup({ large_dir_threshold = value })
+    MiniTest.expect.equality(config.get().large_dir_threshold, value)
+  end
+end
+T["setup"]["invalid large directory thresholds leave the previous config intact"] = function()
+  config.setup({ large_dir_threshold = 7 })
+  local previous = config.get()
+  for _, value in ipairs({ -1, 0.5, "10", false, {}, math.huge, 0 / 0 }) do
+    local ok, err = pcall(config.setup, { large_dir_threshold = value })
+    MiniTest.expect.equality(ok, false)
+    MiniTest.expect.equality(
+      tostring(err):find("large_dir_threshold must be a non-negative integer", 1, true) ~= nil,
+      true
+    )
+    MiniTest.expect.equality(config.get() == previous, true)
+  end
+end
 return T
