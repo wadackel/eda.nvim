@@ -1,6 +1,10 @@
 local Node = require("eda.tree.node")
 local Metadata = require("eda.tree.metadata")
 
+-- Refreshes create new scanners, so instance-local warning state would repeat on every rescan.
+---@type table<string, true>
+local warned_directories = {}
+
 ---@class eda.ScanIdentity
 ---@field node eda.TreeNode
 ---@field root eda.TreeNode?
@@ -201,6 +205,14 @@ function Scanner:_do_scan_io(node_id, callback, gen, identity)
           elseif read_err then
             finish(read_err)
           else
+            local threshold = self.config.large_dir_threshold or 5000
+            if threshold > 0 and #entries > threshold and not warned_directories[path] then
+              warned_directories[path] = true
+              vim.notify(
+                string.format("eda: %s contains %d entries (large_dir_threshold = %d)", path, #entries, threshold),
+                vim.log.levels.WARN
+              )
+            end
             self:_apply_entries(node_id, entries, finish, valid)
           end
         end)
