@@ -17,7 +17,8 @@ lint:
 typecheck:
     #!/usr/bin/env bash
     set -euo pipefail
-    export VIMRUNTIME=$(nvim --headless +"echo \$VIMRUNTIME" +q 2>&1 | tail -1)
+    VIMRUNTIME=$({{ nvim }} --headless +"echo \$VIMRUNTIME" +q 2>&1 | tail -1)
+    export VIMRUNTIME
     lua-language-server --check lua/ --configpath <(jq --arg vr "$VIMRUNTIME/lua" '.workspace.library += [$vr]' .luarc.json)
 
 # Run unit tests with mini.test

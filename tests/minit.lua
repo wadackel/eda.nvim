@@ -1,4 +1,5 @@
 vim.o.shadafile = "NONE"
+io.write(string.format("Unit parent Neovim: %s (%s)\n", vim.v.progpath, tostring(vim.version())))
 
 -- Bootstrap mini.nvim for testing
 local deps_path = vim.fn.stdpath("data") .. "/eda-test-deps"

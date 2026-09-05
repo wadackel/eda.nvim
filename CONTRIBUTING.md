@@ -32,8 +32,16 @@ E2E tests inside the shell. Both use mini.test; the test bootstrap downloads
 mini.nvim into Neovim's data directory when needed. Async unit cases execute
 serially so a wait inside one case cannot run other cases nested inside it.
 
-The [CI workflow](.github/workflows/ci.yaml) defines the automated jobs and test
-matrix. Use the full local sequence above even when a check is not in CI.
+The [CI workflow](.github/workflows/ci.yaml) runs formatting, lint, type checking,
+and generated-vimdoc freshness checks. Full unit and E2E suites run on Ubuntu
+with Neovim 0.11.0, stable, and nightly, and on macOS with stable Neovim. Test
+jobs use temporary dependency/data directories and report the Neovim binary and
+version used by the parent and E2E child processes.
+
+To test another installed Neovim locally, use
+`just nvim=/absolute/path/to/nvim test-all` inside the development shell. The
+same override selects the runtime definitions used by `just typecheck`. CI's
+separate typecheck job uses the Neovim and Lua Language Server pinned by Nix.
 
 ## Documentation Changes
 

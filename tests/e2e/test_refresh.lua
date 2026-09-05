@@ -183,24 +183,28 @@ for _, event in ipairs({ "create", "rename", "delete" }) do
   end
 end
 
-local function hold_background_scan()
+local function hold_background_scan(filename)
+  child.lua("_G.refresh_filename = ...", { filename })
   e2e.exec(
     child,
     [[
     local ex = require("eda").get_current()
     ex.watcher:unwatch_all()
     local Scanner = require("eda.tree.scanner")
-    local rescan = Scanner.rescan_preserving_state
-    Scanner.rescan_preserving_state = function(self, id, callback, state_store)
-      return rescan(self, id, function()
-        callback()
-        _G.finished_scans = (_G.finished_scans or 0) + 1
-      end, state_store)
+    local scan = Scanner.scan
+    Scanner.scan = function(self, id, callback)
+      return scan(self, id, function(err)
+        callback(err)
+        if self == _G.held_scanner then
+          _G.finished_scans = (_G.finished_scans or 0) + 1
+        end
+      end)
     end
     local readdir = vim.uv.fs_readdir
     vim.uv.fs_readdir = function(dir, callback)
       return readdir(dir, function(err, entries)
         if not entries and not _G.release_scan then
+          _G.held_scanner = ex.refresh._scanner
           _G.release_scan = function()
             vim.uv.fs_readdir = readdir
             callback(err, entries)
@@ -210,7 +214,7 @@ local function hold_background_scan()
         end
       end)
     end
-    _G.watcher_callbacks[ex.root_path]()
+    _G.watcher_callbacks[ex.root_path](_G.refresh_filename)
   ]]
   )
   e2e.wait_until(child, "_G.release_scan ~= nil")
@@ -370,29 +374,31 @@ T["refresh"]["coalesces watcher events raised during a save"] = function()
   )
 end
 
-T["refresh"]["ignores a background scan completed after close"] = function()
-  intercept_watcher()
-  e2e.open_eda(child, tmp)
-  hold_background_scan()
-  e2e.exec(
-    child,
-    [[
+for _, mode in ipairs({ "full", "scoped" }) do
+  T["refresh"]["ignores a " .. mode .. " background scan completed after close"] = function()
+    intercept_watcher()
+    e2e.open_eda(child, tmp)
+    hold_background_scan(mode == "scoped" and "existing.txt" or nil)
+    e2e.exec(
+      child,
+      [[
     _G.closed_explorer = require("eda").get_current()
     _G.closed_nodes = _G.closed_explorer.store.nodes
     require("eda").close()
     _G.release_scan()
   ]]
-  )
-  e2e.wait_until(child, "(_G.finished_scans or 0) > 0")
-  MiniTest.expect.equality(
-    e2e.exec(
-      child,
-      [[
+    )
+    e2e.wait_until(child, "(_G.finished_scans or 0) > 0")
+    MiniTest.expect.equality(
+      e2e.exec(
+        child,
+        [[
     return require("eda").get_current() == nil and _G.closed_explorer.store.nodes == _G.closed_nodes
   ]]
-    ),
-    true
-  )
+      ),
+      true
+    )
+  end
 end
 
 T["refresh"]["ignores old root callbacks and installs a guarded new root watcher"] = function()
