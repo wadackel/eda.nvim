@@ -1303,16 +1303,25 @@ eda.nvim fires `User` autocmds for integration with external plugins.
 
 EDATREEOPEN ~
 
-Fired when the explorer window opens.
+Fired when an explorer opens.
 
-`data`: `{ root_path = string }`
+`data`: `{ root_path = string, instance_id = integer }`
 
 
 EDATREECLOSE ~
 
-Fired when the explorer window closes.
+Fired when an explorer is released — because it was closed, because its
+window closed, or because that window stopped displaying the explorer buffer,
+which in the `replace` layout is what happens when a file is opened with
+`select`. Note that the window itself is not necessarily gone: a `replace`
+explorer hands its window back rather than closing it.
 
-`data`: `{}`
+`data`: `{ root_path = string, instance_id = integer }`
+
+The released explorer is already absent from `eda.get_all()` when this fires,
+so `instance_id` is the only way to tell which one it was. That matters because
+`eda.open_split()` can open several explorers on the same root, in which case
+`root_path` does not identify them.
 
 
 EDAMUTATIONPRE ~
