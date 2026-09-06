@@ -147,7 +147,7 @@ action.register("select", function(ctx)
       vim.cmd.edit(vim.fn.fnameescape(node.path))
     end
     if should_close_on_select(ctx) then
-      get_eda().close()
+      get_eda().close(ctx.explorer)
     end
   end
 end, { desc = "Open file or toggle directory" })
@@ -163,7 +163,7 @@ action.register("select_split", function(ctx)
   end
   vim.cmd.split(vim.fn.fnameescape(node.path))
   if should_close_on_select(ctx) then
-    get_eda().close()
+    get_eda().close(ctx.explorer)
   end
 end, { desc = "Open file in horizontal split" })
 
@@ -178,7 +178,7 @@ action.register("select_vsplit", function(ctx)
   end
   vim.cmd.vsplit(vim.fn.fnameescape(node.path))
   if should_close_on_select(ctx) then
-    get_eda().close()
+    get_eda().close(ctx.explorer)
   end
 end, { desc = "Open file in vertical split" })
 
@@ -188,13 +188,13 @@ action.register("select_tab", function(ctx)
     return
   end
   if should_close_on_select(ctx) then
-    get_eda().close()
+    get_eda().close(ctx.explorer)
   end
   vim.cmd.tabedit(vim.fn.fnameescape(node.path))
 end, { desc = "Open file in new tab" })
 
-action.register("close", function()
-  get_eda().close()
+action.register("close", function(ctx)
+  get_eda().close(ctx.explorer)
 end, { desc = "Close explorer" })
 
 action.register("parent", function(ctx)
@@ -1148,7 +1148,7 @@ action.register("quickfix", function(ctx)
     -- qf window becomes the sole foreground pane. Split and replace kinds do
     -- not overlap the qf split and stay open.
     if ctx.window.kind == "float" then
-      get_eda().close()
+      get_eda().close(ctx.explorer)
     end
     vim.cmd("copen")
   end

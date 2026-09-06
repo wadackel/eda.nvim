@@ -62,6 +62,8 @@ T["geometry watcher"] = MiniTest.new_set({
       end)
     end,
     post_case = function()
+      -- restore() heads the teardown so the vim.schedule and decoration-provider stubs
+      -- cannot leak into the next case.
       restore()
       eda.close()
       helpers.remove_temp_dir(tmp)

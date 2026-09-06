@@ -179,6 +179,7 @@ end
 ---@field _no_repo_notified? boolean
 ---@field _initial_scan_complete boolean
 ---@field _owner_signature? string  Cached owner geometry for the replace overlay watcher
+---@field _pending_cursor_hint? string  Cursor path captured before a deferred teardown
 ---@field _pending_dispatch? { name: string, ctx: eda.ActionContext }
 ---@field _writing? boolean
 
@@ -190,6 +191,52 @@ M._instances = {}
 
 ---@type table<string, { open_dirs: table<string, boolean>, cursor_path: string? }>
 local state_cache = {}
+
+---Position of `explorer` in `M._instances`, or nil when it is no longer listed.
+---@param explorer eda.Explorer
+---@return integer?
+local function instance_index(explorer)
+  for i, inst in ipairs(M._instances) do
+    if inst == explorer then
+      return i
+    end
+  end
+  return nil
+end
+
+---The path under the cursor, read while the window provably still shows the tree.
+---Window events must capture this synchronously: teardown is deferred, and by the time
+---it runs the window is gone or showing something else.
+---@param explorer eda.Explorer
+---@return string?
+local function cursor_path_of(explorer)
+  if not explorer.window:is_visible() then
+    return nil
+  end
+  local node = explorer.buffer:get_cursor_node(explorer.window.winid)
+  return node and node.path or nil
+end
+
+---Snapshot an explorer's tree state so reopening the same root restores it.
+---Split instances are skipped: an ad-hoc pane must not overwrite what the primary
+---explorer remembered for the same root.
+---@param explorer eda.Explorer
+---@param cursor_path? string captured while the window still showed the tree
+local function save_state(explorer, cursor_path)
+  if explorer.is_split then
+    return
+  end
+  local open_dirs = {}
+  for _, node in pairs(explorer.store.nodes) do
+    if node.type == "directory" and node.open and node.id ~= explorer.store.root_id then
+      open_dirs[node.path] = true
+    end
+  end
+  state_cache[explorer.root_path] = {
+    open_dirs = open_dirs,
+    cursor_path = cursor_path or cursor_path_of(explorer),
+  }
+end
 
 -- Highlight groups with defaults
 local highlight_groups = {
@@ -615,6 +662,41 @@ function M.setup(opts)
   })
 end
 
+---Release an explorer and everything it owns.
+---@param explorer eda.Explorer?
+local function destroy_explorer(explorer)
+  if not explorer then
+    return
+  end
+  local index = instance_index(explorer)
+  -- Membership is the idempotence guard. The steps below re-enter here through the
+  -- window and buffer events they fire, and through `EdaTreeClose` listeners.
+  if not index then
+    return
+  end
+
+  save_state(explorer, explorer._pending_cursor_hint)
+  explorer._pending_cursor_hint = nil
+
+  -- Removal must precede every step below: `buffer:destroy()` and `window:close()`
+  -- fire `BufWinLeave` and `WinClosed`, whose handlers land back in this function.
+  table.remove(M._instances, index)
+  if M._current == explorer then
+    M._current = M._instances[#M._instances]
+  end
+
+  explorer.preview:close()
+  explorer.full_name:destroy()
+  -- Must run before buffer:destroy() and window:close() for the same reason.
+  pcall(vim.api.nvim_del_augroup_by_name, "eda_explorer_" .. explorer.buffer.bufnr)
+  explorer.refresh:reset()
+  explorer.watcher:unwatch_all()
+  explorer.buffer:destroy()
+  explorer.window:close()
+  sync_geometry_watcher()
+  fire_event("EdaTreeClose")
+end
+
 ---@param opts? table
 function M.open(opts)
   opts = opts or {}
@@ -626,8 +708,9 @@ function M.open(opts)
         return
       end
     else
-      -- Window was closed externally; clean up stale state
-      M.close()
+      -- Teardown is deferred by a tick, so a window closed moments ago can still be
+      -- listed here. Releasing it now keeps the state save and the reopen consistent.
+      M.close(M._current)
     end
   end
 
@@ -1007,44 +1090,67 @@ function M.open(opts)
     return buffer:get_cursor_node(window.winid)
   end)
 
-  -- Register WinClosed handler for float windows
-  if kind == "float" then
-    vim.api.nvim_create_autocmd("WinClosed", {
-      pattern = tostring(window.winid),
-      once = true,
+  local explorer_augroup = vim.api.nvim_create_augroup("eda_explorer_" .. buffer.bufnr, { clear = true })
+
+  -- Teardown is deferred rather than run inside the event. An autocmd callback
+  -- suppresses the autocmds fired within it unless it declares `nested`, so wiping the
+  -- buffer here would skip refresh.lua's BufWipeout hook and leave the scanner
+  -- undisposed and its global OptionSet autocmd registered.
+  vim.api.nvim_create_autocmd("WinClosed", {
+    group = explorer_augroup,
+    pattern = tostring(window.winid),
+    callback = function()
+      -- The overlay goes in the same tick as its owner window; only the rest waits.
+      preview:close()
+      explorer._pending_cursor_hint = cursor_path_of(explorer)
+      vim.schedule(function()
+        destroy_explorer(explorer)
+      end)
+    end,
+  })
+
+  if kind == "replace" then
+    -- A replace explorer shares its window with whatever the user opens next, so the
+    -- window staying valid is no signal at all: `select` swaps the buffer underneath a
+    -- still-open overlay. BufWinLeave is the event that actually reports that, and it
+    -- fires *before* the buffer leaves, so the visibility test only answers correctly
+    -- once deferred.
+    vim.api.nvim_create_autocmd("BufWinLeave", {
+      group = explorer_augroup,
+      buffer = buffer.bufnr,
       callback = function()
-        if M._current == explorer then
-          M.close()
-        end
+        preview:close()
+        explorer._pending_cursor_hint = cursor_path_of(explorer)
+        vim.schedule(function()
+          if explorer.window:is_visible() then
+            -- The buffer only left some other window; the hint describes a cursor that
+            -- is still live and must not outlive this tick.
+            explorer._pending_cursor_hint = nil
+            return
+          end
+          destroy_explorer(explorer)
+        end)
       end,
     })
   end
 
-  -- Setup VimResized for repositioning float windows
-  local resize_augroup = vim.api.nvim_create_augroup("eda_resize_" .. buffer.bufnr, { clear = true })
-  if kind == "replace" then
-    -- A replace explorer shares its window with whatever the user opens next, so the
-    -- window staying valid is no signal at all: `select` swaps the buffer underneath a
-    -- still-open overlay. BufWinLeave is the event that actually reports that.
-    vim.api.nvim_create_autocmd("BufWinLeave", {
-      group = resize_augroup,
-      buffer = buffer.bufnr,
-      callback = function()
-        preview:close()
-      end,
-    })
-    vim.api.nvim_create_autocmd("WinClosed", {
-      group = resize_augroup,
-      pattern = tostring(window.winid),
-      callback = function()
-        preview:close()
-      end,
-    })
-  end
   vim.api.nvim_create_autocmd("VimResized", {
-    group = resize_augroup,
+    group = explorer_augroup,
     callback = function()
+      -- Read before reposition(), which may close the window out from under it, but
+      -- only keep it on the branch that actually tears the explorer down.
+      local cursor_hint = cursor_path_of(explorer)
       window:reposition()
+      if not util.is_valid_win(window.winid) then
+        -- A float too small to draw closes itself in reposition(). That happens inside
+        -- this callback, so the WinClosed handler is suppressed and this is the only
+        -- place left that can release the explorer.
+        explorer._pending_cursor_hint = cursor_hint
+        vim.schedule(function()
+          destroy_explorer(explorer)
+        end)
+        return
+      end
       -- Recompute right-aligned padding in the float title for the new width.
       refresh_float_title(explorer)
       require("eda.buffer.help").reposition()
@@ -1344,29 +1450,9 @@ function M._change_root(explorer, new_path, opts)
     return
   end
 
-  -- Snapshot current tree state into state_cache BEFORE reinit so a
-  -- subsequent root transition (or re-visit) can restore expanded directories.
-  -- Skips split instances, matching close() semantics.
+  -- Must run before root_path is reassigned below: save_state keys the cache off it.
   local old_path = explorer.root_path
-  if not explorer.is_split then
-    local open_dirs = {}
-    for _, node in pairs(explorer.store.nodes) do
-      if node.type == "directory" and node.open and node.id ~= explorer.store.root_id then
-        open_dirs[node.path] = true
-      end
-    end
-    local cursor_path = nil
-    if util.is_valid_win(explorer.window.winid) then
-      local cursor_node = explorer.buffer:get_cursor_node(explorer.window.winid)
-      if cursor_node then
-        cursor_path = cursor_node.path
-      end
-    end
-    state_cache[old_path] = {
-      open_dirs = open_dirs,
-      cursor_path = cursor_path,
-    }
-  end
+  save_state(explorer)
 
   -- Increment generation to invalidate stale callbacks
   explorer.generation = explorer.generation + 1
@@ -1514,58 +1600,16 @@ end
 ---@param opts? table
 function M.toggle(opts)
   if M._current and M._current.window:is_visible() then
-    M.close()
+    M.close(M._current)
   else
     M.open(opts)
   end
 end
 
-function M.close()
-  local current = M._current
-  if not current then
-    return
-  end
-
-  -- Save state for this root before cleanup (only for non-split instances)
-  if not current.is_split then
-    local open_dirs = {}
-    for _, node in pairs(current.store.nodes) do
-      if node.type == "directory" and node.open and node.id ~= current.store.root_id then
-        open_dirs[node.path] = true
-      end
-    end
-    local cursor_path = nil
-    if util.is_valid_win(current.window.winid) then
-      local cursor_node = current.buffer:get_cursor_node(current.window.winid)
-      if cursor_node then
-        cursor_path = cursor_node.path
-      end
-    end
-    state_cache[current.root_path] = {
-      open_dirs = open_dirs,
-      cursor_path = cursor_path,
-    }
-  end
-
-  -- Remove from instances list
-  for i, inst in ipairs(M._instances) do
-    if inst == current then
-      table.remove(M._instances, i)
-      break
-    end
-  end
-  -- Set _current to next available instance or nil
-  M._current = M._instances[#M._instances]
-
-  current.preview:close()
-  current.full_name:destroy()
-  pcall(vim.api.nvim_del_augroup_by_name, "eda_resize_" .. current.buffer.bufnr)
-  current.refresh:reset()
-  current.watcher:unwatch_all()
-  current.buffer:destroy()
-  current.window:close()
-  sync_geometry_watcher()
-  fire_event("EdaTreeClose")
+---Close an explorer. Defaults to the current one.
+---@param explorer? eda.Explorer
+function M.close(explorer)
+  destroy_explorer(explorer or M._current)
 end
 
 ---Navigate to a specific path in the tree.
@@ -1676,7 +1720,7 @@ function M.open_replace(explorer)
     return
   end
 
-  M.close()
+  M.close(explorer)
   if util.is_valid_win(target_win) then
     vim.api.nvim_set_current_win(target_win)
   end
