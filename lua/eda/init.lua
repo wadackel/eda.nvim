@@ -694,7 +694,7 @@ local function destroy_explorer(explorer)
   explorer.buffer:destroy()
   explorer.window:close()
   sync_geometry_watcher()
-  fire_event("EdaTreeClose")
+  fire_event("EdaTreeClose", { root_path = explorer.root_path, instance_id = explorer.instance_id })
 end
 
 ---@param opts? table
@@ -1161,7 +1161,7 @@ function M.open(opts)
     end,
   })
 
-  fire_event("EdaTreeOpen", { root_path = root_path })
+  fire_event("EdaTreeOpen", { root_path = root_path, instance_id = instance_id })
 
   -- Determine target path for cursor positioning
   local target_path = nil
