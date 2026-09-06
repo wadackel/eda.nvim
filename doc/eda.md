@@ -605,7 +605,9 @@ reveal the overlay until Normal mode returns.
 
 An overlay is removed outright, rather than suspended, when its explorer window
 closes or stops displaying the explorer buffer — for example after opening a
-file with `select` in the same window.
+file with `select` in the same window. The explorer itself is released at the
+same moment: it is no longer reachable, so it stops appearing in
+`eda.get_all()` and stops being refreshed.
 
 ### full_name
 
@@ -1102,9 +1104,14 @@ Parameters:
 
 Toggle the explorer. Closes if visible, opens if not.
 
-### `eda.close()`
+### `eda.close(explorer?)`
 
-Close the current explorer instance.
+Close an explorer instance. Defaults to the current one.
+
+An explorer is also released on its own when its window closes, or when that window
+stops displaying the explorer buffer — which in the `replace` layout is what happens
+when a file is opened with `select`. Closing an explorer that has already been
+released does nothing.
 
 ### `eda.navigate(path)`
 

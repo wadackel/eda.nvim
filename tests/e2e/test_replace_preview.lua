@@ -58,6 +58,21 @@ local function normal_windows()
   return e2e.exec(child, NORMAL_WINDOWS)
 end
 
+local function float_count()
+  return e2e.exec(
+    child,
+    [[
+    local n = 0
+    for _, w in ipairs(vim.api.nvim_list_wins()) do
+      if vim.api.nvim_win_get_config(w).relative ~= "" then
+        n = n + 1
+      end
+    end
+    return n
+  ]]
+  )
+end
+
 ---Dispatch `action_name` against the explorer at `index` in `eda.get_all()`.
 local function dispatch(index, action_name)
   e2e.exec(
@@ -177,17 +192,18 @@ T["replace preview"]["an explicit replace explorer opens an overlay inside its o
   MiniTest.expect.equality(normal_windows(), layout_before)
 end
 
-T["replace preview"]["the overlay closes when the explorer buffer leaves its window"] = function()
+T["replace preview"]["the explorer is released when its buffer leaves the window"] = function()
   e2e.open_eda(child, tmp)
   e2e.wait_until(child, "require('eda').get_current().preview.winid ~= nil", 10000)
 
   -- `select` opens the file in the same window, so the window stays valid while the
-  -- explorer buffer is swapped out from under the overlay.
+  -- explorer buffer is swapped out from under it. The explorer is then unreachable and
+  -- is released along with its overlay.
   e2e.exec(child, string.format([[vim.cmd.edit(vim.fn.fnameescape(%q))]], tmp .. "/alpha.txt"))
-  e2e.wait_until(child, "require('eda').get_all()[1].preview.winid == nil", 10000)
+  e2e.wait_until(child, "#require('eda').get_all() == 0", 10000)
 
-  local rows = report()
-  MiniTest.expect.equality(rows[1].open, false)
+  MiniTest.expect.equality(e2e.exec(child, [[return require("eda").get_current() == nil]]), true)
+  MiniTest.expect.equality(float_count(), 0)
 end
 
 T["replace preview"]["two replace explorers preview independently"] = function()
@@ -449,6 +465,8 @@ T["replace preview"]["closing the owner window removes its overlay and leaves th
   split_explorer()
   focus_distinct_targets()
 
+  local survivor_id = e2e.exec(child, [[return require("eda").get_all()[1].instance_id]])
+
   e2e.exec(
     child,
     [[
@@ -457,23 +475,11 @@ T["replace preview"]["closing the owner window removes its overlay and leaves th
     vim.cmd("close")
   ]]
   )
-  e2e.wait_until(child, "require('eda').get_all()[2].preview.winid == nil", 10000)
+  e2e.wait_until(child, "#require('eda').get_all() == 1", 10000)
 
-  -- Preview:close() nils its handle before closing the window, so the Lua-side state
-  -- alone would not notice a float left on screen; count the floats instead.
-  local floats = e2e.exec(
-    child,
-    [[
-    local n = 0
-    for _, w in ipairs(vim.api.nvim_list_wins()) do
-      if vim.api.nvim_win_get_config(w).relative ~= "" then
-        n = n + 1
-      end
-    end
-    return n
-  ]]
-  )
-  MiniTest.expect.equality(floats, 1)
+  -- Identity, not just the count: destroying the wrong explorer also leaves one behind.
+  MiniTest.expect.equality(e2e.exec(child, [[return require("eda").get_all()[1].instance_id]]), survivor_id)
+  MiniTest.expect.equality(float_count(), 1)
 
   -- The surviving explorer keeps its overlay and stays inside its own window.
   MiniTest.expect.equality(report()[1].inside, true)
