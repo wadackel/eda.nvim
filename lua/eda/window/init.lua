@@ -8,6 +8,7 @@ local util = require("eda.util")
 ---@field kind string
 ---@field config eda.Config
 ---@field old_winid integer?
+---@field owns_window boolean  True when eda created the window, so closing means closing it
 ---@field header_text eda.WindowTitle?
 ---@field header_position eda.HeaderPosition?
 local Window = {}
@@ -68,8 +69,9 @@ end
 ---Create a new window manager.
 ---@param kind string
 ---@param config eda.Config
+---@param owns_window? boolean set when eda created the window this explorer will occupy
 ---@return eda.Window
-function Window.new(kind, config)
+function Window.new(kind, config, owns_window)
   return setmetatable({
     winid = nil,
     bufnr = nil,
@@ -77,6 +79,7 @@ function Window.new(kind, config)
     config = config,
     old_winid = nil,
     old_bufnr = nil,
+    owns_window = owns_window == true,
   }, Window)
 end
 
@@ -179,21 +182,39 @@ function Window:reposition()
   vim.api.nvim_win_set_config(self.winid, layout)
 end
 
+---Whether the displaced buffer should be put back when this explorer goes away.
+---It should not when eda created the window itself, as the split actions do: that window
+---is eda's to remove, and restoring would leave a pane holding a copy of its neighbour.
+---@return boolean
+function Window:_can_restore()
+  if self.owns_window then
+    return false
+  end
+  if not util.is_valid_win(self.winid) or not self.bufnr then
+    return false
+  end
+  return self.old_bufnr ~= nil and vim.api.nvim_buf_is_valid(self.old_bufnr)
+end
+
 ---Close the window.
 function Window:close()
   if self.kind == "replace" then
-    -- In replace mode, restore the previous buffer instead of closing the window.
-    -- Only restore when the window still shows the eda buffer; if another buffer
-    -- is displayed (e.g. after a select action), leave it untouched.
-    if util.is_valid_win(self.winid) and self.old_bufnr and vim.api.nvim_buf_is_valid(self.old_bufnr) then
-      if self.bufnr and vim.api.nvim_win_get_buf(self.winid) == self.bufnr then
-        vim.api.nvim_win_set_buf(self.winid, self.old_bufnr)
-      end
+    -- In replace mode the window belongs to the user, so hand it back with the buffer
+    -- it held instead of closing it. Only restore when the window still shows the eda
+    -- buffer; if another buffer is displayed (e.g. after a select action), leave it
+    -- untouched. Declining to restore leaves the window to the caller's buffer wipe,
+    -- which closes it.
+    if self:_can_restore() and vim.api.nvim_win_get_buf(self.winid) == self.bufnr then
+      vim.api.nvim_win_set_buf(self.winid, self.old_bufnr)
     end
   else
     local was_focused = util.is_valid_win(self.winid) and vim.api.nvim_get_current_win() == self.winid
     if util.is_valid_win(self.winid) then
-      vim.api.nvim_win_close(self.winid, true)
+      -- Closing the last window raises E444, and there is no predicate that gets every
+      -- case right: `winnr("$")` counts a foreign float, and counting non-float windows
+      -- over-triggers for the only window of a second tabpage. Declining here leaves the
+      -- window for the caller's buffer wipe, which repurposes it with another buffer.
+      pcall(vim.api.nvim_win_close, self.winid, true)
     end
     if was_focused and util.is_valid_win(self.old_winid) then
       vim.api.nvim_set_current_win(self.old_winid)

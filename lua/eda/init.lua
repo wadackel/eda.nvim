@@ -691,8 +691,8 @@ local function destroy_explorer(explorer)
   pcall(vim.api.nvim_del_augroup_by_name, "eda_explorer_" .. explorer.buffer.bufnr)
   explorer.refresh:reset()
   explorer.watcher:unwatch_all()
-  explorer.buffer:destroy()
   explorer.window:close()
+  explorer.buffer:destroy()
   sync_geometry_watcher()
   fire_event("EdaTreeClose", { root_path = explorer.root_path, instance_id = explorer.instance_id })
 end
@@ -727,7 +727,7 @@ function M.open(opts)
 
   local scanner = Scanner.new(store, cfg)
   local buffer = Buffer.new(root_path, cfg, is_split and instance_id or nil)
-  local window = Window.new(kind, cfg)
+  local window = Window.new(kind, cfg, opts._own_window)
   local watcher = Watcher.new()
   local preview = Preview.new(cfg.preview)
   local full_name = FullName.new(cfg.full_name)
@@ -1676,7 +1676,7 @@ function M.open_split(root_path)
   end
   vim.cmd("vsplit")
   -- Open a new explorer in the new window
-  M.open({ dir = root_path, kind = "replace", _new_instance = true })
+  M.open({ dir = root_path, kind = "replace", _new_instance = true, _own_window = true })
 end
 
 ---Open a new explorer in a horizontal split.
@@ -1689,7 +1689,7 @@ function M.open_vsplit(root_path)
     end
   end
   vim.cmd("split")
-  M.open({ dir = root_path, kind = "replace", _new_instance = true })
+  M.open({ dir = root_path, kind = "replace", _new_instance = true, _own_window = true })
 end
 
 ---Reopen the current float explorer in the target window using replace layout.
