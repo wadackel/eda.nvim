@@ -267,6 +267,12 @@ Window layout configuration.
 
 - `window.kind` `string` (default: `"float"`) Initial window layout kind. One of
     `"float"`, `"split_left"`, `"split_right"`, or `"replace"`.
+    `replace` takes over the window you are in rather than opening one, so closing
+    the explorer hands that window back with the buffer it was showing before —
+    including an unlisted one such as a help window. The other kinds open their own
+    window and close it again. A pane created by the `split` or `vsplit` action is
+    eda’s own, so it closes with its explorer even though it uses the `replace`
+    layout inside.
 - `window.border` `string` (default: `"rounded"`) Border style for float windows.
     See `:help nvim_open_win()`.
 - `window.kinds` `table` Per-kind dimension settings. Each dimension value

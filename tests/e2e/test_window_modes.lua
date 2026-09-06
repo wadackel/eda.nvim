@@ -200,6 +200,106 @@ T["window modes"]["replace mode closes with q"] = function()
   e2e.wait_until(child, 'vim.bo.filetype ~= "eda"')
 end
 
+local REPLACE_SETUP = [[
+  require("eda").setup({
+    git = { enabled = false },
+    icon = { provider = "none" },
+    window = { kind = "replace" },
+    confirm = false,
+    header = false,
+  })
+]]
+
+-- A single window hides the bug: wiping the explorer buffer cannot close the last
+-- window, so Neovim swaps in the alternate buffer and the result looks like a restore.
+-- Only a second window, or a second tabpage, tells the two apart.
+T["window modes"]["replace mode hands its window back when another window is open"] = function()
+  e2e.exec(child, REPLACE_SETUP)
+  e2e.exec(child, string.format([[vim.cmd.edit(vim.fn.fnameescape(%q))]], tmp .. "/file.txt"))
+  e2e.exec(child, [[vim.cmd("vsplit")]])
+  local wins_before = e2e.get_win_count(child)
+  local previous = e2e.exec(child, [[return vim.api.nvim_buf_get_name(0)]])
+
+  e2e.exec(child, string.format([[require("eda").open({ dir = %q })]], tmp))
+  e2e.wait_until(child, 'vim.bo.filetype == "eda"')
+
+  e2e.feed(child, "q")
+  e2e.wait_until(child, 'vim.bo.filetype ~= "eda"')
+
+  MiniTest.expect.equality(e2e.get_win_count(child), wins_before)
+  MiniTest.expect.equality(e2e.exec(child, [[return vim.api.nvim_buf_get_name(0)]]), previous)
+end
+
+-- The case Neovim's alternate-buffer fallback cannot fake: an unlisted buffer is not a
+-- candidate for it, so only a real restore puts the help window back.
+T["window modes"]["replace mode restores an unlisted previous buffer"] = function()
+  e2e.exec(child, REPLACE_SETUP)
+  e2e.exec(child, [[vim.cmd("vsplit"); vim.cmd("help")]])
+  e2e.wait_until(child, 'vim.bo.buftype == "help"')
+  local previous = e2e.exec(child, [[return vim.api.nvim_buf_get_name(0)]])
+  MiniTest.expect.equality(e2e.exec(child, [[return vim.bo.buflisted]]), false)
+
+  e2e.exec(child, string.format([[require("eda").open({ dir = %q })]], tmp))
+  e2e.wait_until(child, 'vim.bo.filetype == "eda"')
+
+  e2e.feed(child, "q")
+  e2e.wait_until(child, 'vim.bo.filetype ~= "eda"')
+
+  MiniTest.expect.equality(e2e.exec(child, [[return vim.api.nvim_buf_get_name(0)]]), previous)
+end
+
+-- eda created this pane, so closing the explorer takes the pane with it rather than
+-- leaving a duplicate of the neighbour behind. A plain file is opened alongside first so
+-- the pane inherits a non-eda buffer: otherwise `old_bufnr` would be an eda buffer and
+-- the restorability clause, not window ownership, would be what declines.
+T["window modes"]["a pane opened by the split action closes with the explorer"] = function()
+  -- split_left, not replace: open_split then targets the user's file window, so the new
+  -- pane inherits a plain buffer. From a replace explorer it would inherit the eda
+  -- buffer, and the validity of `old_bufnr` rather than ownership would be what decides.
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = false },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+    })
+  ]]
+  )
+  e2e.exec(child, string.format([[vim.cmd.edit(vim.fn.fnameescape(%q))]], tmp .. "/file.txt"))
+  e2e.exec(child, string.format([[require("eda").open({ dir = %q })]], tmp))
+  e2e.wait_until(child, 'vim.bo.filetype == "eda"')
+  local wins_before = e2e.get_win_count(child)
+
+  e2e.exec(child, string.format([[require("eda").open_split(%q)]], tmp))
+  e2e.wait_until(child, "#require('eda').get_all() == 2", 10000)
+  MiniTest.expect.equality(e2e.get_win_count(child), wins_before + 1)
+  MiniTest.expect.equality(
+    e2e.exec(child, [[return vim.bo[require("eda").get_all()[2].window.old_bufnr].filetype ~= "eda"]]),
+    true
+  )
+
+  e2e.exec(child, [[require("eda").close(require("eda").get_all()[2])]])
+  e2e.wait_until(child, "#require('eda').get_all() == 1", 10000)
+  MiniTest.expect.equality(e2e.get_win_count(child), wins_before)
+end
+
+T["window modes"]["replace mode in its own tabpage keeps the tab"] = function()
+  e2e.exec(child, REPLACE_SETUP)
+  e2e.exec(child, [[vim.cmd("tabnew")]])
+  local tabs_before = e2e.get_tab_count(child)
+
+  e2e.exec(child, string.format([[require("eda").open({ dir = %q })]], tmp))
+  e2e.wait_until(child, 'vim.bo.filetype == "eda"')
+
+  e2e.feed(child, "q")
+  e2e.wait_until(child, 'vim.bo.filetype ~= "eda"')
+
+  MiniTest.expect.equality(e2e.get_tab_count(child), tabs_before)
+end
+
 T["window modes"]["split_right mode starts and shows filetype eda"] = function()
   e2e.exec(
     child,

@@ -255,4 +255,38 @@ T["lifecycle"]["a resize that keeps the window does not stale the saved cursor"]
   MiniTest.expect.equality(node and node.path, tmp .. "/zzz.txt")
 end
 
+-- A split explorer whose neighbour was closed becomes the last window, and closing it
+-- then reaches nvim_win_close on that last window. The error escapes destroy_explorer,
+-- so the geometry watcher and EdaTreeClose are skipped and the user sees a raw E444.
+T["lifecycle"]["closing a split explorer that became the last window does not error"] = function()
+  local explorer = setup("split_left")
+  local bufnr = explorer.buffer.bufnr
+
+  for _, win in ipairs(vim.api.nvim_list_wins()) do
+    if win ~= explorer.window.winid then
+      pcall(vim.api.nvim_win_close, win, true)
+    end
+  end
+  MiniTest.expect.equality(#vim.api.nvim_list_wins(), 1)
+  MiniTest.expect.equality(vim.api.nvim_list_wins()[1], explorer.window.winid)
+
+  local fired = 0
+  local group = vim.api.nvim_create_augroup("eda_test_tree_close", { clear = true })
+  vim.api.nvim_create_autocmd("User", {
+    group = group,
+    pattern = "EdaTreeClose",
+    callback = function()
+      fired = fired + 1
+    end,
+  })
+
+  local ok, err = pcall(eda.close, explorer)
+  vim.api.nvim_del_augroup_by_id(group)
+
+  assert(ok, tostring(err))
+  MiniTest.expect.equality(#eda.get_all(), 0)
+  MiniTest.expect.equality(vim.api.nvim_buf_is_valid(bufnr), false)
+  MiniTest.expect.equality(fired, 1)
+end
+
 return T
