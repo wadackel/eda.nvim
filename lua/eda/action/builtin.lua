@@ -329,27 +329,34 @@ action.register("collapse_node", function(ctx)
   end
 end, { desc = "Collapse node or go to parent" })
 
-action.register("refresh", function(ctx)
+---Rescan the whole tree, then repaint through `render`.
+---@param ctx eda.ActionContext
+---@param render fun(ctx: eda.ActionContext)
+local function rescan_then(ctx, render)
   local util = require("eda.util")
-
-  -- Clear modified flag so repaint is not suppressed
-  vim.bo[ctx.buffer.bufnr].modified = false
-
   ctx.store:next_generation()
   ctx.scanner:rescan_preserving_state(ctx.store.root_id, function()
     vim.schedule(function()
       if not util.is_valid_buf(ctx.buffer.bufnr) then
         return
       end
-      refresh(ctx)
+      render(ctx)
       refresh_git(ctx)
     end)
   end)
+end
+
+action.register("refresh", function(ctx)
+  -- Clear modified flag so repaint is not suppressed
+  vim.bo[ctx.buffer.bufnr].modified = false
+  rescan_then(ctx, refresh)
 end, { desc = "Refresh file tree" })
 
 action.register("toggle_hidden", function(ctx)
   ctx.config.show_hidden = not ctx.config.show_hidden
-  action.dispatch("refresh", ctx)
+  -- `show_hidden` is enforced in the scanner, so the tree has to be rescanned;
+  -- unlike `<C-l>` this is not a request to throw the user's pending edits away.
+  rescan_then(ctx, refresh_preserving)
 end, { desc = "Toggle hidden files" })
 
 action.register("toggle_gitignored", function(ctx)

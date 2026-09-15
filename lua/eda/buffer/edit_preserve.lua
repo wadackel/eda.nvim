@@ -35,7 +35,7 @@ function M.capture(bufnr, painter, store, root_path, indent_width)
   local header_lines = painter.header_lines or 0
 
   local snapshot = painter:get_snapshot()
-  local parsed = Parser.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines, snapshot)
+  local parsed = Parser.parse_lines(bufnr, ns_id, indent_width, root_path, painter.ns_header, snapshot)
   local operations = Diff.compute(parsed, snapshot, store)
 
   local moves = {}

@@ -424,23 +424,29 @@ function Painter:paint(flat_lines, decorations, opts)
   vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
   vim.bo[self.bufnr].undolevels = saved_undolevels
 
-  -- Header extmarks (non-ephemeral, only on structure change)
+  -- Header extmarks (non-ephemeral, only on structure change).
+  -- `invalidate` makes these the parser's record of which rows are not entries:
+  -- without it a deleted header row's mark slides onto the first real entry and
+  -- that entry is read as gone.
   vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_header, 0, -1)
   if show_header then
     vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_header, 0, 0, {
       end_col = #lines[1],
       hl_group = "EdaRootName",
+      invalidate = true,
     })
     if opts.filter_active then
       vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_header, 0, 0, {
         virt_text = { { FILTER_LABEL, "EdaFilterIndicator" } },
         virt_text_pos = "right_align",
+        invalidate = true,
       })
     end
     if show_divider then
       vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_header, 1, 0, {
         end_col = #lines[2],
         hl_group = "EdaDivider",
+        invalidate = true,
       })
     end
   end
@@ -448,6 +454,7 @@ function Painter:paint(flat_lines, decorations, opts)
     vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_header, empty_row - 1, 0, {
       virt_text = { { opts.empty_message, "EdaLoadingNode" } },
       virt_text_pos = "inline",
+      invalidate = true,
     })
   end
 

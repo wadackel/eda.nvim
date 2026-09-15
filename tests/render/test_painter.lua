@@ -1305,7 +1305,7 @@ T["empty-state message is virtual text, not buffer content"] = function()
   local Parser = require("eda.buffer.parser")
   local Diff = require("eda.tree.diff")
   local snapshot = painter:get_snapshot()
-  local parsed = Parser.parse_lines(buf, painter.ns_ids, 2, "/project", painter.header_lines, snapshot)
+  local parsed = Parser.parse_lines(buf, painter.ns_ids, 2, "/project", painter.ns_header, snapshot)
   MiniTest.expect.equality(#parsed, 0)
   MiniTest.expect.equality(#Diff.compute(parsed, snapshot, store), 0)
 

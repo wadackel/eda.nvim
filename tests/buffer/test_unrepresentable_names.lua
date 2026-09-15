@@ -42,7 +42,7 @@ end
 
 local function operations(bufnr, store, painter)
   local snapshot = painter:get_snapshot()
-  local parsed = Parser.parse_lines(bufnr, painter.ns_ids, 2, "/project", painter.header_lines, snapshot)
+  local parsed = Parser.parse_lines(bufnr, painter.ns_ids, 2, "/project", painter.ns_header, snapshot)
   return Diff.compute(parsed, snapshot, store)
 end
 

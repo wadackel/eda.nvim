@@ -1363,7 +1363,7 @@ function M._handle_write(explorer)
 
   -- Parse buffer lines (skip header lines)
   local parsed =
-    Parser.parse_lines(buffer.bufnr, ns_id, cfg.indent.width, explorer.root_path, buffer.painter.header_lines, snapshot)
+    Parser.parse_lines(buffer.bufnr, ns_id, cfg.indent.width, explorer.root_path, buffer.painter.ns_header, snapshot)
 
   -- Compute diff against snapshot
   local operations = Diff.compute(parsed, snapshot, store)
