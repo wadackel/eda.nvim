@@ -27,7 +27,7 @@ local function build_icon_virt_text(entry)
 end
 
 ---@class eda.RenderSnapshot
----@field entries table<integer, { line: integer, path: string }>
+---@field entries table<integer, { line: integer, path: string, name: string?, display: string? }>
 
 ---@class eda.Painter
 ---@field bufnr integer
@@ -212,17 +212,68 @@ function Painter._build_header_text(root_path, format)
   return vim.fn.fnamemodify(root_path, ":~")
 end
 
+-- Control Pictures for the bytes that break the one-entry-per-line format: a
+-- leading whitespace run is read back as indentation, and a newline cannot be
+-- written to a buffer line at all.
+-- Built via string.char for the same reason as the divider glyph below: the source
+-- stays ASCII-only.
+local CONTROL_PICTURE = {
+  ["\n"] = string.char(0xe2, 0x90, 0x8a), -- U+240A SYMBOL FOR LINE FEED
+  [" "] = string.char(0xe2, 0x90, 0xa0), -- U+2420 SYMBOL FOR SPACE
+  ["\t"] = string.char(0xe2, 0x90, 0x89), -- U+2409 SYMBOL FOR HORIZONTAL TABULATION
+  ["\r"] = string.char(0xe2, 0x90, 0x8d), -- U+240D SYMBOL FOR CARRIAGE RETURN
+  ["\v"] = string.char(0xe2, 0x90, 0x8b), -- U+240B SYMBOL FOR VERTICAL TABULATION
+  ["\f"] = string.char(0xe2, 0x90, 0x8c), -- U+240C SYMBOL FOR FORM FEED
+}
+
+---Whether a name survives a round trip through the buffer line format.
+---@param name string
+---@return boolean
+local function is_representable(name)
+  return name ~= "" and name:match("^%s") == nil and name:find("\n", 1, true) == nil
+end
+
+---Render an unrepresentable name with visible stand-ins, so the line neither
+---starts with whitespace nor contains a newline.
+---@param name string
+---@return string
+local function sanitize(name)
+  local leading, rest = name:match("^(%s*)(.*)$")
+  leading = leading:gsub(".", function(c)
+    return CONTROL_PICTURE[c] or c
+  end)
+  return leading .. (rest:gsub("\n", CONTROL_PICTURE["\n"]))
+end
+
+---The text a node occupies after the indent.
+---@param node eda.TreeNode
+---@return string
+local function entry_text(node)
+  local name = node.name
+  if not is_representable(name) then
+    name = sanitize(name)
+  end
+  return Node.is_dir(node) and (name .. "/") or name
+end
+
+---Snapshot entry for a flat line. `name` and `display` are present only for nodes
+---whose name cannot be edited as text; the diff needs both to tell an untouched
+---line from an edited one.
+---@param node eda.TreeNode
+---@param line integer 0-based row
+---@return { line: integer, path: string, name: string?, display: string? }
+local function snapshot_entry(node, line)
+  if is_representable(node.name) then
+    return { line = line, path = node.path }
+  end
+  return { line = line, path = node.path, name = node.name, display = entry_text(node) }
+end
+
 ---Build the display text for a single flat line.
 ---@param flat_line eda.FlatLine
 ---@return string
 function Painter:_build_line(flat_line)
-  local indent = string.rep(" ", flat_line.depth * self.indent_width)
-  local node = flat_line.node
-  local name = node.name
-  if Node.is_dir(node) then
-    name = name .. "/"
-  end
-  return indent .. name
+  return string.rep(" ", flat_line.depth * self.indent_width) .. entry_text(flat_line.node)
 end
 
 ---Check whether a highlight group has any visual attributes.
@@ -352,16 +403,18 @@ function Painter:paint(flat_lines, decorations, opts)
 
   for i, fl in ipairs(flat_lines) do
     lines[offset + i] = self:_build_line(fl)
-    new_snapshot.entries[fl.node_id] = { line = offset + i - 1, path = fl.node.path }
+    new_snapshot.entries[fl.node_id] = snapshot_entry(fl.node, offset + i - 1)
   end
 
   -- Empty-state message: render after the header/divider shell when the tree has
   -- no flat lines. Consumers pass this when the filter is active and no files
   -- match, or during git-status loading via the caller's own branch.
+  -- The message is virtual text on an empty anchor row: real text here would be
+  -- parsed as an entry on the next `:w` and created as a file.
   local empty_row = nil
   if opts.empty_message and #flat_lines == 0 then
     empty_row = offset + 1
-    lines[empty_row] = opts.empty_message
+    lines[empty_row] = ""
   end
 
   -- Set buffer text
@@ -393,8 +446,8 @@ function Painter:paint(flat_lines, decorations, opts)
   end
   if empty_row then
     vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_header, empty_row - 1, 0, {
-      end_col = #lines[empty_row],
-      hl_group = "EdaLoadingNode",
+      virt_text = { { opts.empty_message, "EdaLoadingNode" } },
+      virt_text_pos = "inline",
     })
   end
 
@@ -655,7 +708,7 @@ function Painter:paint_incremental(flat_lines, decorations, opts, hint)
 
   local new_snapshot = { entries = {} }
   for i, fl in ipairs(flat_lines) do
-    new_snapshot.entries[fl.node_id] = { line = offset + i - 1, path = fl.node.path }
+    new_snapshot.entries[fl.node_id] = snapshot_entry(fl.node, offset + i - 1)
   end
   self.snapshot = new_snapshot
 

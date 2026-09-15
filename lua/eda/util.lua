@@ -62,6 +62,24 @@ function M.is_valid_win(winid)
   return winid ~= nil and vim.api.nvim_win_is_valid(winid)
 end
 
+---Return `path` relative to `root`, or nil when `path` is not inside `root`.
+---Returns "" when the two are the same path.
+---vim.fs.relpath is not usable here: it normalizes both arguments, which expands
+---`$VAR` and `~`, corrupting names that legitimately contain those characters.
+---@param root string
+---@param path string
+---@return string?
+function M.relpath(root, path)
+  if path == root then
+    return ""
+  end
+  local prefix = root == "/" and "/" or root .. "/"
+  if path:sub(1, #prefix) == prefix then
+    return path:sub(#prefix + 1)
+  end
+  return nil
+end
+
 ---Normalize a string from NFD to NFC (macOS filesystem compatibility).
 ---On non-macOS systems, returns the input unchanged.
 ---@param str string

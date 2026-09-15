@@ -296,4 +296,45 @@ T["setup"]["invalid large directory thresholds leave the previous config intact"
     MiniTest.expect.equality(config.get() == previous, true)
   end
 end
+T["setup"]["list-valued options replace the default list instead of merging index-wise"] = function()
+  config.setup({ root_markers = { "package.json" } })
+  MiniTest.expect.equality(config.get().root_markers, { "package.json" })
+
+  config.setup({ root_markers = { "deno.json", "package.json", "Cargo.toml" } })
+  MiniTest.expect.equality(config.get().root_markers, { "deno.json", "package.json", "Cargo.toml" })
+
+  config.setup({ root_markers = {} })
+  MiniTest.expect.equality(config.get().root_markers, {})
+
+  config.setup({})
+  MiniTest.expect.equality(config.get().root_markers, { ".git", ".hg" })
+end
+
+T["setup"]["map-valued options still merge over the defaults"] = function()
+  config.setup({ git = { icons = { added = "A" } } })
+  local git = config.get().git
+  MiniTest.expect.equality(git.icons.added, "A")
+  -- Sibling icon keys survive the merge.
+  MiniTest.expect.equality(type(git.icons.modified), "string")
+  MiniTest.expect.equality(git.enabled, true)
+  config.setup({})
+end
+
+T["setup"]["empty map overrides leave the defaults intact"] = function()
+  config.setup({ mappings = {}, git = { icons = {} }, confirm = { signs = {} } })
+  local c = config.get()
+  MiniTest.expect.equality(c.mappings["<CR>"], "select")
+  MiniTest.expect.equality(type(c.git.icons.added), "string")
+  MiniTest.expect.equality(type(c.confirm.signs.create), "string")
+  config.setup({})
+end
+
+T["setup"]["a stored list is not aliased to the caller table"] = function()
+  local markers = { "package.json" }
+  config.setup({ root_markers = markers })
+  markers[2] = "deno.json"
+  MiniTest.expect.equality(config.get().root_markers, { "package.json" })
+  config.setup({})
+end
+
 return T

@@ -327,6 +327,22 @@ function M.symlink_decorator(node, ctx)
   }
 end
 
+---Error decorator: labels a directory eda could not read, so an empty listing is
+---not mistaken for an empty directory.
+---@param node eda.TreeNode
+---@param _ctx eda.DecoratorContext
+---@return eda.Decoration?
+function M.error_decorator(node, _ctx)
+  if not node.error then
+    return nil
+  end
+  return {
+    name_hl = "EdaErrorNode",
+    suffix = node.error == "permission_denied" and "permission denied" or node.error,
+    suffix_hl = "EdaErrorNode",
+  }
+end
+
 ---Cut decorator: dims nodes that are in the cut register.
 ---@param node eda.TreeNode
 ---@param _ctx eda.DecoratorContext

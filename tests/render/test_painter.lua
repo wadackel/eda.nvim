@@ -1275,4 +1275,49 @@ T["PT-R1 reset clears state and namespaces"] = function()
   vim.api.nvim_buf_delete(buf, { force = true })
 end
 
+local function empty_state_buffer(header)
+  local store = Store.new()
+  local root = store:set_root("/project")
+  store:get(root).children_state = "loaded"
+
+  local buf = vim.api.nvim_create_buf(false, true)
+  local painter = Painter.new(buf, 2)
+  painter:paint(Flatten.flatten(store, root), nil, {
+    root_path = "/project",
+    header = header,
+    empty_message = "No git changes",
+  })
+  return buf, store, painter
+end
+
+T["empty-state message is virtual text, not buffer content"] = function()
+  local buf, store, painter = empty_state_buffer(false)
+
+  local lines = vim.api.nvim_buf_get_lines(buf, 0, -1, false)
+  MiniTest.expect.equality(lines, { "" })
+  MiniTest.expect.equality(#vim.api.nvim_buf_get_extmarks(buf, painter.ns_ids, 0, -1, {}), 0)
+
+  local marks = vim.api.nvim_buf_get_extmarks(buf, painter.ns_header, 0, -1, { details = true })
+  MiniTest.expect.equality(#marks, 1)
+  MiniTest.expect.equality(marks[1][4].virt_text[1][1], "No git changes")
+
+  -- The empty state must not turn into a create on the next save.
+  local Parser = require("eda.buffer.parser")
+  local Diff = require("eda.tree.diff")
+  local snapshot = painter:get_snapshot()
+  local parsed = Parser.parse_lines(buf, painter.ns_ids, 2, "/project", painter.header_lines, snapshot)
+  MiniTest.expect.equality(#parsed, 0)
+  MiniTest.expect.equality(#Diff.compute(parsed, snapshot, store), 0)
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
+T["empty-state message keeps an anchor row below the header"] = function()
+  local buf, _, painter = empty_state_buffer({ format = "%s", divider = true })
+  MiniTest.expect.equality(painter.header_lines, 2)
+  MiniTest.expect.equality(vim.api.nvim_buf_line_count(buf), 3)
+  MiniTest.expect.equality(vim.api.nvim_buf_get_lines(buf, 2, 3, false)[1], "")
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
 return T

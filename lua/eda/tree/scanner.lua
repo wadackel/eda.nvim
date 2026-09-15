@@ -1,5 +1,6 @@
 local Node = require("eda.tree.node")
 local Metadata = require("eda.tree.metadata")
+local util = require("eda.util")
 
 -- Refreshes create new scanners, so instance-local warning state would repeat on every rescan.
 ---@type table<string, true>
@@ -183,14 +184,8 @@ function Scanner:_do_scan_io(node_id, callback, gen, identity)
           return
         end
         node.children_state = "loaded"
+        node.error = tostring(err):find("EACCES", 1, true) and "permission_denied" or tostring(err)
         self.store:remove_children(node_id)
-        self.store:add({
-          name = err,
-          path = node.path .. "/__error__",
-          type = "file",
-          parent_id = node_id,
-          error = "permission_denied",
-        })
         finish()
       end)
       return
@@ -255,6 +250,9 @@ function Scanner:_apply_entries(node_id, entries, callback, valid)
     return not self._disposed and self.store:get(node_id) == node
   end
 
+  -- The directory was read, so whatever kept the previous scan out no longer holds.
+  node.error = nil
+
   local children = {}
 
   local follow_symlinks = self.config.follow_symlinks ~= false
@@ -279,7 +277,7 @@ function Scanner:_apply_entries(node_id, entries, callback, valid)
       end
     end
 
-    local child_path = node.path .. "/" .. ent.name
+    local child_path = vim.fs.joinpath(node.path, ent.name)
     local child_type = resolve_type(ent)
 
     local fields = {
@@ -316,8 +314,15 @@ function Scanner:scan_ancestors(target_path, callback)
   end
 
   -- Decompose target_path into segments relative to root
-  local root_path = root.path
-  local rel = target_path:sub(#root_path + 2) -- strip root_path + "/"
+  local rel = util.relpath(root.path, target_path)
+  if rel == nil then
+    -- Target lives outside this root; a length-based slice would match a sibling
+    -- directory that merely shares the root's prefix.
+    if callback then
+      callback()
+    end
+    return
+  end
   if rel == "" then
     -- Target is root itself
     self:scan(self.store.root_id, function()

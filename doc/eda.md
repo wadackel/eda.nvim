@@ -174,6 +174,11 @@ Markers used to detect the project root directory. When opening the explorer,
 eda.nvim walks up from the current buffer's directory and uses the first
 directory containing one of these markers as the root.
 
+A list passed to `setup()` replaces this default outright rather than being
+merged into it, so `root_markers = { "package.json" }` means exactly that one
+marker. The same holds for every list-valued option; tables with named keys
+(such as `mappings` or `git.icons`) still merge over the defaults.
+
 ### show_hidden
 
 `boolean` (default: `true`)
@@ -348,6 +353,11 @@ Symlink entries display a `→ <relative_path>` suffix showing the resolved
 target path relative to the tree root. The `EdaSymlink` highlight (underline)
 is always composed alongside any decorator highlights (e.g., git status colors).
 Broken symlinks show `EdaBrokenSymlink` highlight but no target suffix.
+
+A directory eda cannot read is shown with the `EdaErrorNode` highlight and a
+`permission denied` suffix, so an empty listing is not mistaken for an empty
+directory. The label clears on the next refresh once the directory becomes
+readable.
 
 ### large_dir_threshold
 
@@ -857,6 +867,15 @@ If execution stops partway through, completed operations become the new baseline
 and pending edits remain unsaved. Correct the error and write again to retry only
 the remaining operations.
 
+Some filenames cannot be spelled as a buffer line: a name beginning with
+whitespace would be read back as indentation, and a name containing a newline
+cannot occupy a single line at all. Those entries render with Unicode Control
+Pictures standing in for the offending bytes, and their names are recovered from
+the last render rather than from the line, so an untouched save never renames
+them. Editing such a line is rejected with an error at `:w`; delete the line, or
+use the `cut` / `copy` / `delete` actions, which work on the entry rather than on
+its text.
+
 Invalidated extmarks (e.g., from external formatters mangling lines) are
 skipped during parsing. The computed operations are then validated for
 structural errors — missing rename targets, duplicate destinations — and
@@ -975,7 +994,9 @@ previously visited root restores its prior expansion.
 
 `cut` / `copy` / `delete` / `duplicate` resolve their targets with a unified
 priority: **Visual selection > marked nodes > cursor node**. Root is always
-excluded. When the operation runs from marked nodes, marks are cleared on
+excluded. Their keys are mapped in Visual mode as well as Normal mode, so `D`
+and `gd` over a Visual selection act on every selected entry. Lines you typed
+but have not saved carry no entry yet and are skipped. When the operation runs from marked nodes, marks are cleared on
 success (partial failures keep the marks for the failed/unattempted entries).
 
 - **delete** — Delete target nodes. Routes through `confirm.delete` for the
@@ -990,8 +1011,10 @@ success (partial failures keep the marks for the failed/unattempted entries).
   `_3`... counters. Destinations are reserved in register order before any
   operation starts, including when several sources have the same name.
   Existing files, directories, and broken symlinks occupy their names.
-  Paste stops at the first error and keeps only failed and unattempted
-  entries in the register for retry. A newer register is preserved if it
+  A cut source that already sits in the target directory is left where it is
+  and dropped from the register, so pasting a cut back into its own directory
+  changes nothing. Paste stops at the first error and keeps only failed and
+  unattempted entries in the register for retry. A newer register is preserved if it
   changes while paste is running. A failed copy may leave a partial
   destination; a failed cut may leave both source and destination.
 - **duplicate** — Duplicate each target node into its parent directory with

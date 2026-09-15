@@ -310,15 +310,28 @@ local defaults = {
 ---@type eda.Config
 M._config = vim.deepcopy(defaults)
 
+---Whether a value may be recursed into rather than assigned wholesale.
+---An empty table counts as mergeable in both directions: it carries no elements to
+---replace anything with, so `{}` on the override side stays a no-op for map options.
+---@param v any
+---@return boolean
+local function mergeable(v)
+  return type(v) == "table" and (vim.tbl_isempty(v) or not vim.islist(v))
+end
+
 ---Deep merge two tables. Override wins.
+---A list on either side replaces its counterpart instead of merging index-wise, so
+---`root_markers = { "package.json" }` means that list and not that list plus the defaults.
 ---@param base table
 ---@param override table
 ---@return table
 local function deep_merge(base, override)
   local result = vim.deepcopy(base)
   for k, v in pairs(override) do
-    if type(v) == "table" and type(result[k]) == "table" then
+    if mergeable(v) and mergeable(result[k]) then
       result[k] = deep_merge(result[k], v)
+    elseif type(v) == "table" then
+      result[k] = vim.deepcopy(v)
     else
       result[k] = v
     end

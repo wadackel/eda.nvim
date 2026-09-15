@@ -8,6 +8,7 @@ local M = {}
 ---@field src string?
 ---@field dst string?
 ---@field entry_type "file"|"directory"?
+---@field rejected string? Why this operation cannot be carried out, surfaced by validate
 
 ---Compute operations by comparing parsed buffer lines against the render snapshot.
 ---@param parsed_lines eda.ParsedLine[] Output from parser.parse_lines
@@ -47,7 +48,20 @@ function M.compute(parsed_lines, snapshot, store)
     if pl.node_id then
       -- Existing node: check if path changed → MOVE
       local snap_entry = snapshot.entries[pl.node_id]
-      if snap_entry and snap_entry.path ~= pl.full_path then
+      if snap_entry and snap_entry.display then
+        -- The parser recovered this name from the snapshot rather than from the line,
+        -- so a changed path cannot signal the edit; the line text is the only signal.
+        if pl.text ~= snap_entry.display then
+          table.insert(moves, {
+            type = "move",
+            path = pl.full_path,
+            src = snap_entry.path,
+            dst = pl.full_path,
+            entry_type = pl.is_dir and "directory" or "file",
+            rejected = "Name contains whitespace or control characters and cannot be renamed as text",
+          })
+        end
+      elseif snap_entry and snap_entry.path ~= pl.full_path then
         table.insert(moves, {
           type = "move",
           path = pl.full_path,
@@ -152,7 +166,9 @@ function M.validate(operations, _store)
   local errors = {}
 
   for _, op in ipairs(operations) do
-    if op.type == "move" then
+    if op.rejected then
+      table.insert(errors, op.rejected .. ": " .. (op.src or op.path))
+    elseif op.type == "move" then
       if not op.src or not op.dst then
         table.insert(errors, "Move operation missing src or dst")
       elseif op.src == op.dst then

@@ -167,9 +167,74 @@ function Buffer:restore_cursor()
   end
 end
 
----Get the node at the current cursor position.
+---Resolve a range of buffer rows to nodes, in row order.
+---Rows carrying no node — header rows, blank rows, and lines the user typed that
+---have not been saved yet — are skipped, so the result may be shorter than the range.
 ---When the buffer has been modified (lines inserted/deleted), flat_lines indices
 ---are stale. Uses ns_ids extmarks as the source of truth for line-to-node mapping.
+---@param start_row integer 1-based buffer row, header rows included in the numbering
+---@param end_row integer 1-based buffer row, inclusive
+---@return eda.TreeNode[]
+function Buffer:get_nodes_in_rows(start_row, end_row)
+  start_row = math.max(start_row, 1)
+  if end_row < start_row then
+    return {}
+  end
+
+  local nodes = {}
+
+  -- When buffer is not modified, flat_lines indices are reliable
+  if not vim.bo[self.bufnr].modified then
+    local header_lines = self.painter.header_lines or 0
+    for row = start_row, end_row do
+      local fl = self.flat_lines[row - header_lines]
+      if fl then
+        nodes[#nodes + 1] = fl.node
+      end
+    end
+    return nodes
+  end
+
+  end_row = math.min(end_row, vim.api.nvim_buf_line_count(self.bufnr))
+  if end_row < start_row then
+    return {}
+  end
+
+  local by_id = {}
+  for _, fl in ipairs(self.flat_lines) do
+    by_id[fl.node_id] = fl
+  end
+
+  -- Buffer is modified: use extmarks to find the node on each row.
+  -- Extmarks track line shifts from insert/delete operations. We must request
+  -- `details = true` so we can skip extmarks whose underlying line was replaced
+  -- (those report `invalid = true` per the same convention used in
+  -- Painter:_resync_on_redraw).
+  -- The whole row is queried rather than column 0: ns_ids marks have the default
+  -- right_gravity, so text typed at the start of a line pushes the mark off column 0.
+  local marks = vim.api.nvim_buf_get_extmarks(
+    self.bufnr,
+    self.painter.ns_ids,
+    { start_row - 1, 0 },
+    { end_row - 1, -1 },
+    { details = true }
+  )
+  local resolved_row = {}
+  for _, m in ipairs(marks) do
+    local row = m[2]
+    if not resolved_row[row] and not (m[4] and m[4].invalid) then
+      local fl = by_id[m[1]]
+      if fl then
+        resolved_row[row] = true
+        nodes[#nodes + 1] = fl.node
+      end
+    end
+  end
+
+  return nodes
+end
+
+---Get the node at the current cursor position.
 ---@param winid integer
 ---@return eda.TreeNode?
 function Buffer:get_cursor_node(winid)
@@ -177,41 +242,7 @@ function Buffer:get_cursor_node(winid)
     return nil
   end
   local row = vim.api.nvim_win_get_cursor(winid)[1]
-  local header_lines = self.painter.header_lines or 0
-
-  -- When buffer is not modified, flat_lines indices are reliable
-  if not vim.bo[self.bufnr].modified then
-    local fl = self.flat_lines[row - header_lines]
-    if fl then
-      return fl.node
-    end
-    return nil
-  end
-
-  -- Buffer is modified: use extmarks to find the node at the cursor row.
-  -- Extmarks track line shifts from insert/delete operations. We must request
-  -- `details = true` so we can skip extmarks whose underlying line was replaced
-  -- (those report `invalid = true` per the same convention used in
-  -- Painter:_resync_on_redraw).
-  local marks = vim.api.nvim_buf_get_extmarks(
-    self.bufnr,
-    self.painter.ns_ids,
-    { row - 1, 0 },
-    { row - 1, 0 },
-    { details = true }
-  )
-  for _, m in ipairs(marks) do
-    if not (m[4] and m[4].invalid) then
-      local node_id = m[1]
-      for _, f in ipairs(self.flat_lines) do
-        if f.node_id == node_id then
-          return f.node
-        end
-      end
-    end
-  end
-
-  return nil
+  return self:get_nodes_in_rows(row, row)[1]
 end
 
 ---Get the FlatLine at the current cursor position.
@@ -257,6 +288,8 @@ end
 local visual_mode_actions = {
   cut = true,
   copy = true,
+  delete = true,
+  duplicate = true,
   quickfix = true,
   mark_toggle = true,
   yank_tree = true,
@@ -278,6 +311,7 @@ function Buffer:set_mappings(mappings, dispatch, get_public_ctx)
 
     if action_value == false then
       pcall(vim.keymap.del, "n", key, { buffer = self.bufnr })
+      pcall(vim.keymap.del, "v", key, { buffer = self.bufnr })
     elseif type(action_value) == "function" then
       local fn = action_value
       vim.keymap.set("n", key, function()

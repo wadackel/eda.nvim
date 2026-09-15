@@ -149,7 +149,7 @@ function Refresh:sync_watchers()
         if ex.generation ~= generation or not util.is_valid_buf(ex.buffer.bufnr) then
           return
         end
-        self:request(filename and vim.fn.fnamemodify(path .. "/" .. filename, ":h") or nil)
+        self:request(filename and vim.fn.fnamemodify(vim.fs.joinpath(path, filename), ":h") or nil)
       end)
     end
   end

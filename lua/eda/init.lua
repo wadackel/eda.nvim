@@ -736,6 +736,7 @@ function M.open(opts)
   local chain = decorator_mod.Chain.new()
   chain:add(decorator_mod.icon_decorator)
   chain:add(decorator_mod.symlink_decorator)
+  chain:add(decorator_mod.error_decorator)
   if cfg.git.enabled then
     chain:add(decorator_mod.dotgit_decorator)
     chain:add(decorator_mod.git_decorator)
@@ -822,10 +823,18 @@ function M.open(opts)
     if cfg_now.show_only_git_changes then
       local ready = git.get_status_ready(rp)
       if ready == "loading" or ready == nil then
+        -- Painted rather than written directly: the painter owns the snapshot and the
+        -- node extmarks, and a raw set_lines here would leave the previous tree in the
+        -- snapshot, so a `:w` on this screen deletes every entry it no longer sees.
         vim.bo[buf.bufnr].modifiable = true
-        vim.api.nvim_buf_set_lines(buf.bufnr, 0, -1, false, { "Git status loading..." })
-        -- nvim_buf_set_lines marks the buffer modified; clear it so the next render
-        -- (after git status becomes ready) is not skipped by the modified-guard.
+        buf.painter:paint({}, nil, {
+          root_path = rp,
+          header = cfg_now.header,
+          kind = k,
+          icon = cfg_now.icon,
+          filter_active = true,
+          empty_message = "Git status loading...",
+        })
         vim.bo[buf.bufnr].modified = false
         vim.bo[buf.bufnr].modifiable = false
         buf.flat_lines = {}
@@ -913,6 +922,13 @@ function M.open(opts)
     if cfg_now.show_only_git_changes and #flat_lines == 0 and git.get_status_ready(rp) == "ready" then
       local Painter = require("eda.render.painter")
       paint_opts.empty_message = Painter.FILTER_ICON .. "  No git changes"
+    end
+    local root_node = store:get(store.root_id)
+    if root_node and root_node.error and #flat_lines == 0 then
+      -- The root has no line of its own, so its error label has nowhere to hang.
+      paint_opts.empty_message = root_node.error == "permission_denied"
+          and "Cannot read this directory: permission denied"
+        or ("Cannot read this directory: " .. root_node.error)
     end
     -- Try incremental paint for single-directory toggle operations
     local used_incremental = false
@@ -1165,7 +1181,7 @@ function M.open(opts)
 
   -- Determine target path for cursor positioning
   local target_path = nil
-  if current_buf_path ~= "" and vim.startswith(current_buf_path, root_path .. "/") then
+  if current_buf_path ~= "" and util.relpath(root_path, current_buf_path) then
     target_path = current_buf_path
   end
 
@@ -1343,12 +1359,13 @@ function M._handle_write(explorer)
   local cfg = config.get()
   local ns_id = buffer.painter.ns_ids
 
+  local snapshot = buffer.painter:get_snapshot()
+
   -- Parse buffer lines (skip header lines)
   local parsed =
-    Parser.parse_lines(buffer.bufnr, ns_id, cfg.indent.width, explorer.root_path, buffer.painter.header_lines)
+    Parser.parse_lines(buffer.bufnr, ns_id, cfg.indent.width, explorer.root_path, buffer.painter.header_lines, snapshot)
 
   -- Compute diff against snapshot
-  local snapshot = buffer.painter:get_snapshot()
   local operations = Diff.compute(parsed, snapshot, store)
 
   if #operations == 0 then

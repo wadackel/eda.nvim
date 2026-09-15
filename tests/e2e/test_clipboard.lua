@@ -500,4 +500,58 @@ T["clipboard"]["copy directory into itself is rejected"] = function()
   MiniTest.expect.equality(vim.fn.isdirectory(tmp .. "/mydir/mydir"), 0)
 end
 
+local function cursor_to(pattern)
+  return string.format(
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for i, l in ipairs(lines) do
+      if l:find(%q, 1, true) then
+        vim.api.nvim_win_set_cursor(0, {i, 0})
+        return true
+      end
+    end
+    return false
+  ]],
+    pattern
+  )
+end
+
+T["clipboard"]["cut and paste into the source directory leaves the file alone"] = function()
+  e2e.open_eda(child, tmp)
+  e2e.create_file(tmp .. "/neighbour.txt", "neighbour")
+  e2e.feed(child, "<C-l>")
+  e2e.wait_until(child, cursor_to("source.txt"))
+
+  e2e.feed(child, "gx")
+  e2e.wait_until(child, [[require("eda.register").get() ~= nil]])
+
+  -- A sibling file resolves the paste target to the shared parent directory.
+  e2e.wait_until(child, cursor_to("neighbour.txt"))
+  e2e.feed(child, "gp")
+  e2e.wait_until(child, [[require("eda.register").get() == nil]])
+
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/source.txt"), 1)
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/source_copy.txt"), 0)
+  MiniTest.expect.equality(vim.fn.readfile(tmp .. "/source.txt")[1], "source content")
+end
+
+T["clipboard"]["cut of several sources moves only the ones outside the target"] = function()
+  e2e.create_file(tmp .. "/dest/inner.txt", "inner")
+  e2e.open_eda(child, tmp)
+
+  e2e.exec(
+    child,
+    string.format([[require("eda.register").set({ %q, %q }, "cut")]], tmp .. "/dest/inner.txt", tmp .. "/source.txt")
+  )
+  e2e.wait_until(child, cursor_to("dest/"))
+  e2e.feed(child, "gp")
+  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) ~= nil", tmp .. "/dest/source.txt"))
+
+  -- The source already inside dest/ keeps its name; the outside one moves in.
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/dest/inner.txt"), 1)
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/dest/inner_copy.txt"), 0)
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/dest/source.txt"), 1)
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/source.txt"), 0)
+end
+
 return T
