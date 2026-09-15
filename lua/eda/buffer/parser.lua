@@ -1,3 +1,5 @@
+local util = require("eda.util")
+
 local M = {}
 
 ---@class eda.ParsedLine
@@ -8,6 +10,7 @@ local M = {}
 ---@field parent_path string?
 ---@field full_path string?
 ---@field line_nr integer?
+---@field text string? Line content after the indent, as the user currently has it
 
 ---Parse a single buffer line.
 ---@param bufnr integer
@@ -58,9 +61,13 @@ end
 ---@param indent_width integer
 ---@param root_path string Root directory path
 ---@param header_lines? integer Number of header lines to skip (default 0)
+---@param snapshot? eda.RenderSnapshot Last render, used to recover names that cannot be
+---  spelled in the buffer (a leading space reads back as indentation, a newline cannot
+---  be written at all). Without it such a line parses as a different entry.
 ---@return eda.ParsedLine[] parsed Lines with parent_path added
-function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines)
+function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines, snapshot)
   header_lines = header_lines or 0
+  local entries = snapshot and snapshot.entries or {}
   local line_count = vim.api.nvim_buf_line_count(bufnr)
   local result = {}
 
@@ -103,6 +110,14 @@ function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines)
       name = name:sub(1, -2)
     end
 
+    local node_id = mark_by_row[line_nr]
+    local rendered = node_id and entries[node_id]
+    local rendered_name = rendered and rendered.name
+    if rendered_name and rendered.display then
+      name = rendered_name
+      is_dir = rendered.display:sub(-1) == "/"
+    end
+
     if name == "" then
       goto continue
     end
@@ -113,16 +128,17 @@ function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines)
     end
 
     local parent_path = stack[#stack].path
-    local full_path = parent_path .. "/" .. name
+    local full_path = util.joinpath(parent_path, name)
 
     table.insert(result, {
       line_nr = line_nr,
       indent = indent,
-      node_id = mark_by_row[line_nr],
+      node_id = node_id,
       name = name,
       is_dir = is_dir,
       parent_path = parent_path,
       full_path = full_path,
+      text = text,
     })
 
     -- If this is a directory, push it onto the stack

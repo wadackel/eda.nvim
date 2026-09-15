@@ -633,4 +633,131 @@ T["_apply_entries function returning nil treated as empty"] = function()
   MiniTest.expect.equality(#children, 2)
 end
 
+T["scan joins child paths without doubling the filesystem root slash"] = function()
+  local store = Store.new()
+  local root_id = store:set_root("/")
+  local scanner = Scanner.new(store)
+  scanner:_apply_entries(root_id, { { name = "usr", type = "directory" }, { name = "tmp", type = "directory" } })
+
+  MiniTest.expect.no_equality(store:get_by_path("/usr"), nil)
+  MiniTest.expect.equality(store:get_by_path("//usr"), nil)
+  for _, child in ipairs(store:children(root_id)) do
+    MiniTest.expect.equality(child.path:sub(1, 2) == "//", false)
+  end
+end
+
+T["scan_ancestors ignores a target outside the root"] = function()
+  local tmp = vim.uv.fs_realpath(helpers.create_temp_dir())
+  helpers.create_dir(tmp .. "/lib/core")
+  helpers.create_dir(tmp .. "/libs/core")
+  helpers.create_file(tmp .. "/libs/core/x.lua", "x")
+
+  local store = Store.new()
+  store:set_root(tmp .. "/lib")
+  local scanner = Scanner.new(store)
+
+  local done = false
+  scanner:scan_ancestors(tmp .. "/libs/core/x.lua", function()
+    done = true
+  end)
+  helpers.wait_for(5000, function()
+    return done
+  end)
+  MiniTest.expect.equality(done, true)
+
+  local core = store:get_by_path(tmp .. "/lib/core")
+  -- The sibling target must not expand a same-named directory inside this root.
+  MiniTest.expect.equality(core == nil or core.open ~= true, true)
+
+  helpers.remove_temp_dir(tmp)
+end
+
+T["an unreadable directory records the error on itself, not on a child"] = function()
+  if vim.uv.getuid() == 0 then
+    MiniTest.skip("root bypasses directory permissions")
+  end
+  local tmp = vim.uv.fs_realpath(helpers.create_temp_dir())
+  helpers.create_dir(tmp .. "/secret")
+  helpers.create_file(tmp .. "/secret/hidden.txt", "s")
+  vim.fn.system({ "chmod", "000", tmp .. "/secret" })
+
+  local store = Store.new()
+  local root_id = store:set_root(tmp)
+  local scanner = Scanner.new(store)
+
+  local done = false
+  scanner:scan(root_id, function()
+    done = true
+  end)
+  helpers.wait_for(5000, function()
+    return done
+  end)
+
+  local secret = store:get_by_path(tmp .. "/secret")
+  MiniTest.expect.no_equality(secret, nil)
+
+  local scanned = false
+  scanner:scan(secret.id, function()
+    scanned = true
+  end)
+  helpers.wait_for(5000, function()
+    return scanned
+  end)
+
+  MiniTest.expect.equality(secret.error, "permission_denied")
+  MiniTest.expect.equality(secret.children_state, "loaded")
+  MiniTest.expect.equality(#store:children(secret.id), 0)
+  -- No node may carry a path that does not exist on disk.
+  for _, node in pairs(store.nodes) do
+    MiniTest.expect.equality(node.path:find("__error__", 1, true), nil)
+  end
+
+  vim.fn.system({ "chmod", "755", tmp .. "/secret" })
+  helpers.remove_temp_dir(tmp)
+end
+
+T["a directory that becomes readable clears its error"] = function()
+  if vim.uv.getuid() == 0 then
+    MiniTest.skip("root bypasses directory permissions")
+  end
+  local tmp = vim.uv.fs_realpath(helpers.create_temp_dir())
+  helpers.create_dir(tmp .. "/secret")
+  helpers.create_file(tmp .. "/secret/hidden.txt", "s")
+  vim.fn.system({ "chmod", "000", tmp .. "/secret" })
+
+  local store = Store.new()
+  local root_id = store:set_root(tmp)
+  local scanner = Scanner.new(store)
+  local done = false
+  scanner:scan(root_id, function()
+    done = true
+  end)
+  helpers.wait_for(5000, function()
+    return done
+  end)
+  local secret = store:get_by_path(tmp .. "/secret")
+  local first = false
+  scanner:scan(secret.id, function()
+    first = true
+  end)
+  helpers.wait_for(5000, function()
+    return first
+  end)
+  MiniTest.expect.equality(secret.error, "permission_denied")
+
+  vim.fn.system({ "chmod", "755", tmp .. "/secret" })
+  local second = false
+  scanner:scan(secret.id, function()
+    second = true
+  end)
+  helpers.wait_for(5000, function()
+    return second
+  end)
+
+  MiniTest.expect.equality(secret.error, nil)
+  MiniTest.expect.equality(#store:children(secret.id), 1)
+
+  helpers.remove_temp_dir(tmp)
+end
+
 return T

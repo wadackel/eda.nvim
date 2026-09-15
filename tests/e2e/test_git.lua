@@ -656,9 +656,12 @@ T["git"]["shows 'No git changes' when filter on and repo is clean"] = function()
   e2e.wait_until(
     child,
     [[
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    for _, l in ipairs(lines) do
-      if l:find("No git changes") then return true end
+    local explorer = require("eda").get_current()
+    if not explorer then return false end
+    local ns = explorer.buffer.painter.ns_header
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, ns, 0, -1, { details = true })) do
+      local chunks = m[4] and m[4].virt_text
+      if chunks and chunks[1] and chunks[1][1]:find("No git changes") then return true end
     end
     return false
   ]],
@@ -853,9 +856,12 @@ T["git"]["shows 'No git changes' when all files are gitignored and filter is on"
   e2e.wait_until(
     child,
     [[
-    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
-    for _, l in ipairs(lines) do
-      if l:find("No git changes") then return true end
+    local explorer = require("eda").get_current()
+    if not explorer then return false end
+    local ns = explorer.buffer.painter.ns_header
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(0, ns, 0, -1, { details = true })) do
+      local chunks = m[4] and m[4].virt_text
+      if chunks and chunks[1] and chunks[1][1]:find("No git changes") then return true end
     end
     return false
   ]],
@@ -1319,7 +1325,10 @@ T["git"]["old-root status completion cannot disturb the new root"] = function()
       window = { kind = "split_left" }, header = false, show_only_git_changes = true })
   ]]
   )
-  e2e.open_eda(child, tmp)
+  -- open_eda waits for a non-empty first line, which the loading empty state no
+  -- longer has: its message is virtual text over an empty anchor row.
+  e2e.exec(child, string.format([[require("eda").open({ dir = %q })]], tmp))
+  e2e.wait_until(child, [[vim.bo.filetype == "eda"]])
   e2e.wait_until(child, string.format("_G.git_jobs[%q] ~= nil", tmp))
   e2e.exec(child, string.format([[require("eda")._change_root(require("eda").get_current(), %q)]], nested))
   e2e.wait_until(child, string.format("_G.git_jobs[%q] ~= nil", nested))
@@ -1356,4 +1365,34 @@ T["git"]["old-root status completion cannot disturb the new root"] = function()
     true
   )
 end
+T["git"]["saving on the empty-state screen creates nothing"] = function()
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = true },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+      show_only_git_changes = true,
+    })
+  ]]
+  )
+  e2e.exec(child, string.format([[require("eda").open({ dir = %q })]], tmp))
+  e2e.wait_until(child, [[vim.bo.filetype == "eda"]], 5000)
+  e2e.wait_until(child, string.format([[require("eda.git").get_status_ready(%q) == "ready"]], tmp), 10000)
+  e2e.wait_until(child, [[require("eda").get_current()._empty_state_rendered == true]], 10000)
+
+  local before = vim.fn.readdir(tmp)
+  e2e.exec(child, [[vim.cmd("silent! write")]])
+  e2e.wait_until(child, [[vim.bo.modified == false]], 5000)
+
+  MiniTest.expect.equality(vim.fn.readdir(tmp), before)
+  -- The message must live in virtual text, not in buffer content.
+  MiniTest.expect.equality(e2e.get_buf_lines(child), { "" })
+
+  e2e.feed(child, "gs")
+end
+
 return T

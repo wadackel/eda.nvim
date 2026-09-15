@@ -78,4 +78,31 @@ T["nfc_normalize"]["handles non-empty string"] = function()
   MiniTest.expect.equality(#result > 0, true)
 end
 
+T["relpath returns the path below root"] = function()
+  MiniTest.expect.equality(util.relpath("/p/lib", "/p/lib/core/y.lua"), "core/y.lua")
+  MiniTest.expect.equality(util.relpath("/p/lib", "/p/lib"), "")
+end
+
+T["relpath treats the filesystem root as a single slash"] = function()
+  MiniTest.expect.equality(util.relpath("/", "/usr/bin"), "usr/bin")
+  MiniTest.expect.equality(util.relpath("/", "/"), "")
+end
+
+T["relpath rejects a sibling that merely shares the prefix"] = function()
+  MiniTest.expect.equality(util.relpath("/p/lib", "/p/libs/core/x.lua"), nil)
+  MiniTest.expect.equality(util.relpath("/p/lib", "/other"), nil)
+  MiniTest.expect.equality(util.relpath("/a", "/"), nil)
+end
+
+T["relpath leaves shell metacharacters in names untouched"] = function()
+  MiniTest.expect.equality(util.relpath("/p", "/p/$HOME"), "$HOME")
+  MiniTest.expect.equality(util.relpath("/p", "/p/~/x"), "~/x")
+end
+
+T["joinpath keeps a single separator"] = function()
+  MiniTest.expect.equality(util.joinpath("/p/lib", "core"), "/p/lib/core")
+  MiniTest.expect.equality(util.joinpath("/", "usr"), "/usr")
+  MiniTest.expect.equality(util.joinpath("/p", "a/b.txt"), "/p/a/b.txt")
+end
+
 return T

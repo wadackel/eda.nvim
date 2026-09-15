@@ -954,4 +954,24 @@ T["Chain: marked broken symlink → {EdaBrokenSymlink, EdaMarkedName}"] = functi
   vim.api.nvim_set_hl(0, "EdaMarkedName", { link = "EdaMarked" })
 end
 
+T["error_decorator labels an unreadable directory"] = function()
+  local store = require("eda.tree.store").new()
+  local root = store:set_root("/project")
+  local id = store:add({
+    name = "secret",
+    path = "/project/secret",
+    type = "directory",
+    parent_id = root,
+    error = "permission_denied",
+  })
+  local ctx = { store = store, config = require("eda.config").get() }
+
+  local dec = decorator.error_decorator(store:get(id), ctx)
+  MiniTest.expect.equality(dec.name_hl, "EdaErrorNode")
+  MiniTest.expect.equality(dec.suffix, "permission denied")
+
+  local ok_node = store:add({ name = "ok", path = "/project/ok", type = "directory", parent_id = root })
+  MiniTest.expect.equality(decorator.error_decorator(store:get(ok_node), ctx), nil)
+end
+
 return T

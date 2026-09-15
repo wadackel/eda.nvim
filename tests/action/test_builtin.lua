@@ -349,7 +349,13 @@ local function make_target_ctx(cursor_node_id)
     { node_id = 6 },
     { node_id = 7 },
   }
-  ctx.buffer.painter = { header_lines = 0 }
+  ctx.buffer.painter = { header_lines = 0, ns_ids = vim.api.nvim_create_namespace("eda_test_node_ids") }
+  -- Exercise the real row resolver rather than a stand-in, so the Visual target
+  -- tests stay honest about how rows map to nodes.
+  ctx.buffer.get_nodes_in_rows = require("eda.buffer").get_nodes_in_rows
+  for _, fl in ipairs(ctx.buffer.flat_lines) do
+    fl.node = store:get(fl.node_id)
+  end
   return ctx, store
 end
 
@@ -469,11 +475,11 @@ T["_get_target_nodes: blockwise visual (<C-v>) also resolves as visual"] = funct
 end
 
 T["_get_target_nodes: visual range excludes root"] = function()
-  local ctx = make_target_ctx(nil)
+  local ctx, store = make_target_ctx(nil)
   ctx.buffer.flat_lines = {
-    { node_id = 1 },
-    { node_id = 2 },
-    { node_id = 3 },
+    { node_id = 1, node = store:get(1) },
+    { node_id = 2, node = store:get(2) },
+    { node_id = 3, node = store:get(3) },
   }
   local result
   with_visual_range("V", 1, 3, function()
@@ -822,11 +828,11 @@ T["_get_visual_targets: returns nil outside Visual mode"] = function()
 end
 
 T["_get_visual_targets: returns visual range nodes (root excluded)"] = function()
-  local ctx = make_target_ctx(nil)
+  local ctx, store = make_target_ctx(nil)
   ctx.buffer.flat_lines = {
-    { node_id = 1 }, -- root
-    { node_id = 2 },
-    { node_id = 3 },
+    { node_id = 1, node = store:get(1) }, -- root
+    { node_id = 2, node = store:get(2) },
+    { node_id = 3, node = store:get(3) },
   }
   local result
   with_visual_range("V", 1, 3, function()

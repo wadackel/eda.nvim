@@ -184,7 +184,6 @@ function Store:reconcile_children(parent_id, entries)
       and previous.type == fields.type
       and previous.link_target == fields.link_target
       and previous.link_broken == (fields.link_broken or false)
-      and previous.error == fields.error
     if unchanged then
       children[#children + 1] = previous.id
     else

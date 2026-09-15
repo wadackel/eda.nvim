@@ -757,22 +757,22 @@ local function resolve_unique_dst(dir, name, reserved)
     end
     return path
   end
-  local dst = dir .. "/" .. name
+  local dst = util.joinpath(dir, name)
   if not occupied(dst) then
     return reserve(dst)
   end
   local copy_name = generate_copy_name(name)
-  dst = dir .. "/" .. copy_name
+  dst = util.joinpath(dir, copy_name)
   local orig_ext = name:match("%.([^%.]+)$") or ""
   local orig_base = orig_ext ~= "" and name:sub(1, -(#orig_ext + 2)) or name
   local is_dotfile = orig_base == "" or orig_base == "."
   local counter = 2
   while occupied(dst) do
     if is_dotfile or orig_ext == "" then
-      dst = dir .. "/" .. copy_name .. "_" .. counter
+      dst = util.joinpath(dir, copy_name .. "_" .. counter)
     else
       local copy_no_ext = copy_name:sub(1, -(#orig_ext + 2))
-      dst = dir .. "/" .. copy_no_ext .. "_" .. counter .. "." .. orig_ext
+      dst = util.joinpath(dir, copy_no_ext .. "_" .. counter .. "." .. orig_ext)
     end
     counter = counter + 1
   end
@@ -910,17 +910,10 @@ local function get_visual_targets(ctx)
     return nil
   end
   vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<Esc>", true, false, true), "x", false)
-  local start_line = vim.fn.line("'<")
-  local end_line = vim.fn.line("'>")
-  local header_lines = ctx.buffer.painter.header_lines or 0
   local nodes = {}
-  for line = start_line, end_line do
-    local fl = ctx.buffer.flat_lines[line - header_lines]
-    if fl then
-      local node = ctx.store:get(fl.node_id)
-      if node and node.id ~= ctx.store.root_id then
-        table.insert(nodes, node)
-      end
+  for _, node in ipairs(ctx.buffer:get_nodes_in_rows(vim.fn.line("'<"), vim.fn.line("'>"))) do
+    if node.id ~= ctx.store.root_id then
+      table.insert(nodes, node)
     end
   end
   return nodes
@@ -1186,8 +1179,28 @@ action.register("paste", function(ctx)
     end
   end
 
-  local planned, reserved = {}, {}
+  -- A cut source that already sits in the target directory is where the user asked
+  -- it to be. Planning it would make resolve_unique_dst see the source occupying its
+  -- own name and rename the file to a _copy variant.
+  local util = require("eda.util")
+  local function canonical_dir(path)
+    return util.nfc_normalize(vim.uv.fs_realpath(path) or path)
+  end
+  local canonical_target = canonical_dir(target_dir)
+  local sources, skipped = {}, 0
   for _, src_path in ipairs(reg.paths) do
+    if reg.operation == "cut" and canonical_dir(vim.fn.fnamemodify(src_path, ":h")) == canonical_target then
+      skipped = skipped + 1
+    else
+      sources[#sources + 1] = src_path
+    end
+  end
+  if skipped > 0 then
+    vim.notify("Skipped " .. skipped .. " item(s) already in the target directory")
+  end
+
+  local planned, reserved = {}, {}
+  for _, src_path in ipairs(sources) do
     local dst = resolve_unique_dst(target_dir, vim.fn.fnamemodify(src_path, ":t"), reserved)
     planned[#planned + 1] = {
       type = reg.operation == "cut" and "move" or "copy",
@@ -1195,6 +1208,13 @@ action.register("paste", function(ctx)
       src = src_path,
       dst = dst,
     }
+  end
+  if #planned == 0 then
+    register.clear()
+    -- Nothing mutates, so no rescan repaints away the cut dimming baked into the
+    -- decoration cache at paint time.
+    refresh(ctx)
+    return
   end
   active_pastes[reg] = true
   require("eda.mutation").execute(

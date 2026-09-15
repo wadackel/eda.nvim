@@ -410,4 +410,88 @@ T["set_mappings table-form with false disables keymap"] = function()
 
   buf:destroy()
 end
+local function make_rendered_buffer()
+  config.setup()
+  local store = Store.new()
+  local root = store:set_root("/project")
+  local ids = {}
+  for _, name in ipairs({ "a.txt", "b.txt", "c.txt", "d.txt" }) do
+    ids[name] = store:add({ name = name, path = "/project/" .. name, type = "file", parent_id = root })
+  end
+  store:get(root).children_state = "loaded"
+
+  local cfg = config.get()
+  cfg.header = false
+  local buf = Buffer.new("/project", cfg)
+  buf:render(store)
+  return buf, store, ids
+end
+
+T["get_nodes_in_rows resolves a range on a clean buffer"] = function()
+  local buf, _, ids = make_rendered_buffer()
+  local nodes = buf:get_nodes_in_rows(3, 4)
+  MiniTest.expect.equality(#nodes, 2)
+  MiniTest.expect.equality(nodes[1].id, ids["c.txt"])
+  MiniTest.expect.equality(nodes[2].id, ids["d.txt"])
+  buf:destroy()
+end
+
+T["get_nodes_in_rows tracks shifted rows on a modified buffer"] = function()
+  local buf, _, ids = make_rendered_buffer()
+  vim.bo[buf.bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(buf.bufnr, 0, 0, false, { "new_file.txt" })
+  MiniTest.expect.equality(vim.bo[buf.bufnr].modified, true)
+
+  local lines = vim.api.nvim_buf_get_lines(buf.bufnr, 0, -1, false)
+  MiniTest.expect.equality(lines[4], "c.txt")
+  MiniTest.expect.equality(lines[5], "d.txt")
+
+  local nodes = buf:get_nodes_in_rows(4, 5)
+  MiniTest.expect.equality(#nodes, 2)
+  MiniTest.expect.equality(nodes[1].id, ids["c.txt"])
+  MiniTest.expect.equality(nodes[2].id, ids["d.txt"])
+  buf:destroy()
+end
+
+T["get_nodes_in_rows skips newly typed rows that carry no node"] = function()
+  local buf, _, ids = make_rendered_buffer()
+  vim.bo[buf.bufnr].modifiable = true
+  vim.api.nvim_buf_set_lines(buf.bufnr, 2, 2, false, { "typed.txt" })
+
+  local nodes = buf:get_nodes_in_rows(2, 4)
+  MiniTest.expect.equality(#nodes, 2)
+  MiniTest.expect.equality(nodes[1].id, ids["b.txt"])
+  MiniTest.expect.equality(nodes[2].id, ids["c.txt"])
+  buf:destroy()
+end
+
+T["get_nodes_in_rows ignores the mark of a deleted row"] = function()
+  local buf, _, ids = make_rendered_buffer()
+  vim.bo[buf.bufnr].modifiable = true
+  -- `dd` on b.txt: the invalidated mark collapses onto the neighbouring row.
+  vim.api.nvim_buf_set_lines(buf.bufnr, 1, 2, false, {})
+
+  local nodes = buf:get_nodes_in_rows(2, 2)
+  MiniTest.expect.equality(#nodes, 1)
+  MiniTest.expect.equality(nodes[1].id, ids["c.txt"])
+  buf:destroy()
+end
+
+T["get_cursor_node resolves a row whose text was typed at column 0"] = function()
+  local buf, _, ids = make_rendered_buffer()
+  vim.bo[buf.bufnr].modifiable = true
+  -- Typing at column 0 shifts the right-gravity node mark to column 1.
+  vim.api.nvim_buf_set_text(buf.bufnr, 0, 0, 0, 0, { "x" })
+
+  local winid =
+    vim.api.nvim_open_win(buf.bufnr, true, { relative = "editor", width = 40, height = 10, row = 0, col = 0 })
+  vim.api.nvim_win_set_cursor(winid, { 1, 0 })
+  local node = buf:get_cursor_node(winid)
+  MiniTest.expect.equality(node ~= nil, true)
+  MiniTest.expect.equality(node.id, ids["a.txt"])
+
+  vim.api.nvim_win_close(winid, true)
+  buf:destroy()
+end
+
 return T

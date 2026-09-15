@@ -7,7 +7,7 @@ local M = {}
 ---@param root_path string Explorer root (no trailing slash, except for "/")
 ---@return string
 local function relative(path, root_path)
-  return path:sub(#root_path + 2)
+  return require("eda.util").relpath(root_path, path) or path
 end
 
 ---Split a path into its segments. Empty input yields an empty array.
