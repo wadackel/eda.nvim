@@ -1,3 +1,5 @@
+local util = require("eda.util")
+
 local M = {}
 
 ---@class eda.GitCacheEntry
@@ -63,7 +65,9 @@ local function parse_status(output, root, reported_out)
     -- Strip trailing slash (git --ignored=matching appends "/" to directories)
     path = path:gsub("/$", "")
 
-    local abs_path = root .. "/" .. path
+    -- git recomposes to NFC with core.precomposeunicode, while readdir hands the
+    -- tree whatever the filesystem stores; normalize so both sides of the lookup agree.
+    local abs_path = util.nfc_normalize(root .. "/" .. path)
     local existing = result[abs_path]
     if not existing or (status_priority[effective] or 0) > (status_priority[existing] or 0) then
       result[abs_path] = effective
@@ -140,6 +144,25 @@ local function deliver(request, statuses)
   end
 end
 
+---Abandon a git root's in-flight and queued work, so a later answer for it cannot
+---land on top of a newer one.
+---@param git_root string
+local function retire_slot(git_root)
+  local slot = requests[git_root]
+  if not slot then
+    return
+  end
+  slot.epoch = slot.epoch + 1
+  local pending = slot.pending
+  slot.pending = nil
+  if pending then
+    pending.finished = true
+    vim.schedule(function()
+      deliver(pending)
+    end)
+  end
+end
+
 ---@type fun(root: string, slot: eda.GitRequestSlot)
 local start_pending
 
@@ -202,10 +225,30 @@ start_pending = function(root, slot)
   end
 end
 
+---Re-probe the git root and retire whatever the previous answer cached.
+---Every path that can change the answer — opening, changing root, a watcher event,
+---`<C-l>`, a mutation — funnels into `M.status`, so probing here is what lets a
+---`git init` or a removed `.git` take effect without restarting Neovim.
+---@param root string
+---@return string?
+local function refresh_git_root(root)
+  local found = vim.fs.root(root, ".git") or false
+  local cached = _root_cache[root]
+  if cached ~= nil and cached ~= found then
+    if cached then
+      cache[cached] = nil
+      retire_slot(cached)
+    end
+    cache[root] = nil
+  end
+  _root_cache[root] = found
+  return found or nil
+end
+
 ---@param root string Root directory path
 ---@param cb fun(status: table<string, string>?)
 function M.status(root, cb)
-  local git_root = find_git_root(root)
+  local git_root = refresh_git_root(root)
   if not git_root then
     cache[root] = { ready = "no_repo" }
     cb(nil)
@@ -274,22 +317,22 @@ function M.invalidate(root)
   local git_root = find_git_root(root)
   if git_root then
     cache[git_root] = nil
-    local slot = requests[git_root]
-    if slot then
-      slot.epoch = slot.epoch + 1
-      local pending = slot.pending
-      slot.pending = nil
-      if pending then
-        pending.finished = true
-        vim.schedule(function()
-          deliver(pending)
-        end)
-      end
-    end
+    retire_slot(git_root)
   end
   -- Also clear the no_repo entry keyed under the input root path
   cache[root] = nil
   _root_cache[root] = nil
+end
+
+---Read a path's status out of a status map, normalizing to the map's key form.
+---@param git_status table<string, string>?
+---@param path string
+---@return string?
+function M.lookup(git_status, path)
+  if not git_status then
+    return nil
+  end
+  return git_status[util.nfc_normalize(path)]
 end
 
 ---Check whether a path is inside a git-ignored directory.
@@ -298,6 +341,7 @@ end
 ---@param path string
 ---@return boolean
 function M.is_gitignored(git_status, path)
+  path = util.nfc_normalize(path)
   local dir = parent_dir(path)
   while dir ~= path do
     if git_status[dir] == "!" then

@@ -320,23 +320,27 @@ local function compute_preview_layout(filer_kind, filer_winid, config)
     local filer_width = vim.api.nvim_win_get_width(filer_winid)
     local filer_height = vim.api.nvim_win_get_height(filer_winid)
 
+    -- Two cells are reserved on each axis for the same reason as the replace branch:
+    -- the geometry is the border's top-left, so the footprint runs two past it.
     local preview_col, preview_width
     if filer_kind == "split_left" then
       preview_col = filer_pos[2] + filer_width + 1
-      preview_width = vim.o.columns - preview_col
+      preview_width = vim.o.columns - preview_col - 2
     else
       preview_col = 0
-      preview_width = filer_pos[2] - 1
+      -- The window separator sits one column left of the filer and stays visible.
+      preview_width = filer_pos[2] - 3
     end
+    local preview_height = filer_height - 2
 
-    if preview_width < MIN_PREVIEW_WIDTH or filer_height < MIN_PREVIEW_HEIGHT then
+    if preview_width < MIN_PREVIEW_WIDTH or preview_height < MIN_PREVIEW_HEIGHT then
       return nil
     end
 
     return {
       preview = preview_win(config, {
         width = preview_width,
-        height = filer_height,
+        height = preview_height,
         row = filer_pos[1],
         col = preview_col,
       }),

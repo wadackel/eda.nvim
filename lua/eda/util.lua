@@ -101,6 +101,10 @@ function M.nfc_normalize(str)
   if not is_mac then
     return str
   end
+  -- An all-ASCII path has no decomposed form, and this runs per entry per render.
+  if not str:find("[\128-\255]") then
+    return str
+  end
   local result = vim.fn.iconv(str, "utf-8-mac", "utf-8")
   if result == "" and str ~= "" then
     return str

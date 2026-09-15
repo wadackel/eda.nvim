@@ -228,7 +228,7 @@ function M.git_decorator(node, ctx)
     return nil
   end
 
-  local status = ctx.git_status[node.path]
+  local status = require("eda.git").lookup(ctx.git_status, node.path)
   if not status then
     if require("eda.git").is_gitignored(ctx.git_status, node.path) then
       status = "!"

@@ -338,4 +338,100 @@ T["get_cached return shape unchanged (backward compat)"] = function()
   helpers.remove_temp_dir(tmpdir)
 end
 
+T["a repository created after the first status call is picked up"] = function()
+  local tmpdir = vim.uv.fs_realpath(helpers.create_temp_dir())
+  git.invalidate(tmpdir)
+
+  local first_done = false
+  git.status(tmpdir, function()
+    first_done = true
+  end)
+  helpers.wait_for(2000, function()
+    return first_done
+  end)
+  MiniTest.expect.equality(git.get_status_ready(tmpdir), "no_repo")
+
+  vim.fn.system({ "git", "init", tmpdir })
+  vim.fn.system({ "git", "-C", tmpdir, "config", "user.email", "test@test.com" })
+  vim.fn.system({ "git", "-C", tmpdir, "config", "user.name", "Test" })
+  helpers.create_file(tmpdir .. "/new.txt", "new")
+
+  git.status(tmpdir, function() end)
+  helpers.wait_for(5000, function()
+    return git.get_status_ready(tmpdir) == "ready"
+  end)
+  MiniTest.expect.equality(git.get_status_ready(tmpdir), "ready")
+  MiniTest.expect.no_equality(git.get_cached(tmpdir), nil)
+
+  git.invalidate(tmpdir)
+  helpers.remove_temp_dir(tmpdir)
+end
+
+T["a repository removed after the first status call stops being reported"] = function()
+  local tmpdir = vim.uv.fs_realpath(helpers.create_temp_dir())
+  git.invalidate(tmpdir)
+  vim.fn.system({ "git", "init", tmpdir })
+  vim.fn.system({ "git", "-C", tmpdir, "config", "user.email", "test@test.com" })
+  vim.fn.system({ "git", "-C", tmpdir, "config", "user.name", "Test" })
+  helpers.create_file(tmpdir .. "/new.txt", "new")
+
+  git.status(tmpdir, function() end)
+  helpers.wait_for(5000, function()
+    return git.get_status_ready(tmpdir) == "ready"
+  end)
+
+  vim.fn.delete(tmpdir .. "/.git", "rf")
+  local done = false
+  git.status(tmpdir, function()
+    done = true
+  end)
+  helpers.wait_for(2000, function()
+    return done
+  end)
+
+  MiniTest.expect.equality(git.get_status_ready(tmpdir), "no_repo")
+  MiniTest.expect.equality(git.get_cached(tmpdir), nil)
+
+  git.invalidate(tmpdir)
+  helpers.remove_temp_dir(tmpdir)
+end
+
+-- `nfc_normalize` is a no-op off macOS, so a real NFD fixture would only exercise
+-- anything on one platform. Swapping the module function keeps the asymmetry under
+-- test everywhere: the map is keyed by git's composed output, the tree carries the
+-- decomposed bytes readdir returned.
+local NFD = "cafe\204\129.txt"
+local NFC = "caf\195\169.txt"
+
+local function with_fake_normalize(fn)
+  local util = require("eda.util")
+  local original = util.nfc_normalize
+  util.nfc_normalize = function(str)
+    return (str:gsub(NFD, NFC))
+  end
+  local ok, err = pcall(fn)
+  util.nfc_normalize = original
+  assert(ok, err)
+end
+
+T["status lookups survive a decomposed filename"] = function()
+  with_fake_normalize(function()
+    local statuses = git._parse_status(" M " .. NFC .. "\0", "/repo")
+    -- git reports the composed name; the tree node carries the decomposed one.
+    MiniTest.expect.equality(git.lookup(statuses, "/repo/" .. NFD), "M")
+    MiniTest.expect.equality(git.lookup(statuses, "/repo/" .. NFC), "M")
+  end)
+end
+
+T["gitignored ancestors match a decomposed directory name"] = function()
+  with_fake_normalize(function()
+    local statuses = git._parse_status("!! " .. NFC .. "/\0", "/repo")
+    MiniTest.expect.equality(git.is_gitignored(statuses, "/repo/" .. NFD .. "/inner.lua"), true)
+  end)
+end
+
+T["lookup tolerates a missing status map"] = function()
+  MiniTest.expect.equality(git.lookup(nil, "/repo/a.txt"), nil)
+end
+
 return T

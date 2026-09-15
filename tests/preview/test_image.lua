@@ -312,6 +312,10 @@ end
 -- image in the process, including images belonging to other explorers.
 T["Preview"]["suspending one owner leaves another owner's placement intact"] = function()
   stub_terminal()
+  -- Two filer splits leave each preview too narrow at the headless default of 80x24:
+  -- the pane-derived bound would drop below the fake PNG and force a conversion.
+  saved.screen = { vim.o.columns, vim.o.lines }
+  vim.o.columns, vim.o.lines = 120, 40
   local first, env = setup_preview()
   local cfg = config.get()
   local second = Preview.new(cfg.preview)
