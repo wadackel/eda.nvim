@@ -1,3 +1,5 @@
+local util = require("eda.util")
+
 local M = {}
 
 ---@class eda.ParsedLine
@@ -110,8 +112,9 @@ function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines, snap
 
     local node_id = mark_by_row[line_nr]
     local rendered = node_id and entries[node_id]
-    if rendered and rendered.name then
-      name = rendered.name
+    local rendered_name = rendered and rendered.name
+    if rendered_name and rendered.display then
+      name = rendered_name
       is_dir = rendered.display:sub(-1) == "/"
     end
 
@@ -125,7 +128,7 @@ function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines, snap
     end
 
     local parent_path = stack[#stack].path
-    local full_path = vim.fs.joinpath(parent_path, name)
+    local full_path = util.joinpath(parent_path, name)
 
     table.insert(result, {
       line_nr = line_nr,

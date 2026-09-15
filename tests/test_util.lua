@@ -99,4 +99,10 @@ T["relpath leaves shell metacharacters in names untouched"] = function()
   MiniTest.expect.equality(util.relpath("/p", "/p/~/x"), "~/x")
 end
 
+T["joinpath keeps a single separator"] = function()
+  MiniTest.expect.equality(util.joinpath("/p/lib", "core"), "/p/lib/core")
+  MiniTest.expect.equality(util.joinpath("/", "usr"), "/usr")
+  MiniTest.expect.equality(util.joinpath("/p", "a/b.txt"), "/p/a/b.txt")
+end
+
 return T

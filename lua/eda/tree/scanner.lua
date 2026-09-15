@@ -277,7 +277,7 @@ function Scanner:_apply_entries(node_id, entries, callback, valid)
       end
     end
 
-    local child_path = vim.fs.joinpath(node.path, ent.name)
+    local child_path = util.joinpath(node.path, ent.name)
     local child_type = resolve_type(ent)
 
     local fields = {

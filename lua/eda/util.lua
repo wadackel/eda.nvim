@@ -62,6 +62,19 @@ function M.is_valid_win(winid)
   return winid ~= nil and vim.api.nvim_win_is_valid(winid)
 end
 
+---Join a directory and an entry name with a single separator.
+---vim.fs.joinpath only began collapsing duplicate separators in a later release, and
+---the filesystem root already ends in one.
+---@param dir string
+---@param name string
+---@return string
+function M.joinpath(dir, name)
+  if dir:sub(-1) == "/" then
+    return dir .. name
+  end
+  return dir .. "/" .. name
+end
+
 ---Return `path` relative to `root`, or nil when `path` is not inside `root`.
 ---Returns "" when the two are the same path.
 ---vim.fs.relpath is not usable here: it normalizes both arguments, which expands

@@ -757,22 +757,22 @@ local function resolve_unique_dst(dir, name, reserved)
     end
     return path
   end
-  local dst = vim.fs.joinpath(dir, name)
+  local dst = util.joinpath(dir, name)
   if not occupied(dst) then
     return reserve(dst)
   end
   local copy_name = generate_copy_name(name)
-  dst = vim.fs.joinpath(dir, copy_name)
+  dst = util.joinpath(dir, copy_name)
   local orig_ext = name:match("%.([^%.]+)$") or ""
   local orig_base = orig_ext ~= "" and name:sub(1, -(#orig_ext + 2)) or name
   local is_dotfile = orig_base == "" or orig_base == "."
   local counter = 2
   while occupied(dst) do
     if is_dotfile or orig_ext == "" then
-      dst = vim.fs.joinpath(dir, copy_name .. "_" .. counter)
+      dst = util.joinpath(dir, copy_name .. "_" .. counter)
     else
       local copy_no_ext = copy_name:sub(1, -(#orig_ext + 2))
-      dst = vim.fs.joinpath(dir, copy_no_ext .. "_" .. counter .. "." .. orig_ext)
+      dst = util.joinpath(dir, copy_no_ext .. "_" .. counter .. "." .. orig_ext)
     end
     counter = counter + 1
   end
