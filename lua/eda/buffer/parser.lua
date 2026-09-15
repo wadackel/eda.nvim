@@ -60,26 +60,30 @@ end
 ---@param ns_id integer Namespace for node ID extmarks
 ---@param indent_width integer
 ---@param root_path string Root directory path
----@param header_lines? integer Number of header lines to skip (default 0)
+---@param header_ns? integer Namespace whose marks tag the rows that are not entries
+---  (header, divider, empty-state anchor). A row count would be wrong the moment the
+---  user deletes a header row, taking the entries below it down with the offset.
 ---@param snapshot? eda.RenderSnapshot Last render, used to recover names that cannot be
 ---  spelled in the buffer (a leading space reads back as indentation, a newline cannot
 ---  be written at all). Without it such a line parses as a different entry.
 ---@return eda.ParsedLine[] parsed Lines with parent_path added
-function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines, snapshot)
-  header_lines = header_lines or 0
+function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_ns, snapshot)
   local entries = snapshot and snapshot.entries or {}
   local line_count = vim.api.nvim_buf_line_count(bufnr)
   local result = {}
 
-  -- Batch fetch: all lines and all extmarks at once (2 API calls total)
-  local all_lines = vim.api.nvim_buf_get_lines(bufnr, header_lines, line_count, false)
-  local all_marks = vim.api.nvim_buf_get_extmarks(
-    bufnr,
-    ns_id,
-    { header_lines, 0 },
-    { line_count - 1, -1 },
-    { details = true }
-  )
+  -- Batch fetch: all lines and all extmarks at once
+  local all_lines = vim.api.nvim_buf_get_lines(bufnr, 0, line_count, false)
+  local all_marks = vim.api.nvim_buf_get_extmarks(bufnr, ns_id, 0, -1, { details = true })
+
+  local is_header_row = {}
+  if header_ns then
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(bufnr, header_ns, 0, -1, { details = true })) do
+      if not (m[4] and m[4].invalid) then
+        is_header_row[m[2]] = true
+      end
+    end
+  end
 
   -- Build row -> node_id lookup from extmarks (first valid mark per row wins)
   local mark_by_row = {}
@@ -94,7 +98,7 @@ function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines, snap
   local stack = { { depth = -1, path = root_path } }
 
   for i, line in ipairs(all_lines) do
-    local line_nr = header_lines + i - 1
+    local line_nr = i - 1
 
     -- Calculate indent level
     local leading_spaces = line:match("^(%s*)") or ""
@@ -118,7 +122,7 @@ function M.parse_lines(bufnr, ns_id, indent_width, root_path, header_lines, snap
       is_dir = rendered.display:sub(-1) == "/"
     end
 
-    if name == "" then
+    if name == "" or is_header_row[line_nr] then
       goto continue
     end
 

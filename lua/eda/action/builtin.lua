@@ -2,6 +2,7 @@ local Node = require("eda.tree.node")
 local action = require("eda.action")
 local git = require("eda.git")
 local Flatten = require("eda.render.flatten")
+local util = require("eda.util")
 
 local M = {}
 
@@ -59,7 +60,6 @@ local function refresh_git(ctx)
   if ctx.config.git.enabled then
     local generation = ctx.explorer.generation
     git.status(ctx.explorer.root_path, function(_status)
-      local util = require("eda.util")
       if ctx.explorer.generation ~= generation or not util.is_valid_buf(ctx.buffer.bufnr) then
         return
       end
@@ -329,27 +329,33 @@ action.register("collapse_node", function(ctx)
   end
 end, { desc = "Collapse node or go to parent" })
 
-action.register("refresh", function(ctx)
-  local util = require("eda.util")
-
-  -- Clear modified flag so repaint is not suppressed
-  vim.bo[ctx.buffer.bufnr].modified = false
-
+---Rescan the whole tree, then repaint through `render`.
+---@param ctx eda.ActionContext
+---@param render fun(ctx: eda.ActionContext)
+local function rescan_then(ctx, render)
   ctx.store:next_generation()
   ctx.scanner:rescan_preserving_state(ctx.store.root_id, function()
     vim.schedule(function()
       if not util.is_valid_buf(ctx.buffer.bufnr) then
         return
       end
-      refresh(ctx)
+      render(ctx)
       refresh_git(ctx)
     end)
   end)
+end
+
+action.register("refresh", function(ctx)
+  -- Clear modified flag so repaint is not suppressed
+  vim.bo[ctx.buffer.bufnr].modified = false
+  rescan_then(ctx, refresh)
 end, { desc = "Refresh file tree" })
 
 action.register("toggle_hidden", function(ctx)
   ctx.config.show_hidden = not ctx.config.show_hidden
-  action.dispatch("refresh", ctx)
+  -- `show_hidden` is enforced in the scanner, so the tree has to be rescanned;
+  -- unlike `<C-l>` this is not a request to throw the user's pending edits away.
+  rescan_then(ctx, refresh_preserving)
 end, { desc = "Toggle hidden files" })
 
 action.register("toggle_gitignored", function(ctx)
@@ -403,16 +409,16 @@ local function navigate_git_change(ctx, dir)
 
   ctx.scanner:scan_open_unloaded(open_dirs, function()
     vim.schedule(function()
-      local util = require("eda.util")
       if not util.is_valid_buf(ctx.buffer.bufnr) then
         return
       end
 
       -- Re-flatten with should_descend so that closed-but-loaded ancestors are
       -- traversed. buffer.flat_lines is stale after scan_open_unloaded.
+      -- open_dirs and reported are keyed by git's NFC paths.
       local flat_lines = Flatten.flatten(ctx.store, ctx.store.root_id, {
         should_descend = function(node)
-          return open_dirs[node.path] == true or node.open
+          return open_dirs[util.nfc_normalize(node.path)] == true or node.open
         end,
       })
 
@@ -420,7 +426,7 @@ local function navigate_git_change(ctx, dir)
       local changed_indexes = {}
       local cursor_index
       for i, line in ipairs(flat_lines) do
-        if reported[line.node.path] then
+        if reported[util.nfc_normalize(line.node.path)] then
           changed_indexes[#changed_indexes + 1] = i
         end
         if cursor_node and line.node_id == cursor_node.id then
@@ -480,7 +486,6 @@ action.register("toggle_git_changes", function(ctx)
       local open_dirs = collect_all_changed_ancestor_dirs(reported, root)
       ctx.scanner:scan_open_unloaded(open_dirs, function()
         vim.schedule(function()
-          local util = require("eda.util")
           if util.is_valid_buf(ctx.buffer.bufnr) then
             refresh_preserving(ctx)
           end
@@ -747,7 +752,6 @@ end
 ---@param reserved? table<string, boolean>
 ---@return string  Absolute destination path that does not currently exist.
 local function resolve_unique_dst(dir, name, reserved)
-  local util = require("eda.util")
   local function occupied(path)
     return (reserved and reserved[util.nfc_normalize(path)]) or vim.uv.fs_lstat(path) ~= nil
   end
@@ -1037,8 +1041,7 @@ action.register("open_in_browser", function(ctx)
       vim.notify(git_url.MSG.no_repo, vim.log.levels.ERROR)
       return
     end
-    local statuses = git.get_cached(root) or {}
-    local status = statuses[node.path]
+    local status = git.lookup(git.get_cached(root), node.path)
     if status == "?" then
       vim.notify(git_url.MSG.untracked, vim.log.levels.ERROR)
       return
@@ -1053,12 +1056,9 @@ action.register("open_in_browser", function(ctx)
 
   -- URL paths are relative to git_root, not the eda explorer root: when eda
   -- opens a subdirectory of a repo, the remote tree still starts at git_root.
-  local relative_path
-  if node.path == git_root then
-    relative_path = ""
-  else
-    relative_path = node.path:sub(#git_root + 2)
-  end
+  -- The remote's index holds NFC, so an NFD name from readdir must be recomposed
+  -- before it becomes a URL segment.
+  local relative_path = util.nfc_normalize(util.relpath(git_root, node.path) or "")
 
   local node_type = node.type == "directory" and "tree" or "blob"
 
@@ -1182,7 +1182,6 @@ action.register("paste", function(ctx)
   -- A cut source that already sits in the target directory is where the user asked
   -- it to be. Planning it would make resolve_unique_dst see the source occupying its
   -- own name and rename the file to a _copy variant.
-  local util = require("eda.util")
   local function canonical_dir(path)
     return util.nfc_normalize(vim.uv.fs_realpath(path) or path)
   end
@@ -1245,11 +1244,11 @@ end, { desc = "Show keymap help" })
 
 action.register("split", function(ctx)
   get_eda().open_split(ctx.explorer.root_path)
-end, { desc = "Open split pane" })
+end, { desc = "Open explorer in a vertical split" })
 
 action.register("vsplit", function(ctx)
   get_eda().open_vsplit(ctx.explorer.root_path)
-end, { desc = "Open horizontal split pane" })
+end, { desc = "Open explorer in a horizontal split" })
 
 action.register("open_replace", function(ctx)
   get_eda().open_replace(ctx.explorer)

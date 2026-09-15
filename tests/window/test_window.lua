@@ -623,4 +623,48 @@ T["compute_layout split with function width"] = function()
   config.setup()
 end
 
+-- The preview float sits beside the filer without overrunning the screen edge,
+-- the window separator, or the filer's own rows.
+for _, kind in ipairs({ "split_left", "split_right" }) do
+  for _, border in ipairs({ "none", "single", "shadow" }) do
+    T[string.format("compute_preview_layout %s stays beside the filer (border=%s)", kind, border)] = function()
+      config.setup({ window = { border = border } })
+      with_replace_owner(function()
+        vim.cmd(kind == "split_left" and "topleft vsplit" or "botright vsplit")
+        local winid = vim.api.nvim_get_current_win()
+        vim.api.nvim_win_set_width(winid, 30)
+        return winid
+      end, function(winid)
+        local result = Window._compute_preview_layout(kind, winid, config.get())
+        MiniTest.expect.equality(result ~= nil, true)
+        MiniTest.expect.equality(result.filer, nil)
+
+        local pos = vim.api.nvim_win_get_position(winid)
+        local filer_width = vim.api.nvim_win_get_width(winid)
+        local filer_height = vim.api.nvim_win_get_height(winid)
+        local overlay = overlay_rect(result.preview)
+
+        if kind == "split_left" then
+          MiniTest.expect.equality(overlay.c0, pos[2] + filer_width + 1)
+          MiniTest.expect.equality(overlay.c1 <= vim.o.columns - 1, true)
+        else
+          MiniTest.expect.equality(overlay.c0, 0)
+          -- The separator occupies pos[2] - 1 and must stay visible.
+          MiniTest.expect.equality(overlay.c1 <= pos[2] - 2, true)
+        end
+        MiniTest.expect.equality(overlay.r0, pos[1])
+        MiniTest.expect.equality(overlay.r1 <= pos[1] + filer_height - 1, true)
+
+        -- The descriptor opens at the height it asked for, which an overflowing
+        -- request would not: Neovim clamps height but never shifts a column.
+        local buf = vim.api.nvim_create_buf(false, true)
+        local float = vim.api.nvim_open_win(buf, false, result.preview)
+        MiniTest.expect.equality(vim.api.nvim_win_get_height(float), result.preview.height)
+        vim.api.nvim_win_close(float, true)
+        vim.api.nvim_buf_delete(buf, { force = true })
+      end)
+    end
+  end
+end
+
 return T

@@ -86,54 +86,63 @@ local function encode_ref(ref)
   end))
 end
 
+---@param host string?
+---@param owner string?
+---@param repo string?
+---@return {host: string, owner: string, repo: string}?
+local function remote(host, owner, repo)
+  if not host or not owner or not repo then
+    return nil
+  end
+  return { host = host, owner = owner, repo = (repo:gsub("%.git$", "")) }
+end
+
+---Split `host/owner.../repo` into its three parts.
+---`owner` is greedy so it absorbs the nesting levels a GitLab subgroup adds, and
+---`repo` always binds the last segment.
+---@param rest string
+---@return {host: string, owner: string, repo: string}?
+local function split_host_owner_repo(rest)
+  return remote(rest:match("^([^/]+)/(.+)/([^/]+)$"))
+end
+
 ---Parse a git remote URL into `{host, owner, repo}`.
 ---Supports ssh://, git@host:, https://, http://, and git:// schemes.
----Strips `.git` suffix and drops port. Returns `nil` for unparseable input.
+---Strips `.git` suffix and drops port. `owner` may contain `/` for nested groups.
+---Returns `nil` for unparseable input.
 ---@param url string?
 ---@return {host: string, owner: string, repo: string}?
 function M.parse_remote(url)
   if not url or url == "" then
     return nil
   end
+  -- git accepts a configured remote with a trailing slash, so the parser has to too.
+  url = url:gsub("/+$", "")
 
   -- ssh://[user@]host[:port]/owner/repo(.git)?
   local rest = url:match("^ssh://(.+)$")
   if rest then
     rest = rest:gsub("^[^@/]+@", "")
     rest = rest:gsub("^([^/]+):%d+/", "%1/")
-    local host, owner, repo = rest:match("^([^/]+)/([^/]+)/([^/]+)$")
-    if host then
-      return { host = host, owner = owner, repo = (repo:gsub("%.git$", "")) }
-    end
-    return nil
+    return split_host_owner_repo(rest)
   end
 
   -- git@host:owner/repo(.git)?
-  do
-    local host, owner, repo = url:match("^git@([^:]+):([^/]+)/(.+)$")
-    if host then
-      return { host = host, owner = owner, repo = (repo:gsub("%.git$", "")) }
-    end
+  local scp = remote(url:match("^git@([^:]+):(.+)/([^/]+)$"))
+  if scp then
+    return scp
   end
 
   -- https?://[user@]?host/owner/repo(.git)?
-  do
-    local scheme_rest = url:match("^https?://(.+)$")
-    if scheme_rest then
-      scheme_rest = scheme_rest:gsub("^[^@/]+@", "")
-      local host, owner, repo = scheme_rest:match("^([^/]+)/([^/]+)/([^/]+)$")
-      if host then
-        return { host = host, owner = owner, repo = (repo:gsub("%.git$", "")) }
-      end
-    end
+  local http_rest = url:match("^https?://(.+)$")
+  if http_rest then
+    return split_host_owner_repo((http_rest:gsub("^[^@/]+@", "")))
   end
 
   -- git://host/owner/repo(.git)?
-  do
-    local host, owner, repo = url:match("^git://([^/]+)/([^/]+)/([^/]+)$")
-    if host then
-      return { host = host, owner = owner, repo = (repo:gsub("%.git$", "")) }
-    end
+  local git_rest = url:match("^git://(.+)$")
+  if git_rest then
+    return split_host_owner_repo(git_rest)
   end
 
   return nil

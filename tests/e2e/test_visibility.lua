@@ -136,4 +136,41 @@ T["visibility"]["ignore_patterns hides matching files"] = function()
   MiniTest.expect.equality(has_keep, true)
 end
 
+T["visibility"]["toggle_hidden keeps pending buffer edits"] = function()
+  e2e.setup_eda(child, [[{ show_hidden = true }]])
+  e2e.open_eda(child, tmp)
+
+  -- Type a new entry without saving, then toggle dotfiles off and on again.
+  e2e.exec(child, [[vim.api.nvim_win_set_cursor(0, { 1, 0 })]])
+  e2e.feed(child, "o")
+  e2e.feed_insert(child, "pending.txt")
+  e2e.wait_until(child, [[vim.bo.modified == true]])
+
+  e2e.feed(child, "g.")
+  e2e.wait_until(
+    child,
+    [[
+    for _, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+      if l:find(".hidden", 1, true) then return false end
+    end
+    return true
+  ]]
+  )
+
+  local lines = e2e.get_buf_lines(child)
+  local kept = false
+  for _, l in ipairs(lines) do
+    if l:find("pending.txt", 1, true) then
+      kept = true
+    end
+  end
+  MiniTest.expect.equality(kept, true)
+  MiniTest.expect.equality(e2e.exec(child, [[return vim.bo.modified]]), true)
+
+  -- The edit is still real: saving creates the file.
+  e2e.exec(child, [[vim.cmd("silent! write")]])
+  e2e.wait_until(child, string.format("vim.uv.fs_stat(%q) ~= nil", tmp .. "/pending.txt"), 10000)
+  MiniTest.expect.equality(vim.fn.filereadable(tmp .. "/pending.txt"), 1)
+end
+
 return T

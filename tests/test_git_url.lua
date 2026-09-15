@@ -69,7 +69,76 @@ local parse_cases = {
     url = "http://github.example.com/foo/bar.git",
     expected = { host = "github.example.com", owner = "foo", repo = "bar" },
   },
+  {
+    name = "ssh_shorthand_subgroup",
+    url = "git@gitlab.com:group/sub/repo.git",
+    expected = { host = "gitlab.com", owner = "group/sub", repo = "repo" },
+  },
+  {
+    name = "https_subgroup",
+    url = "https://gitlab.com/group/sub/repo.git",
+    expected = { host = "gitlab.com", owner = "group/sub", repo = "repo" },
+  },
+  {
+    name = "ssh_scheme_subgroup",
+    url = "ssh://git@gitlab.com/group/sub/repo.git",
+    expected = { host = "gitlab.com", owner = "group/sub", repo = "repo" },
+  },
+  {
+    name = "ssh_scheme_subgroup_with_port",
+    url = "ssh://git@gitlab.example.com:2222/group/sub/nested/repo.git",
+    expected = { host = "gitlab.example.com", owner = "group/sub/nested", repo = "repo" },
+  },
+  {
+    name = "https_subgroup_with_web_port",
+    url = "https://gitlab.example.com:8443/group/sub/repo.git",
+    expected = { host = "gitlab.example.com:8443", owner = "group/sub", repo = "repo" },
+  },
+  {
+    name = "git_scheme_subgroup",
+    url = "git://gitlab.com/group/sub/repo",
+    expected = { host = "gitlab.com", owner = "group/sub", repo = "repo" },
+  },
+  {
+    name = "https_trailing_slash",
+    url = "https://github.com/foo/bar.git/",
+    expected = { host = "github.com", owner = "foo", repo = "bar" },
+  },
+  {
+    name = "ssh_shorthand_trailing_slash",
+    url = "git@github.com:foo/bar/",
+    expected = { host = "github.com", owner = "foo", repo = "bar" },
+  },
 }
+
+local unparseable_cases = {
+  { name = "https_without_owner", url = "https://github.com/bar.git" },
+  { name = "https_host_only", url = "https://github.com/" },
+  { name = "ssh_shorthand_without_owner", url = "git@github.com:bar.git" },
+  { name = "empty", url = "" },
+}
+
+for _, case in ipairs(unparseable_cases) do
+  T["parse_remote"][case.name .. "_is_nil"] = function()
+    MiniTest.expect.equality(load().parse_remote(case.url), nil)
+  end
+end
+
+T["parse_remote"]["a nested owner composes the expected URL"] = function()
+  local m = load()
+  local parsed = m.parse_remote("https://gitlab.com/group/sub/repo.git")
+  MiniTest.expect.equality(
+    m.build_github_url({
+      host = parsed.host,
+      owner = parsed.owner,
+      repo = parsed.repo,
+      ref = "main",
+      rel_path = "src/init.lua",
+      node_type = "file",
+    }),
+    "https://gitlab.com/group/sub/repo/blob/main/src/init.lua"
+  )
+end
 
 for _, case in ipairs(parse_cases) do
   T["parse_remote"][case.name] = function()

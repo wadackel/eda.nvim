@@ -424,23 +424,29 @@ function Painter:paint(flat_lines, decorations, opts)
   vim.api.nvim_buf_set_lines(self.bufnr, 0, -1, false, lines)
   vim.bo[self.bufnr].undolevels = saved_undolevels
 
-  -- Header extmarks (non-ephemeral, only on structure change)
+  -- Header extmarks (non-ephemeral, only on structure change).
+  -- `invalidate` makes these the parser's record of which rows are not entries:
+  -- without it a deleted header row's mark slides onto the first real entry and
+  -- that entry is read as gone.
   vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_header, 0, -1)
   if show_header then
     vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_header, 0, 0, {
       end_col = #lines[1],
       hl_group = "EdaRootName",
+      invalidate = true,
     })
     if opts.filter_active then
       vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_header, 0, 0, {
         virt_text = { { FILTER_LABEL, "EdaFilterIndicator" } },
         virt_text_pos = "right_align",
+        invalidate = true,
       })
     end
     if show_divider then
       vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_header, 1, 0, {
         end_col = #lines[2],
         hl_group = "EdaDivider",
+        invalidate = true,
       })
     end
   end
@@ -448,6 +454,7 @@ function Painter:paint(flat_lines, decorations, opts)
     vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_header, empty_row - 1, 0, {
       virt_text = { { opts.empty_message, "EdaLoadingNode" } },
       virt_text_pos = "inline",
+      invalidate = true,
     })
   end
 
@@ -468,6 +475,13 @@ function Painter:paint(flat_lines, decorations, opts)
   self._row_to_fl = {}
   for i = 1, #flat_lines do
     self._row_to_fl[offset + i - 1] = i
+  end
+
+  -- Survives the compaction resync_highlights performs, so a node whose row comes
+  -- back through undo can be restored rather than dropped.
+  self._fl_by_id = {}
+  for _, fl in ipairs(flat_lines) do
+    self._fl_by_id[fl.node_id] = fl
   end
 
   -- Build decoration cache (Lua tables only, no API calls)
@@ -700,6 +714,11 @@ function Painter:paint_incremental(flat_lines, decorations, opts, hint)
     self._row_to_fl[offset + i - 1] = i
   end
 
+  self._fl_by_id = {}
+  for _, fl in ipairs(flat_lines) do
+    self._fl_by_id[fl.node_id] = fl
+  end
+
   self._line_lengths = {}
   local buf_lines = vim.api.nvim_buf_get_lines(self.bufnr, offset, offset + #flat_lines, false)
   for i = 1, #flat_lines do
@@ -739,26 +758,29 @@ function Painter:_resync_on_redraw()
   end
   self._row_to_fl = new_map
 
-  -- Check if icon extmarks need repositioning by comparing with ns_ids positions
+  -- Check if icon extmarks need repositioning by comparing with ns_ids positions.
+  -- Counting all node marks against icon marks would never agree whenever some rows
+  -- carry no icon, so the walk below decides and a leftover check closes it out.
   local icon_marks = vim.api.nvim_buf_get_extmarks(self.bufnr, self.ns_icon, 0, -1, {})
-  local icons_need_resync = #marks ~= #icon_marks
-  if not icons_need_resync then
-    local icon_idx = 1
-    for _, m in ipairs(marks) do
-      if not (m[4] and m[4].invalid) then
-        local fl_idx = idx_by_node_id[m[1]]
-        if fl_idx then
-          local entry = self._decoration_cache[self._flat_lines[fl_idx].node_id]
-          if entry and (entry.icon_text or entry.prefix_text) then
-            if icon_idx > #icon_marks or icon_marks[icon_idx][2] ~= m[2] then
-              icons_need_resync = true
-              break
-            end
-            icon_idx = icon_idx + 1
+  local icons_need_resync = false
+  local icon_idx = 1
+  for _, m in ipairs(marks) do
+    if not (m[4] and m[4].invalid) then
+      local fl_idx = idx_by_node_id[m[1]]
+      if fl_idx then
+        local entry = self._decoration_cache[self._flat_lines[fl_idx].node_id]
+        if entry and (entry.icon_text or entry.prefix_text) then
+          if icon_idx > #icon_marks or icon_marks[icon_idx][2] ~= m[2] then
+            icons_need_resync = true
+            break
           end
+          icon_idx = icon_idx + 1
         end
       end
     end
+  end
+  if not icons_need_resync and icon_idx - 1 ~= #icon_marks then
+    icons_need_resync = true
   end
 
   if icons_need_resync then
@@ -788,11 +810,10 @@ end
 ---Resync icon extmarks and internal caches after user edits (e.g. dd).
 ---Does NOT modify buffer text — only fixes extmarks and caches.
 function Painter:resync_highlights()
-  -- 1. Build local node_id -> FlatLine lookup from current _flat_lines
-  local fl_by_id = {}
-  for _, fl in ipairs(self._flat_lines) do
-    fl_by_id[fl.node_id] = fl
-  end
+  -- 1. Look nodes up in the map built by the last full paint, not in _flat_lines:
+  --    a row restored by undo brings its extmark back (undo_restore) after this
+  --    function already compacted that node out of _flat_lines.
+  local fl_by_id = self._fl_by_id or {}
 
   -- 2. Get current valid extmarks from ns_ids
   local marks = vim.api.nvim_buf_get_extmarks(self.bufnr, self.ns_ids, 0, -1, { details = true })
@@ -808,49 +829,49 @@ function Painter:resync_highlights()
     return a.row < b.row
   end)
 
-  -- 4. Rebuild _flat_lines from surviving extmarks
-  local new_flat_lines = {}
+  -- 4. Rebuild _flat_lines from surviving extmarks. Rows whose node is gone are
+  --    dropped here, so the surviving list is what every index below must follow.
+  local surviving = {}
   for _, v in ipairs(valid) do
     local fl = fl_by_id[v.node_id]
     if fl then
-      table.insert(new_flat_lines, fl)
+      surviving[#surviving + 1] = { fl = fl, row = v.row }
     end
+  end
+  local new_flat_lines = {}
+  for i, entry in ipairs(surviving) do
+    new_flat_lines[i] = entry.fl
   end
   self._flat_lines = new_flat_lines
 
   -- 5. Clear and re-place icon extmarks using actual extmark rows
   vim.api.nvim_buf_clear_namespace(self.bufnr, self.ns_icon, 0, -1)
   local row_to_fl = {}
-  for i, v in ipairs(valid) do
-    local fl = fl_by_id[v.node_id]
-    if fl then
-      row_to_fl[v.row] = i
-      local entry = self._decoration_cache[fl.node_id]
-      if entry and (entry.icon_text or entry.prefix_text) then
-        local indent_len = fl.depth * self.indent_width
-        vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, v.row, indent_len, {
-          id = fl.node_id,
-          virt_text = build_icon_virt_text(entry),
-          virt_text_pos = "inline",
-          right_gravity = false,
-        })
-      end
+  for i, item in ipairs(surviving) do
+    local fl = item.fl
+    row_to_fl[item.row] = i
+    local entry = self._decoration_cache[fl.node_id]
+    if entry and (entry.icon_text or entry.prefix_text) then
+      local indent_len = fl.depth * self.indent_width
+      vim.api.nvim_buf_set_extmark(self.bufnr, self.ns_icon, item.row, indent_len, {
+        id = fl.node_id,
+        virt_text = build_icon_virt_text(entry),
+        virt_text_pos = "inline",
+        right_gravity = false,
+      })
     end
   end
   self._row_to_fl = row_to_fl
 
   -- 6. Rebuild _line_lengths from actual extmark rows
   self._line_lengths = {}
-  if #valid > 0 then
-    local min_row = valid[1].row
-    local max_row = valid[#valid].row
+  if #surviving > 0 then
+    local min_row = surviving[1].row
+    local max_row = surviving[#surviving].row
     local all_lines = vim.api.nvim_buf_get_lines(self.bufnr, min_row, max_row + 1, false)
-    for i, v in ipairs(valid) do
-      local fl = fl_by_id[v.node_id]
-      if fl then
-        local line = all_lines[v.row - min_row + 1]
-        self._line_lengths[i] = line and #line or 0
-      end
+    for i, item in ipairs(surviving) do
+      local line = all_lines[item.row - min_row + 1]
+      self._line_lengths[i] = line and #line or 0
     end
   end
   self._synced_tick = vim.api.nvim_buf_get_changedtick(self.bufnr)

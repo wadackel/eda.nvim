@@ -868,7 +868,7 @@ function M.open(opts)
         if node.path:find("/.git/", 1, true) then
           return false
         end
-        if git_status[node.path] == "!" then
+        if git.lookup(git_status, node.path) == "!" then
           return false
         end
         return not is_gitignored(git_status, node.path)
@@ -886,11 +886,12 @@ function M.open(opts)
             dir = dir:match("^(.*)/[^/]*$")
           end
         end
+        -- changed_set is keyed by git's NFC paths; node.path carries the filesystem's bytes.
         table.insert(filters, function(node)
-          return changed_set[node.path] == true
+          return changed_set[util.nfc_normalize(node.path)] == true
         end)
         should_descend = function(node)
-          return node.open or changed_set[node.path] == true
+          return node.open or changed_set[util.nfc_normalize(node.path)] == true
         end
       end
     end
@@ -1363,7 +1364,7 @@ function M._handle_write(explorer)
 
   -- Parse buffer lines (skip header lines)
   local parsed =
-    Parser.parse_lines(buffer.bufnr, ns_id, cfg.indent.width, explorer.root_path, buffer.painter.header_lines, snapshot)
+    Parser.parse_lines(buffer.bufnr, ns_id, cfg.indent.width, explorer.root_path, buffer.painter.ns_header, snapshot)
 
   -- Compute diff against snapshot
   local operations = Diff.compute(parsed, snapshot, store)

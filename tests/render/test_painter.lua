@@ -1305,7 +1305,7 @@ T["empty-state message is virtual text, not buffer content"] = function()
   local Parser = require("eda.buffer.parser")
   local Diff = require("eda.tree.diff")
   local snapshot = painter:get_snapshot()
-  local parsed = Parser.parse_lines(buf, painter.ns_ids, 2, "/project", painter.header_lines, snapshot)
+  local parsed = Parser.parse_lines(buf, painter.ns_ids, 2, "/project", painter.ns_header, snapshot)
   MiniTest.expect.equality(#parsed, 0)
   MiniTest.expect.equality(#Diff.compute(parsed, snapshot, store), 0)
 
@@ -1317,6 +1317,137 @@ T["empty-state message keeps an anchor row below the header"] = function()
   MiniTest.expect.equality(painter.header_lines, 2)
   MiniTest.expect.equality(vim.api.nvim_buf_line_count(buf), 3)
   MiniTest.expect.equality(vim.api.nvim_buf_get_lines(buf, 2, 3, false)[1], "")
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
+local function build_four_file_store()
+  local store = Store.new()
+  local root = store:set_root("/project")
+  for _, name in ipairs({ "a.lua", "b.lua", "c.lua", "d.lua" }) do
+    store:add({ name = name, path = "/project/" .. name, type = "file", parent_id = root })
+  end
+  store:get(root).children_state = "loaded"
+  return store, root
+end
+
+T["resync_highlights keeps its row maps aligned after an undone deletion"] = function()
+  local store, root = build_four_file_store()
+  local flat_lines = Flatten.flatten(store, root)
+  local buf = vim.api.nvim_create_buf(false, true)
+  local painter = Painter.new(buf)
+
+  local decorations = {}
+  for i = 1, #flat_lines do
+    decorations[i] = { icon = "X", icon_hl = "TestHL" }
+  end
+  painter:paint(flat_lines, decorations, { icon = { separator = " " } })
+
+  -- `dd` on b.lua, then `u`. The undo restores the line and, because the node
+  -- extmarks are placed with undo_restore, the extmark with it.
+  vim.bo[buf].modifiable = true
+  vim.api.nvim_buf_call(buf, function()
+    vim.cmd("silent! 2delete _")
+  end)
+  painter:resync_highlights()
+  vim.api.nvim_buf_call(buf, function()
+    vim.cmd("silent! undo")
+  end)
+  painter:resync_highlights()
+
+  local names = {}
+  for _, fl in ipairs(painter._flat_lines) do
+    names[#names + 1] = fl.node.name
+  end
+  MiniTest.expect.equality(names, { "a.lua", "b.lua", "c.lua", "d.lua" })
+
+  -- Every rendered row resolves to the FlatLine actually shown on it.
+  for row = 0, 3 do
+    local idx = painter._row_to_fl[row]
+    MiniTest.expect.equality(idx ~= nil, true)
+    MiniTest.expect.equality(painter._flat_lines[idx].node.name, names[row + 1])
+    MiniTest.expect.equality(painter._line_lengths[idx] ~= nil, true)
+  end
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
+T["_resync_on_redraw leaves icon extmarks alone when nothing moved"] = function()
+  local store, root = build_four_file_store()
+  local flat_lines = Flatten.flatten(store, root)
+  local buf = vim.api.nvim_create_buf(false, true)
+  local painter = Painter.new(buf)
+
+  -- Only some rows carry an icon, which is what `icon.provider = "none"` produces
+  -- for files while directories still get a glyph.
+  local decorations = { { icon = "X", icon_hl = "TestHL" }, {}, { icon = "Y", icon_hl = "TestHL" }, {} }
+  painter:paint(flat_lines, decorations, { icon = { separator = " " } })
+
+  local before = vim.api.nvim_buf_get_extmarks(buf, painter.ns_icon, 0, -1, { details = true })
+  local set_calls = 0
+  local original = vim.api.nvim_buf_set_extmark
+  vim.api.nvim_buf_set_extmark = function(b, ns, ...)
+    if b == buf and ns == painter.ns_icon then
+      set_calls = set_calls + 1
+    end
+    return original(b, ns, ...)
+  end
+  local ok, err = pcall(function()
+    painter:_resync_on_redraw()
+  end)
+  vim.api.nvim_buf_set_extmark = original
+  MiniTest.expect.equality(ok, true, tostring(err))
+
+  MiniTest.expect.equality(set_calls, 0)
+  local after = vim.api.nvim_buf_get_extmarks(buf, painter.ns_icon, 0, -1, { details = true })
+  MiniTest.expect.equality(#after, #before)
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
+T["_resync_on_redraw rebuilds icons when a row shifted"] = function()
+  local store, root = build_four_file_store()
+  local flat_lines = Flatten.flatten(store, root)
+  local buf = vim.api.nvim_create_buf(false, true)
+  local painter = Painter.new(buf)
+
+  local decorations = { { icon = "X", icon_hl = "TestHL" }, {}, { icon = "Y", icon_hl = "TestHL" }, {} }
+  painter:paint(flat_lines, decorations, { icon = { separator = " " } })
+
+  vim.bo[buf].modifiable = true
+  vim.api.nvim_buf_set_lines(buf, 0, 0, false, { "typed.lua" })
+  painter:_resync_on_redraw()
+
+  local rows = {}
+  for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, painter.ns_icon, 0, -1, {})) do
+    rows[#rows + 1] = m[2]
+  end
+  table.sort(rows)
+  -- a.lua moved from row 0 to row 1, c.lua from row 2 to row 3.
+  MiniTest.expect.equality(rows, { 1, 3 })
+
+  vim.api.nvim_buf_delete(buf, { force = true })
+end
+
+T["_resync_on_redraw rebuilds icons when a stale icon mark is left over"] = function()
+  local store, root = build_four_file_store()
+  local flat_lines = Flatten.flatten(store, root)
+  local buf = vim.api.nvim_create_buf(false, true)
+  local painter = Painter.new(buf)
+
+  local decorations = { { icon = "X", icon_hl = "TestHL" }, {}, { icon = "Y", icon_hl = "TestHL" }, {} }
+  painter:paint(flat_lines, decorations, { icon = { separator = " " } })
+
+  -- An icon mark with no matching decoration entry, which the old count check
+  -- happened to catch and a position-only walk would not.
+  vim.api.nvim_buf_set_extmark(buf, painter.ns_icon, 3, 0, {
+    virt_text = { { "Z", "TestHL" } },
+    virt_text_pos = "inline",
+  })
+  painter._synced_tick = -1
+  painter:_resync_on_redraw()
+
+  MiniTest.expect.equality(#vim.api.nvim_buf_get_extmarks(buf, painter.ns_icon, 0, -1, {}), 2)
+
   vim.api.nvim_buf_delete(buf, { force = true })
 end
 

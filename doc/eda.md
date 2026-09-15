@@ -359,6 +359,10 @@ A directory eda cannot read is shown with the `EdaErrorNode` highlight and a
 directory. The label clears on the next refresh once the directory becomes
 readable.
 
+Whether the explorer root is a git repository is re-checked on every status
+request, so running `git init` (or removing `.git`) in a terminal takes effect
+on the next refresh without restarting Neovim.
+
 ### large_dir_threshold
 
 `integer` (default: `5000`)
@@ -716,7 +720,10 @@ the remote repository host (GitHub.com / GitHub Enterprise).
   - `ref` — the resolved ref string (branch name, SHA, or default branch).
   - `ref_kind` — `"branch"|"sha"|"default_branch"`.
   - `remote_url` — the raw `origin` remote URL.
-  - `host`, `owner`, `repo` — parsed components of `remote_url`.
+  - `host`, `owner`, `repo` — parsed components of `remote_url`. `owner` carries
+    every group level above the repository, so a GitLab subgroup remote yields
+    `owner = "group/sub"` and `repo = "repo"`. Remotes are parsed to the same
+    depth over `https://`, `ssh://`, `git://` and `git@host:` forms.
   - `kind` — `"blob"` for files, `"tree"` for directories.
 
 The current node's git status gates the action: untracked / added (staged) /
@@ -897,7 +904,7 @@ children. Bursts are coalesced, unchanged nodes keep their identity, and an
 unchanged result skips structural repainting. Git status may still require a
 repaint. If a notification has no filename, eda conservatively refreshes the root
 and open subtrees. `<C-l>` also performs a full refresh and discards pending
-buffer edits. Filesystem watch delivery depends on the operating system and
+buffer edits; `g.` rescans without discarding them. Filesystem watch delivery depends on the operating system and
 filesystem; use `<C-l>` when a filesystem does not deliver notifications.
 
 ## Mappings

@@ -82,7 +82,7 @@ T["parse_line extracts name without icon stripping"] = function()
   vim.api.nvim_buf_delete(buf, { force = true })
 end
 
-T["parse_lines skips header lines"] = function()
+T["parse_lines skips rows tagged by the header namespace"] = function()
   local buf = vim.api.nvim_create_buf(false, true)
   vim.api.nvim_buf_set_lines(buf, 0, -1, false, {
     "~/project",
@@ -91,7 +91,9 @@ T["parse_lines skips header lines"] = function()
     "README.md",
   })
   local ns = vim.api.nvim_create_namespace("eda_test_parse_header")
-  local result = Parser.parse_lines(buf, ns, 2, "/project", 1)
+  local header_ns = vim.api.nvim_create_namespace("eda_test_parse_header_ns")
+  vim.api.nvim_buf_set_extmark(buf, header_ns, 0, 0, { end_col = 9, invalidate = true })
+  local result = Parser.parse_lines(buf, ns, 2, "/project", header_ns)
   MiniTest.expect.equality(#result, 3)
   MiniTest.expect.equality(result[1].full_path, "/project/src")
   MiniTest.expect.equality(result[2].full_path, "/project/src/init.lua")
