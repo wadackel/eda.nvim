@@ -993,4 +993,16 @@ T["yank_tree: origin=visual leaves marks intact"] = function()
   MiniTest.expect.equality(store:get(7)._marked, true)
 end
 
+T["split action descriptions name their orientation"] = function()
+  local function desc(name)
+    local entry = action.get_entry(name)
+    return entry and entry.desc or ""
+  end
+  -- The picker lists all four together, so they must not contradict each other.
+  MiniTest.expect.equality(desc("select_split"):find("horizontal", 1, true) ~= nil, true)
+  MiniTest.expect.equality(desc("select_vsplit"):find("vertical", 1, true) ~= nil, true)
+  MiniTest.expect.equality(desc("split"):find("vertical", 1, true) ~= nil, true)
+  MiniTest.expect.equality(desc("vsplit"):find("horizontal", 1, true) ~= nil, true)
+end
+
 return T

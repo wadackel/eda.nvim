@@ -1252,11 +1252,11 @@ end, { desc = "Show keymap help" })
 
 action.register("split", function(ctx)
   get_eda().open_split(ctx.explorer.root_path)
-end, { desc = "Open split pane" })
+end, { desc = "Open explorer in a vertical split" })
 
 action.register("vsplit", function(ctx)
   get_eda().open_vsplit(ctx.explorer.root_path)
-end, { desc = "Open horizontal split pane" })
+end, { desc = "Open explorer in a horizontal split" })
 
 action.register("open_replace", function(ctx)
   get_eda().open_replace(ctx.explorer)
