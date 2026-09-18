@@ -64,6 +64,63 @@ T["multi instance"]["split action creates two independent explorers"] = function
   MiniTest.expect.equality(both_eda, true)
 end
 
+T["multi instance"]["a cut in one explorer updates the dimming in the other"] = function()
+  e2e.open_eda(child, tmp)
+  e2e.exec(
+    child,
+    [[
+    local ex = require("eda").get_current()
+    require("eda.action").dispatch("split", {
+      explorer = ex,
+      store = ex.store,
+      scanner = ex.scanner,
+      buffer = ex.buffer,
+      window = ex.window,
+      config = require("eda.config").get(),
+    })
+  ]]
+  )
+  e2e.wait_until(
+    child,
+    [[
+    local all = require("eda").get_all()
+    return #all == 2 and #all[2].buffer.flat_lines > 0
+  ]],
+    10000
+  )
+  local function dispatch_in_first(name)
+    return e2e.exec(
+      child,
+      string.format(
+        [[
+      local all = require("eda").get_all()
+      local first, second = all[1], all[2]
+      local node = first.store:get_by_path(first.root_path .. "/file.txt")
+      for i, fl in ipairs(first.buffer.flat_lines) do
+        if fl.node_id == node.id then
+          vim.api.nvim_win_set_cursor(first.window.winid, { i, 0 })
+        end
+      end
+      require("eda.action").dispatch(%q, {
+        explorer = first,
+        store = first.store,
+        scanner = first.scanner,
+        buffer = first.buffer,
+        window = first.window,
+        config = require("eda.config").get(),
+      })
+      local other = second.store:get_by_path(second.root_path .. "/file.txt")
+      local entry = second.buffer.painter._decoration_cache[other.id]
+      return entry and entry.icon_hl or vim.NIL
+    ]],
+        name
+      )
+    )
+  end
+  MiniTest.expect.equality(dispatch_in_first("cut"), "EdaCut")
+  MiniTest.expect.no_equality(dispatch_in_first("copy"), "EdaCut")
+end
+
 T["multi instance"]["toggle_preview only changes the acting explorer"] = function()
   e2e.open_eda(child, tmp)
 

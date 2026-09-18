@@ -54,6 +54,14 @@ local function refresh(ctx)
   ctx.buffer:render(ctx.store)
 end
 
+---Repaint every explorer: the register is shared, so a cut made or cleared from one
+---explorer changes the dimming in all of them.
+local function refresh_all_views()
+  for _, explorer in ipairs(get_eda().get_all()) do
+    explorer.buffer:render(explorer.store)
+  end
+end
+
 ---Refresh git status after file mutation and re-render.
 ---@param ctx eda.ActionContext
 local function refresh_git(ctx)
@@ -972,7 +980,7 @@ action.register("cut", function(ctx)
     clear_marks(ctx.store)
   end
   vim.notify("Cut " .. #paths .. " item(s)")
-  refresh(ctx)
+  refresh_all_views()
 end, { desc = "Cut target nodes (Visual > marks > cursor)" })
 
 action.register("copy", function(ctx)
@@ -985,9 +993,14 @@ action.register("copy", function(ctx)
   for _, node in ipairs(target.nodes) do
     table.insert(paths, node.path)
   end
+  local previous = register.get()
   register.set(paths, "copy")
   if target.origin == "marks" then
     clear_marks(ctx.store)
+  end
+  if previous and previous.operation == "cut" then
+    refresh_all_views()
+  elseif target.origin == "marks" then
     refresh(ctx)
   end
   vim.notify("Copied " .. #paths .. " item(s)")
@@ -1214,7 +1227,11 @@ action.register("paste", function(ctx)
     register.clear()
     -- Nothing mutates, so no rescan repaints away the cut dimming baked into the
     -- decoration cache at paint time.
-    refresh(ctx)
+    if reg.operation == "cut" then
+      refresh_all_views()
+    else
+      refresh(ctx)
+    end
     return
   end
   active_pastes[reg] = true
