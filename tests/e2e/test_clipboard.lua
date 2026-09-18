@@ -112,6 +112,39 @@ T["clipboard"]["a toggle repaints rows cut through another explorer"] = function
   )
 end
 
+T["clipboard"]["copy after cut clears the cut dimming right away"] = function()
+  e2e.open_eda(child, tmp)
+  local function dispatch(name)
+    return e2e.exec(
+      child,
+      string.format(
+        [[
+      local ex = require("eda").get_current()
+      local node = ex.store:get_by_path(ex.root_path .. "/source.txt")
+      for i, fl in ipairs(ex.buffer.flat_lines) do
+        if fl.node_id == node.id then
+          vim.api.nvim_win_set_cursor(ex.window.winid, { i, 0 })
+        end
+      end
+      require("eda.action").dispatch(%q, {
+        explorer = ex,
+        store = ex.store,
+        scanner = ex.scanner,
+        buffer = ex.buffer,
+        window = ex.window,
+        config = require("eda.config").get(),
+      })
+      local entry = ex.buffer.painter._decoration_cache[node.id]
+      return entry and entry.icon_hl or vim.NIL
+    ]],
+        name
+      )
+    )
+  end
+  MiniTest.expect.equality(dispatch("cut"), "EdaCut")
+  MiniTest.expect.no_equality(dispatch("copy"), "EdaCut")
+end
+
 T["clipboard"]["copy and paste copies file"] = function()
   e2e.open_eda(child, tmp)
 
