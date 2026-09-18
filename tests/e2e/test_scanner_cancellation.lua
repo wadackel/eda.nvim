@@ -102,4 +102,33 @@ for _, transition in ipairs({ "initial root change", "initial close", "refresh r
     end
   end
 end
+T["expanding a directory whose scan is in flight paints its children"] = function()
+  e2e.open_eda(child, tmp)
+  -- The directory preview scans the node under the cursor through the same scanner,
+  -- so `select` can arrive while that scan still has the node in "loading".
+  e2e.exec(
+    child,
+    [[
+    local ex = require("eda").get_current()
+    local node = ex.store:get_by_path(ex.root_path .. "/new-root")
+    ex.scanner:scan(node.id, function() end)
+    assert(node.children_state == "loading")
+    for i, fl in ipairs(ex.buffer.flat_lines) do
+      if fl.node_id == node.id then
+        vim.api.nvim_win_set_cursor(ex.window.winid, { i + ex.buffer.painter.header_lines, 0 })
+      end
+    end
+    require("eda.action").dispatch("select", {
+      explorer = ex,
+      store = ex.store,
+      scanner = ex.scanner,
+      buffer = ex.buffer,
+      window = ex.window,
+      config = require("eda.config").get(),
+    })
+  ]]
+  )
+  e2e.wait_for_path_in_snapshot(child, tmp .. "/new-root/keep.txt", 3000)
+end
+
 return T
