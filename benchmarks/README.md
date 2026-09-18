@@ -267,6 +267,53 @@ Normal-file scans remain in the same range. The synthetic case demonstrates
 that metadata latency no longer becomes an equally long main-loop stall;
 its speedup is specific to the injected delay and bounded overlapping work.
 
+## Rendering with Git status
+
+`git-render.lua` opens a Git repository whose status includes ignored and
+changed entries, expands every directory, and waits for Git status. It then
+times a forced full render and a collapse/expand pair of `src-00`, first with
+`show_gitignored = true` and then with ignored entries hidden. Each mode has
+five repetitions of five warmup and twenty measured iterations per sample kind.
+`decorate_ms` is the decorator chain alone; `render_ms` and `decorate_ms` are
+nested inside `total_ms`, which also includes an explicit redraw. `cpu_ms` is
+the Neovim process's user and system CPU time over the same span as `total_ms`.
+It is less sensitive than wall-clock time to other load on the machine.
+
+```sh
+export EDA_BENCH_DIR="$(mktemp -d)"
+python3 - <<'PYTHON'
+import os
+import subprocess
+from pathlib import Path
+root = Path(os.environ["EDA_BENCH_DIR"])
+(root / ".gitignore").write_text("ignored/\n")
+for directory in range(50):
+    parent = root / f"src-{directory:02d}" / "nested"
+    parent.mkdir(parents=True)
+    for file in range(40):
+        (parent / f"file-{file:03d}.txt").write_text("tracked\n")
+git = lambda *args: subprocess.run(["git", *args], cwd=root, check=True)
+git("init", "-q")
+git("add", ".")
+git("-c", "user.name=Benchmark", "-c", "user.email=benchmark@example.invalid",
+    "-c", "commit.gpgsign=false", "commit", "-qm", "fixture")
+for directory in range(40):
+    parent = root / "ignored" / f"pkg-{directory:02d}" / "lib"
+    parent.mkdir(parents=True)
+    for file in range(50):
+        (parent / f"mod-{file:03d}.js").write_text("ignored\n")
+for directory in range(0, 50, 5):
+    (root / f"src-{directory:02d}" / "nested" / "file-000.txt").write_text("modified\n")
+    (root / f"src-{directory:02d}" / "untracked.txt").write_text("untracked\n")
+PYTHON
+EDA_BENCH_OUTPUT=/tmp/eda-git-render.json \
+  nvim --headless --clean -n -c 'luafile benchmarks/git-render.lua'
+```
+
+The expanded tree has 4,241 rows with ignored entries shown and 2,069 with them
+hidden. Absolute paths are part of the workload: ignored-ancestor checks walk
+each path, so a deeper fixture directory costs more.
+
 ## Git status during a burst of saves
 
 `git-burst.lua` opens three real explorer splits over a 1,000-file Git fixture.

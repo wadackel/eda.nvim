@@ -213,6 +213,28 @@ T["is_gitignored returns true for subdirectory of ignored directory"] = function
   MiniTest.expect.equality(git.is_gitignored(status, "/root/node_modules/lodash"), true)
 end
 
+T["is_gitignored answers each status map on its own"] = function()
+  local ignored = { ["/root/build"] = "!" }
+  local clean = { ["/root/build"] = "M" }
+  MiniTest.expect.equality(git.is_gitignored(ignored, "/root/build/out/a.o"), true)
+  MiniTest.expect.equality(git.is_gitignored(clean, "/root/build/out/a.o"), false)
+  MiniTest.expect.equality(git.is_gitignored(ignored, "/root/build/out/b.o"), true)
+end
+
+T["is_gitignored keeps sibling answers apart within one map"] = function()
+  local status = { ["/root/a/ignored"] = "!" }
+  MiniTest.expect.equality(git.is_gitignored(status, "/root/a/kept/x.txt"), false)
+  MiniTest.expect.equality(git.is_gitignored(status, "/root/a/ignored/x.txt"), true)
+  MiniTest.expect.equality(git.is_gitignored(status, "/root/a/ignored/deep/y.txt"), true)
+  MiniTest.expect.equality(git.is_gitignored(status, "/root/a/x.txt"), false)
+end
+
+T["is_gitignored checks ancestors above the repository root"] = function()
+  local status = { ["/outer"] = "!" }
+  MiniTest.expect.equality(git.is_gitignored(status, "/outer/repo/src/x.txt"), true)
+  MiniTest.expect.equality(git.is_gitignored({ [""] = "!" }, "/x.txt"), true)
+end
+
 -- is_changed_status tests (exposed as _is_changed_status for internal testing)
 
 T["_is_changed_status returns true for M/A/D/R/C/?/U"] = function()
