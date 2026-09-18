@@ -227,10 +227,14 @@ local CONTROL_PICTURE = {
 }
 
 ---Whether a name survives a round trip through the buffer line format.
+---Byte tests rather than name:match("^%s"): this runs for every row of every paint, and
+---LuaJIT cannot compile a pattern match, so each call dropped the loop to the interpreter.
 ---@param name string
 ---@return boolean
 local function is_representable(name)
-  return name ~= "" and name:match("^%s") == nil and name:find("\n", 1, true) == nil
+  local first = string.byte(name, 1)
+  -- %s is space and \t \n \v \f \r (bytes 9-13).
+  return first ~= nil and first ~= 32 and (first < 9 or first > 13) and name:find("\n", 1, true) == nil
 end
 
 ---Render an unrepresentable name with visible stand-ins, so the line neither
@@ -564,6 +568,7 @@ function Painter:paint_incremental(flat_lines, decorations, opts, hint)
   -- Determine the contiguous range of inserted/deleted lines
   local del_start, del_count -- 1-based index in old flat_lines, for collapse
   local ins_start, ins_count -- 1-based index in new flat_lines, for expand
+  local new_line_strings = {}
 
   if is_collapse then
     local toggled_old_i = old_idx_by_id[toggled_id]
@@ -647,7 +652,6 @@ function Painter:paint_incremental(flat_lines, decorations, opts, hint)
   else -- expand
     local insert_row = offset + ins_start - 1
     -- Build new line strings
-    local new_line_strings = {}
     for j = ins_start, ins_start + ins_count - 1 do
       new_line_strings[#new_line_strings + 1] = self:_build_line(flat_lines[j])
     end
@@ -719,11 +723,21 @@ function Painter:paint_incremental(flat_lines, decorations, opts, hint)
     self._fl_by_id[fl.node_id] = fl
   end
 
-  self._line_lengths = {}
-  local buf_lines = vim.api.nvim_buf_get_lines(self.bufnr, offset, offset + #flat_lines, false)
-  for i = 1, #flat_lines do
-    self._line_lengths[i] = buf_lines[i] and #buf_lines[i] or 0
+  -- Surviving rows keep their text, so their lengths shift with them instead of being
+  -- read back from the buffer, which would copy every line into a Lua string.
+  local old_lengths, lengths = self._line_lengths, {}
+  for i = 1, new_len do
+    if is_collapse then
+      lengths[i] = old_lengths[i < del_start and i or i + del_count]
+    elseif i < ins_start then
+      lengths[i] = old_lengths[i]
+    elseif i < ins_start + ins_count then
+      lengths[i] = #new_line_strings[i - ins_start + 1]
+    else
+      lengths[i] = old_lengths[i - ins_count]
+    end
   end
+  self._line_lengths = lengths
 
   local new_snapshot = { entries = {} }
   for i, fl in ipairs(flat_lines) do
