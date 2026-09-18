@@ -188,6 +188,21 @@ the actual-action workload above additionally exercises a surviving rename ID
 and deletion. Neither result demonstrates that an individual parse became
 faster.
 
+## Icon resynchronization after a line edit
+
+`edit-resync.lua` uses the 100 x 100 fixture with ASCII icons on every row. It
+deletes row 5,000 of 10,100 with `dd`, times `resync_highlights`, then undoes
+the deletion and times it again. Every pair checks that the icon rows and the
+buffer text return to their painted state. Five repetitions of five warmup and
+twenty measured pairs give 100 samples per direction. `icon_writes`,
+`icon_deletes`, and `icon_clears` count icon extmark API calls; `cpu_ms` is the
+process CPU time over the same span as `total_ms`.
+
+```sh
+EDA_BENCH_OUTPUT=/tmp/eda-edit-resync.json \
+  nvim --headless --clean -n -c 'luafile benchmarks/edit-resync.lua'
+```
+
 ## Symlink scan workload
 
 Create three 1,000-entry directories containing 0, 100, and 1,000 symlinks.

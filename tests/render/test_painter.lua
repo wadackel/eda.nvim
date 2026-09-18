@@ -1371,6 +1371,67 @@ T["resync_highlights keeps its row maps aligned after an undone deletion"] = fun
   vim.api.nvim_buf_delete(buf, { force = true })
 end
 
+T["resync_highlights touches only the icon of a deleted and restored row"] = function()
+  local store, root = build_four_file_store()
+  local flat_lines = Flatten.flatten(store, root)
+  local buf = vim.api.nvim_create_buf(false, true)
+  local painter = Painter.new(buf)
+  local decorations = {}
+  for i = 1, #flat_lines do
+    decorations[i] = { icon = "X" .. i, icon_hl = "TestHL" }
+  end
+  painter:paint(flat_lines, decorations, { icon = { separator = " " } })
+  local function icons()
+    local result = {}
+    for _, m in ipairs(vim.api.nvim_buf_get_extmarks(buf, painter.ns_icon, 0, -1, { details = true })) do
+      result[#result + 1] = { m[1], m[2], m[3], m[4].virt_text[1][1] }
+    end
+    return result
+  end
+  local painted = icons()
+  local calls = { set = 0, del = 0, clear = 0 }
+  local originals = {
+    set = vim.api.nvim_buf_set_extmark,
+    del = vim.api.nvim_buf_del_extmark,
+    clear = vim.api.nvim_buf_clear_namespace,
+  }
+  for name, key in pairs({
+    set = "nvim_buf_set_extmark",
+    del = "nvim_buf_del_extmark",
+    clear = "nvim_buf_clear_namespace",
+  }) do
+    vim.api[key] = function(b, ns, ...)
+      if b == buf and ns == painter.ns_icon then
+        calls[name] = calls[name] + 1
+      end
+      return originals[name](b, ns, ...)
+    end
+  end
+  local ok, err = pcall(function()
+    vim.bo[buf].modifiable = true
+    vim.api.nvim_buf_call(buf, function()
+      vim.cmd("silent! 2delete _")
+    end)
+    painter:resync_highlights()
+    MiniTest.expect.equality(calls, { set = 0, del = 1, clear = 0 })
+    MiniTest.expect.equality(icons(), { painted[1], { painted[3][1], 1, 0, "X3 " }, { painted[4][1], 2, 0, "X4 " } })
+    calls = { set = 0, del = 0, clear = 0 }
+    vim.api.nvim_buf_call(buf, function()
+      vim.cmd("silent! undo")
+    end)
+    painter:resync_highlights()
+    MiniTest.expect.equality(calls, { set = 1, del = 0, clear = 0 })
+    MiniTest.expect.equality(icons(), painted)
+  end)
+  vim.api.nvim_buf_set_extmark = originals.set
+  vim.api.nvim_buf_del_extmark = originals.del
+  vim.api.nvim_buf_clear_namespace = originals.clear
+  vim.api.nvim_buf_delete(buf, { force = true })
+  if not ok then
+    error(err, 0)
+  end
+end
+
 T["_resync_on_redraw leaves icon extmarks alone when nothing moved"] = function()
   local store, root = build_four_file_store()
   local flat_lines = Flatten.flatten(store, root)
