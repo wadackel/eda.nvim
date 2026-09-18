@@ -785,6 +785,9 @@ function Painter:_sync_icon_marks(rows)
           virt_text = build_icon_virt_text(self._decoration_cache[fl.node_id]),
           virt_text_pos = "inline",
           right_gravity = false,
+          -- An edit can leave the line shorter than its indent (`D` inside it); the
+          -- icon then belongs at the line end rather than raising from TextChanged.
+          strict = false,
         })
       end
     end
