@@ -71,6 +71,47 @@ T["clipboard"]["cut and paste moves file"] = function()
   MiniTest.expect.equality(vim.fn.filereadable(src_path), 0)
 end
 
+T["clipboard"]["a toggle repaints rows cut through another explorer"] = function()
+  e2e.create_file(tmp .. "/dest/inner.txt", "inner")
+  e2e.open_eda(child, tmp)
+  -- The register is shared by every explorer; a cut made in another one repaints
+  -- only that explorer.
+  e2e.exec(
+    child,
+    [[
+    local ex = require("eda").get_current()
+    require("eda.register").set({ ex.root_path .. "/source.txt" }, "cut")
+    local dest = ex.store:get_by_path(ex.root_path .. "/dest")
+    for i, fl in ipairs(ex.buffer.flat_lines) do
+      if fl.node_id == dest.id then
+        vim.api.nvim_win_set_cursor(ex.window.winid, { i, 0 })
+      end
+    end
+    require("eda.action").dispatch("select", {
+      explorer = ex,
+      store = ex.store,
+      scanner = ex.scanner,
+      buffer = ex.buffer,
+      window = ex.window,
+      config = require("eda.config").get(),
+    })
+  ]]
+  )
+  e2e.wait_for_path_in_snapshot(child, tmp .. "/dest/inner.txt")
+  MiniTest.expect.equality(
+    e2e.exec(
+      child,
+      [[
+      local ex = require("eda").get_current()
+      local node = ex.store:get_by_path(ex.root_path .. "/source.txt")
+      local entry = ex.buffer.painter._decoration_cache[node.id]
+      return entry and entry.icon_hl
+    ]]
+    ),
+    "EdaCut"
+  )
+end
+
 T["clipboard"]["copy and paste copies file"] = function()
   e2e.open_eda(child, tmp)
 

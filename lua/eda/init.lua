@@ -173,6 +173,7 @@ end
 ---@field _render_gen integer
 ---@field _last_painted_gen integer
 ---@field _painted_git_status table<string, string>|false|nil Status map of the last paint; false after the loading screen
+---@field _painted_register_version integer? Register version of the last paint
 ---@field _incremental_hint? { toggled_node_id: integer }
 ---@field _render_preserving_edits fun(capture?: eda.EditCapture)?
 ---@field _refresh_for_navigation fun()?
@@ -934,7 +935,14 @@ function M.open(opts)
           and "Cannot read this directory: permission denied"
         or ("Cannot read this directory: " .. root_node.error)
     end
-    -- Try incremental paint for single-directory toggle operations
+    -- Try incremental paint for single-directory toggle operations. It rewrites only the
+    -- toggled and inserted rows, so it is valid only while the other rows' decoration
+    -- inputs are the ones last painted. Git status and the register are shared across
+    -- explorers, and another explorer's change repaints only that explorer.
+    local register_version = require("eda.register").version()
+    if git_status ~= explorer._painted_git_status or register_version ~= explorer._painted_register_version then
+      explorer._incremental_hint = nil
+    end
     local used_incremental = false
     if #buf.painter._flat_lines > 0 and explorer._incremental_hint then
       ---@type { toggled_node_id: integer }
@@ -953,6 +961,7 @@ function M.open(opts)
     buf.focus_node_id = nil
     explorer._last_painted_gen = explorer._render_gen
     explorer._painted_git_status = git_status
+    explorer._painted_register_version = register_version
     explorer.refresh:sync_watchers()
     if k == "float" then
       refresh_float_title(explorer)

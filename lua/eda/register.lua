@@ -7,11 +7,17 @@ local M = {}
 ---@type eda.Register?
 local register = nil
 
+-- Bumped on every change, so an explorer can tell whether the register it last
+-- painted is still current: the register is shared, and a change made in one
+-- explorer repaints only that one.
+local version = 0
+
 ---Set the register with paths and operation type.
 ---@param paths string[]
 ---@param operation "cut"|"copy"
 function M.set(paths, operation)
   register = { paths = paths, operation = operation }
+  version = version + 1
 end
 
 ---Get the current register contents.
@@ -23,6 +29,12 @@ end
 ---Clear the register.
 function M.clear()
   register = nil
+  version = version + 1
+end
+
+---@return integer
+function M.version()
+  return version
 end
 
 ---Check if a path is in the register.
