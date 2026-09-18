@@ -335,6 +335,31 @@ function M.lookup(git_status, path)
   return git_status[util.nfc_normalize(path)]
 end
 
+-- Directory answers per status map. A render asks about every row, and rows share
+-- their ancestors: walking each row's path to "/" costs a match and a substring per
+-- level. Keying by the map is safe because parse_status never modifies a map after
+-- returning it.
+---@type table<table<string, string>, table<string, boolean>>
+local ignored_dirs = setmetatable({}, { __mode = "k" })
+
+---@param git_status table<string, string>
+---@param memo table<string, boolean>
+---@param dir string
+---@return boolean
+local function dir_ignored(git_status, memo, dir)
+  local cached = memo[dir]
+  if cached ~= nil then
+    return cached
+  end
+  local ignored = git_status[dir] == "!"
+  if not ignored then
+    local parent = parent_dir(dir)
+    ignored = parent ~= dir and dir_ignored(git_status, memo, parent)
+  end
+  memo[dir] = ignored
+  return ignored
+end
+
 ---Check whether a path is inside a git-ignored directory.
 ---Walks up the path hierarchy looking for an ancestor with "!" status.
 ---@param git_status table<string, string>
@@ -343,14 +368,15 @@ end
 function M.is_gitignored(git_status, path)
   path = util.nfc_normalize(path)
   local dir = parent_dir(path)
-  while dir ~= path do
-    if git_status[dir] == "!" then
-      return true
-    end
-    path = dir
-    dir = parent_dir(dir)
+  if dir == path then
+    return false
   end
-  return false
+  local memo = ignored_dirs[git_status]
+  if not memo then
+    memo = {}
+    ignored_dirs[git_status] = memo
+  end
+  return dir_ignored(git_status, memo, dir)
 end
 
 M._parse_status = parse_status
