@@ -111,6 +111,8 @@ for _, target in ipairs({ "root child", "nested child" }) do
         )
         MiniTest.expect.equality(icons(painter), icons(reference))
         MiniTest.expect.equality(painter._decoration_cache, reference._decoration_cache)
+        MiniTest.expect.equality(painter._line_lengths, reference._line_lengths)
+        MiniTest.expect.equality(painter.snapshot, reference.snapshot)
         for i, row in ipairs(rows) do
           MiniTest.expect.equality(
             vim.api.nvim_buf_get_extmark_by_id(painter.bufnr, painter.ns_ids, row.node_id, {}),
