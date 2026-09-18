@@ -5,6 +5,7 @@ local M = {}
 ---@class eda.GitCacheEntry
 ---@field statuses? table<string, string>  -- path → porcelain code after propagation
 ---@field reported? table<string, true>    -- directly reported changed files only (before propagation)
+---@field stdout? string                   -- raw output the statuses were parsed from
 ---@field ready "loading"|"ready"|"no_repo"|"error"
 
 ---@type table<string, eda.GitCacheEntry>
@@ -199,10 +200,16 @@ start_pending = function(root, slot)
     slot.active = nil
     local statuses
     if slot.epoch == request.epoch then
-      if result.code == 0 then
+      local stdout = result.stdout or ""
+      local previous = cache[root]
+      if result.code == 0 and previous and previous.statuses and previous.stdout == stdout then
+        -- The same answer keeps the same map, so a caller can compare it with the map
+        -- it last painted instead of repainting an unchanged tree.
+        statuses = previous.statuses
+      elseif result.code == 0 then
         local reported = {}
-        statuses = parse_status(result.stdout or "", root, reported)
-        cache[root] = { statuses = statuses, reported = reported, ready = "ready" }
+        statuses = parse_status(stdout, root, reported)
+        cache[root] = { statuses = statuses, reported = reported, ready = "ready", stdout = stdout }
       elseif not cache[root] or not cache[root].statuses then
         cache[root] = { ready = slot.pending and "loading" or "error" }
       end

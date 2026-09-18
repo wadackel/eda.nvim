@@ -244,4 +244,30 @@ T["different repositories can finish in reverse order"] = function()
   MiniTest.expect.equality(git.get_cached(tmp .. "/nested"), { [tmp .. "/nested/nested-file"] = "?" })
   git.invalidate(tmp .. "/nested")
 end
+T["an identical result keeps the previous status map"] = function()
+  local results = {}
+  local function request(index, output)
+    git.status(tmp, function(value)
+      results[#results + 1] = value
+    end)
+    wait_for(function()
+      return #jobs == index
+    end)
+    complete(index, output)
+    wait_for(function()
+      return #results == index
+    end)
+  end
+  request(1, " M changed\0!! ignored/\0")
+  request(2, " M changed\0!! ignored/\0")
+  MiniTest.expect.equality(rawequal(results[2], results[1]), true)
+  MiniTest.expect.equality(rawequal(git.get_cached(tmp), results[1]), true)
+  MiniTest.expect.equality(git.get_reported_changes(tmp), { [tmp .. "/changed"] = true })
+  request(3, "M  changed\0!! ignored/\0")
+  MiniTest.expect.equality(rawequal(results[3], results[1]), false)
+  MiniTest.expect.equality(results[3][tmp .. "/changed"], "M")
+  git.invalidate(tmp)
+  request(4, "M  changed\0!! ignored/\0")
+  MiniTest.expect.equality(rawequal(results[4], results[3]), false)
+end
 return T
