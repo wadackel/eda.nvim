@@ -127,7 +127,9 @@ action.register("select", function(ctx)
   if Node.is_dir(node) then
     node.open = not node.open
     ctx.explorer._incremental_hint = { toggled_node_id = node.id }
-    if node.open and node.children_state == "unloaded" then
+    -- "loading" also needs the scan callback: another scan (the directory preview
+    -- shares this scanner) may be in flight, and its completion repaints only its caller.
+    if node.open and node.children_state ~= "loaded" then
       local generation = ctx.explorer.generation
       ctx.scanner:scan_expanded(node.id, function()
         vim.schedule(function()
