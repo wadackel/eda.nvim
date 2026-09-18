@@ -275,7 +275,9 @@ times a forced full render and a collapse/expand pair of `src-00`, first with
 `show_gitignored = true` and then with ignored entries hidden. Each mode has
 five repetitions of five warmup and twenty measured iterations per sample kind.
 `decorate_ms` is the decorator chain alone; `render_ms` and `decorate_ms` are
-nested inside `total_ms`, which also includes an explicit redraw.
+nested inside `total_ms`, which also includes an explicit redraw. `cpu_ms` is
+the Neovim process's user and system CPU time over the same span as `total_ms`.
+It is less sensitive than wall-clock time to other load on the machine.
 
 ```sh
 export EDA_BENCH_DIR="$(mktemp -d)"
