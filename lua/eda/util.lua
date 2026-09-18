@@ -1,6 +1,7 @@
 local M = {}
 
 local is_mac = vim.uv.os_uname().sysname == "Darwin"
+local byte = string.byte
 
 ---@class eda.Debounce
 ---@field call fun(...: any)
@@ -102,7 +103,16 @@ function M.nfc_normalize(str)
     return str
   end
   -- An all-ASCII path has no decomposed form, and this runs per entry per render.
-  if not str:find("[\128-\255]") then
+  -- A byte loop rather than str:find("[\128-\255]"): LuaJIT compiles the loop, while a
+  -- pattern search falls back to the interpreter and costs about ten times as much.
+  local ascii = true
+  for i = 1, #str do
+    if byte(str, i) > 127 then
+      ascii = false
+      break
+    end
+  end
+  if ascii then
     return str
   end
   local result = vim.fn.iconv(str, "utf-8-mac", "utf-8")

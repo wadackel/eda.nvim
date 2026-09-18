@@ -71,6 +71,16 @@ T["nfc_normalize"]["returns ascii unchanged"] = function()
   MiniTest.expect.equality(util.nfc_normalize("hello.lua"), "hello.lua")
 end
 
+T["nfc_normalize"]["composes a decomposed character wherever it sits"] = function()
+  if vim.uv.os_uname().sysname ~= "Darwin" then
+    MiniTest.skip("normalization only runs on macOS")
+  end
+  local decomposed, composed = "e\204\129", "\195\169"
+  MiniTest.expect.equality(util.nfc_normalize(decomposed .. "/a.txt"), composed .. "/a.txt")
+  MiniTest.expect.equality(util.nfc_normalize("/a/" .. decomposed .. "/b"), "/a/" .. composed .. "/b")
+  MiniTest.expect.equality(util.nfc_normalize("/a/caf" .. decomposed), "/a/caf" .. composed)
+end
+
 T["nfc_normalize"]["handles non-empty string"] = function()
   local input = "test.txt"
   local result = util.nfc_normalize(input)
