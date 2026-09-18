@@ -32,12 +32,16 @@ api.nvim_set_decoration_provider = function(ns, opts)
   return provider(ns, opts)
 end
 local Chain = require("eda.render.decorator").Chain
-local decorate = Chain.decorate
-Chain.decorate = function(self, rows, ctx)
+local decorate_one = Chain.decorate_one
+Chain.decorate_one = function(...)
   if active then
-    counts.decorated_rows = counts.decorated_rows + #rows
+    counts.decorated_rows = counts.decorated_rows + 1
   end
-  return decorate(self, rows, ctx)
+  return decorate_one(...)
+end
+local function cpu_ms()
+  local usage = vim.uv.getrusage()
+  return (usage.utime.sec + usage.stime.sec) * 1e3 + (usage.utime.usec + usage.stime.usec) / 1e3
 end
 local Painter = require("eda.render.painter")
 local resync = Painter._resync_on_redraw
@@ -118,6 +122,7 @@ local function run()
       render_ms = 0,
     }
     api.nvim_win_set_cursor(ex.window.winid, { 1, 0 })
+    local cpu_start = cpu_ms()
     local start = vim.uv.hrtime()
     action.dispatch("select", ctx)
     local expected = open and all_lines or all_lines - child_count
@@ -129,6 +134,7 @@ local function run()
     )
     vim.cmd("redraw")
     counts.total_ms = (vim.uv.hrtime() - start) / 1e6
+    counts.cpu_ms = cpu_ms() - cpu_start
     counts.direction = open and "expand" or "collapse"
     return vim.deepcopy(counts)
   end

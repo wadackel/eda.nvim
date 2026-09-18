@@ -10,12 +10,13 @@ local function cpu_ms()
   return (usage.utime.sec + usage.stime.sec) * 1e3 + (usage.utime.usec + usage.stime.usec) / 1e3
 end
 local Chain = require("eda.render.decorator").Chain
-local decorate = Chain.decorate
-Chain.decorate = function(self, rows, ctx)
+local decorate_one = Chain.decorate_one
+Chain.decorate_one = function(...)
   local start = vim.uv.hrtime()
-  local result = decorate(self, rows, ctx)
+  local result = decorate_one(...)
   if active then
     counts.decorate_ms = counts.decorate_ms + (vim.uv.hrtime() - start) / 1e6
+    counts.decorated_rows = counts.decorated_rows + 1
   end
   return result
 end
@@ -88,8 +89,9 @@ local function run()
       counts.render_ms = counts.render_ms + (vim.uv.hrtime() - start) / 1e6
     end
   end
+  local open_rows
   local function reset_counts()
-    counts = { decorate_ms = 0, render_ms = 0 }
+    counts = { decorate_ms = 0, decorated_rows = 0, render_ms = 0 }
   end
   local function target_row()
     for i, fl in ipairs(ex.buffer.flat_lines) do
@@ -104,9 +106,11 @@ local function run()
     local cpu_start = cpu_ms()
     local start = vim.uv.hrtime()
     action.dispatch("select", ctx)
+    -- A collapsed directory loses its watcher and is rescanned on expansion, so the
+    -- expanded rows arrive after an asynchronous scan.
     assert(
       vim.wait(10000, function()
-        return target.open == open
+        return target.open == open and (#ex.buffer.flat_lines == open_rows) == open
       end, 1),
       "toggle timeout"
     )
@@ -131,6 +135,7 @@ local function run()
   for _, show_gitignored in ipairs({ true, false }) do
     cfg.show_gitignored = show_gitignored
     full()
+    open_rows = #ex.buffer.flat_lines
     local mode = show_gitignored and "shown" or "hidden"
     result.rows[mode] = #ex.buffer.flat_lines
     for repetition = 1, 5 do

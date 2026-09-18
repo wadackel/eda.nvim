@@ -41,59 +41,89 @@ function Chain:add(fn)
   table.insert(self.decorators, fn)
 end
 
----Apply all decorators to a list of flat lines.
+---Apply all decorators to one node.
 ---Sequential application: name_hl uses append (stacked hl_group arrays),
 ---all other fields use last-write-wins.
+---@param node eda.TreeNode
+---@param ctx eda.DecoratorContext
+---@return eda.Decoration
+function Chain:decorate_one(node, ctx)
+  local merged = {}
+  local name_hl_list
+  for _, dec_fn in ipairs(self.decorators) do
+    local dec = dec_fn(node, ctx)
+    if dec then
+      if dec.prefix ~= nil then
+        merged.prefix = dec.prefix
+      end
+      if dec.prefix_hl ~= nil then
+        merged.prefix_hl = dec.prefix_hl
+      end
+      if dec.icon ~= nil then
+        merged.icon = dec.icon
+      end
+      if dec.icon_hl ~= nil then
+        merged.icon_hl = dec.icon_hl
+      end
+      if dec.name_hl ~= nil then
+        if not name_hl_list then
+          name_hl_list = { dec.name_hl }
+        else
+          name_hl_list[#name_hl_list + 1] = dec.name_hl
+        end
+      end
+      if dec.suffix ~= nil then
+        merged.suffix = dec.suffix
+      end
+      if dec.suffix_hl ~= nil then
+        merged.suffix_hl = dec.suffix_hl
+      end
+      if dec.link_suffix ~= nil then
+        merged.link_suffix = dec.link_suffix
+      end
+      if dec.link_suffix_hl ~= nil then
+        merged.link_suffix_hl = dec.link_suffix_hl
+      end
+    end
+  end
+  if name_hl_list then
+    merged.name_hl = #name_hl_list == 1 and name_hl_list[1] or name_hl_list
+  end
+  return merged
+end
+
+---Apply all decorators to a list of flat lines.
 ---@param flat_lines eda.FlatLine[]
 ---@param ctx eda.DecoratorContext
 ---@return eda.Decoration[]
 function Chain:decorate(flat_lines, ctx)
   local result = {}
   for i, fl in ipairs(flat_lines) do
-    local merged = {}
-    local name_hl_list
-    for _, dec_fn in ipairs(self.decorators) do
-      local dec = dec_fn(fl.node, ctx)
-      if dec then
-        if dec.prefix ~= nil then
-          merged.prefix = dec.prefix
-        end
-        if dec.prefix_hl ~= nil then
-          merged.prefix_hl = dec.prefix_hl
-        end
-        if dec.icon ~= nil then
-          merged.icon = dec.icon
-        end
-        if dec.icon_hl ~= nil then
-          merged.icon_hl = dec.icon_hl
-        end
-        if dec.name_hl ~= nil then
-          if not name_hl_list then
-            name_hl_list = { dec.name_hl }
-          else
-            name_hl_list[#name_hl_list + 1] = dec.name_hl
-          end
-        end
-        if dec.suffix ~= nil then
-          merged.suffix = dec.suffix
-        end
-        if dec.suffix_hl ~= nil then
-          merged.suffix_hl = dec.suffix_hl
-        end
-        if dec.link_suffix ~= nil then
-          merged.link_suffix = dec.link_suffix
-        end
-        if dec.link_suffix_hl ~= nil then
-          merged.link_suffix_hl = dec.link_suffix_hl
-        end
-      end
-    end
-    if name_hl_list then
-      merged.name_hl = #name_hl_list == 1 and name_hl_list[1] or name_hl_list
-    end
-    result[i] = merged
+    result[i] = self:decorate_one(fl.node, ctx)
   end
   return result
+end
+
+---Decorations for a list of flat lines, each computed when first indexed.
+---An incremental paint reads only the toggled row and the rows it inserts, so the
+---rest of the tree is never decorated. The result supports indexing only: no `#`
+---or `ipairs`. Decorators read node and register state when a row is indexed, so
+---the table must be consumed before that state changes.
+---@param flat_lines eda.FlatLine[]
+---@param ctx eda.DecoratorContext
+---@return eda.Decoration[]
+function Chain:decorate_lazy(flat_lines, ctx)
+  return setmetatable({}, {
+    __index = function(decorations, i)
+      local fl = flat_lines[i]
+      if not fl then
+        return nil
+      end
+      local dec = self:decorate_one(fl.node, ctx)
+      decorations[i] = dec
+      return dec
+    end,
+  })
 end
 
 ---Compute a relative path from `from_dir` to `to_path`.
