@@ -1432,6 +1432,43 @@ T["resync_highlights touches only the icon of a deleted and restored row"] = fun
   end
 end
 
+for _, resync in ipairs({ "resync_highlights", "_resync_on_redraw" }) do
+  T[resync .. " keeps an icon on a row edited shorter than its indent"] = function()
+    local store = Store.new()
+    local root = store:set_root("/p")
+    local a = store:add({ name = "a", path = "/p/a", type = "directory", parent_id = root, open = true })
+    local b = store:add({ name = "b", path = "/p/a/b", type = "directory", parent_id = a, open = true })
+    store:add({ name = "deep.txt", path = "/p/a/b/deep.txt", type = "file", parent_id = b })
+    for _, id in ipairs({ root, a, b }) do
+      store:get(id).children_state = "loaded"
+    end
+    local flat_lines = Flatten.flatten(store, root)
+    local buf = vim.api.nvim_create_buf(false, true)
+    local painter = Painter.new(buf)
+    local decorations = {}
+    for i = 1, #flat_lines do
+      decorations[i] = { icon = "I", icon_hl = "TestHL" }
+    end
+    painter:paint(flat_lines, decorations, { icon = { separator = " " } })
+
+    -- `D` from the second indent column of "    deep.txt" leaves " ", shorter than
+    -- the depth-2 icon column, while the node's ID mark stays valid.
+    vim.api.nvim_buf_set_text(buf, 2, 1, 2, #"    deep.txt", {})
+    if resync == "_resync_on_redraw" then
+      vim.api.nvim_buf_set_lines(buf, 0, 0, false, { "typed" })
+    end
+    local ok, err = pcall(function()
+      painter[resync](painter)
+    end)
+    MiniTest.expect.equality(ok, true, tostring(err))
+    local row = resync == "_resync_on_redraw" and 3 or 2
+    local mark = vim.api.nvim_buf_get_extmark_by_id(buf, painter.ns_icon, flat_lines[3].node_id, {})
+    MiniTest.expect.equality(mark, { row, 1 })
+
+    vim.api.nvim_buf_delete(buf, { force = true })
+  end
+end
+
 T["_resync_on_redraw leaves icon extmarks alone when nothing moved"] = function()
   local store, root = build_four_file_store()
   local flat_lines = Flatten.flatten(store, root)
