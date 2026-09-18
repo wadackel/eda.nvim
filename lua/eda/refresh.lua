@@ -246,7 +246,11 @@ function Refresh:flush()
     end
     if cfg.git.enabled then
       git.status(ex.root_path, function()
-        if self.epoch == epoch and ex.generation == generation and util.is_valid_buf(bufnr) then
+        -- Most watcher events leave Git's answer unchanged, and git.status then hands
+        -- back the map the tree was last painted with.
+        local unchanged = git.get_cached(ex.root_path) == ex._painted_git_status
+          and ex._render_gen == ex._last_painted_gen
+        if not unchanged and self.epoch == epoch and ex.generation == generation and util.is_valid_buf(bufnr) then
           ex.buffer:render(store)
         end
       end)

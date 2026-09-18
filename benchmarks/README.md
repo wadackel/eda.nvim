@@ -335,6 +335,22 @@ The expanded tree has 4,241 rows with ignored entries shown and 2,069 with them
 hidden. Absolute paths are part of the workload: ignored-ancestor checks walk
 each path, so a deeper fixture directory costs more.
 
+## Watcher refresh with unchanged Git status
+
+`git-refresh.lua` uses the Git render fixture above. It opens and expands the
+tree, then requests the refresh a watcher event on `src-00/nested` would cause.
+The directory listing is unchanged, as after saving a file that is already
+modified. Each sample waits for the Git status result and for the refresh to
+settle, then redraws. Five repetitions of five warmup and twenty measured
+refreshes give 100 samples. `paints` counts full paints; `cpu_ms` is Neovim's
+own CPU time and excludes the `git status` subprocess, whose run time is part
+of `total_ms`.
+
+```sh
+EDA_BENCH_OUTPUT=/tmp/eda-git-refresh.json \
+  nvim --headless --clean -n -c 'luafile benchmarks/git-refresh.lua'
+```
+
 ## Git status during a burst of saves
 
 `git-burst.lua` opens three real explorer splits over a 1,000-file Git fixture.

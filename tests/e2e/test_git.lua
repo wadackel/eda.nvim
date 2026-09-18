@@ -1395,4 +1395,69 @@ T["git"]["saving on the empty-state screen creates nothing"] = function()
   e2e.feed(child, "gs")
 end
 
+T["git"]["repaints after a watcher refresh only when the status changed"] = function()
+  e2e.create_file(tmp .. "/tracked.txt", "modified")
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = true },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+    })
+  ]]
+  )
+  e2e.open_eda(child, tmp)
+  e2e.wait_until(
+    child,
+    string.format([[return (require("eda.git").get_cached(%q) or {})[%q] == "M"]], tmp, tmp .. "/tracked.txt"),
+    10000
+  )
+  e2e.wait_until(
+    child,
+    [[
+    local ex = require("eda").get_current()
+    return not ex.refresh.pending and not ex.refresh.running and ex._render_gen == ex._last_painted_gen
+  ]]
+  )
+  e2e.exec(
+    child,
+    [[
+    local ex = require("eda").get_current()
+    _G.paints, _G.git_results = 0, 0
+    local paint = ex.buffer.painter.paint
+    ex.buffer.painter.paint = function(...)
+      _G.paints = _G.paints + 1
+      return paint(...)
+    end
+    local git = require("eda.git")
+    local status = git.status
+    git.status = function(root, cb)
+      return status(root, function(...)
+        cb(...)
+        _G.git_results = _G.git_results + 1
+      end)
+    end
+  ]]
+  )
+  local function refresh()
+    e2e.exec(child, [[_G.git_results = 0; _G.paints = 0; require("eda").get_current().refresh:request()]])
+    e2e.wait_until(
+      child,
+      [[
+      local ex = require("eda").get_current()
+      return _G.git_results > 0 and not ex.refresh.pending and not ex.refresh.running
+    ]],
+      10000
+    )
+    return e2e.exec(child, [[return _G.paints]])
+  end
+  MiniTest.expect.equality(refresh(), 0)
+  vim.fn.system({ "git", "-C", tmp, "add", "tracked.txt" })
+  MiniTest.expect.equality(refresh(), 1)
+  MiniTest.expect.equality(refresh(), 0)
+end
+
 return T

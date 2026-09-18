@@ -172,6 +172,7 @@ end
 ---@field refresh eda.Refresh
 ---@field _render_gen integer
 ---@field _last_painted_gen integer
+---@field _painted_git_status table<string, string>|false|nil Status map of the last paint; false after the loading screen
 ---@field _incremental_hint? { toggled_node_id: integer }
 ---@field _render_preserving_edits fun(capture?: eda.EditCapture)?
 ---@field _refresh_for_navigation fun()?
@@ -839,6 +840,8 @@ function M.open(opts)
         vim.bo[buf.bufnr].modifiable = false
         buf.flat_lines = {}
         explorer._last_painted_gen = explorer._render_gen
+        -- Matches no status map, so whatever answer arrives next repaints this screen.
+        explorer._painted_git_status = false
         explorer.refresh:sync_watchers()
         explorer._incremental_hint = nil
         explorer._empty_state_rendered = true
@@ -949,6 +952,7 @@ function M.open(opts)
     buf.target_node_id = nil
     buf.focus_node_id = nil
     explorer._last_painted_gen = explorer._render_gen
+    explorer._painted_git_status = git_status
     explorer.refresh:sync_watchers()
     if k == "float" then
       refresh_float_title(explorer)
