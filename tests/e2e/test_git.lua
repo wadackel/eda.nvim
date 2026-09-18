@@ -1460,4 +1460,98 @@ T["git"]["repaints after a watcher refresh only when the status changed"] = func
   MiniTest.expect.equality(refresh(), 0)
 end
 
+T["git"]["a toggle repaints rows whose status changed through another explorer"] = function()
+  e2e.create_file(tmp .. "/new.txt", "new")
+  e2e.create_file(tmp .. "/sub/inner.txt", "inner")
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = true },
+      icon = { provider = "none" },
+      window = { kind = "split_left", width = 40 },
+      confirm = false,
+      header = false,
+    })
+  ]]
+  )
+  e2e.open_eda(child, tmp)
+  local function wait_status(code)
+    e2e.wait_until(
+      child,
+      string.format([[return (require("eda.git").get_cached(%q) or {})[%q] == %q]], tmp, tmp .. "/new.txt", code),
+      10000
+    )
+  end
+  wait_status("?")
+  e2e.wait_until(
+    child,
+    [[
+    local ex = require("eda").get_current()
+    return not ex.refresh.pending and not ex.refresh.running and ex._render_gen == ex._last_painted_gen
+  ]]
+  )
+  -- Another explorer on the same repository refreshes the shared status cache; its
+  -- callback repaints only that explorer.
+  vim.fn.system({ "git", "-C", tmp, "add", "new.txt" })
+  e2e.exec(child, string.format([[require("eda.git").status(%q, function() end)]], tmp))
+  wait_status("A")
+  e2e.exec(
+    child,
+    [[
+    local ex = require("eda").get_current()
+    local sub = ex.store:get_by_path(ex.root_path .. "/sub")
+    for i, fl in ipairs(ex.buffer.flat_lines) do
+      if fl.node_id == sub.id then
+        vim.api.nvim_win_set_cursor(ex.window.winid, { i, 0 })
+      end
+    end
+    require("eda.action").dispatch("select", {
+      explorer = ex,
+      store = ex.store,
+      scanner = ex.scanner,
+      buffer = ex.buffer,
+      window = ex.window,
+      config = require("eda.config").get(),
+    })
+  ]]
+  )
+  e2e.wait_for_path_in_snapshot(child, tmp .. "/sub/inner.txt")
+  local function suffix()
+    return e2e.exec(
+      child,
+      [[
+      local ex = require("eda").get_current()
+      local node = ex.store:get_by_path(ex.root_path .. "/new.txt")
+      return ex.buffer.painter._decoration_cache[node.id].suffix == require("eda.config").get().git.icons.added
+    ]]
+    )
+  end
+  MiniTest.expect.equality(suffix(), true)
+  e2e.exec(
+    child,
+    [[
+    _G.refreshed = false
+    local git = require("eda.git")
+    local status = git.status
+    git.status = function(root, cb)
+      return status(root, function(...)
+        cb(...)
+        _G.refreshed = true
+      end)
+    end
+    require("eda").get_current().refresh:request()
+  ]]
+  )
+  e2e.wait_until(
+    child,
+    [[
+    local ex = require("eda").get_current()
+    return _G.refreshed and not ex.refresh.pending and not ex.refresh.running
+  ]],
+    10000
+  )
+  MiniTest.expect.equality(suffix(), true)
+end
+
 return T
