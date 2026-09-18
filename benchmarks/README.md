@@ -20,7 +20,9 @@ file icons when its optional provider is unavailable.
 ## Actual directory-toggle workload
 
 `toggle.lua` opens the explorer, expands a 100-directory / 10,000-file fixture,
-and invokes the normal `select` action followed by an explicit redraw. It uses
+and invokes the normal `select` action followed by an explicit redraw.
+`decorated_rows` counts rows passed through the decorator chain, and `cpu_ms` is
+the process CPU time over the same span as `total_ms`. It uses
 deterministic ASCII icons on every row, disables Git and the header, and uses a
 replacement window. Each of five repetitions contains five warmup pairs and
 twenty measured collapse/expand pairs: 100 samples per direction in total.
@@ -274,6 +276,10 @@ changed entries, expands every directory, and waits for Git status. It then
 times a forced full render and a collapse/expand pair of `src-00`, first with
 `show_gitignored = true` and then with ignored entries hidden. Each mode has
 five repetitions of five warmup and twenty measured iterations per sample kind.
+A collapsed directory loses its watcher and is rescanned when expanded, so each
+toggle sample waits until the row count reflects the toggle; expansion therefore
+includes that asynchronous scan. `decorated_rows` counts rows passed through the
+decorator chain.
 `decorate_ms` is the decorator chain alone; `render_ms` and `decorate_ms` are
 nested inside `total_ms`, which also includes an explicit redraw. `cpu_ms` is
 the Neovim process's user and system CPU time over the same span as `total_ms`.

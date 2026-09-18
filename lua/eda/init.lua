@@ -911,7 +911,7 @@ function M.open(opts)
     end
     local flat_lines = require("eda.render.flatten").flatten(st, st.root_id, flatten_opts)
     local ctx = { store = st, git_status = git_status, config = cfg_now }
-    local decorations = ch:decorate(flat_lines, ctx)
+    local decorations = ch:decorate_lazy(flat_lines, ctx)
     buf.flat_lines = flat_lines
     local paint_opts = {
       root_path = rp,

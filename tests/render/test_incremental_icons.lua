@@ -122,6 +122,35 @@ for _, target in ipairs({ "root child", "nested child" }) do
   end
 end
 
+T["incremental toggle reads decorations only for the rows it paints"] = function()
+  local store, dir, nested = fixture()
+  local painter = new_painter()
+  local rows, decorations = decorated(store)
+  painter:paint(rows, decorations)
+  local function tracked(list)
+    local read = {}
+    return setmetatable({}, {
+      __index = function(_, i)
+        read[#read + 1] = i
+        return list[i]
+      end,
+    }),
+      read
+  end
+  store:get(nested).open = false
+  rows, decorations = decorated(store)
+  local proxy, read = tracked(decorations)
+  MiniTest.expect.equality(painter:paint_incremental(rows, proxy, nil, { toggled_node_id = nested }), true)
+  MiniTest.expect.equality(read, { 2 })
+  store:get(nested).open = true
+  rows, decorations = decorated(store)
+  proxy, read = tracked(decorations)
+  MiniTest.expect.equality(painter:paint_incremental(rows, proxy, nil, { toggled_node_id = nested }), true)
+  table.sort(read)
+  MiniTest.expect.equality(read, { 2, 3, 4, 5, 6 })
+  MiniTest.expect.equality(store:get(dir).open, true)
+end
+
 T["redraw skips extmark traversal after paint and after one edit resync"] = function()
   local on_win
   vim.api.nvim_set_decoration_provider = function(ns, opts)

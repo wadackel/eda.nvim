@@ -42,6 +42,45 @@ T["Chain decorate applies decorators sequentially"] = function()
   MiniTest.expect.equality(result[1].suffix, "1") -- preserved from first
 end
 
+T["Chain decorate_lazy decorates a row once, when it is first read"] = function()
+  local calls = {}
+  local chain = decorator.Chain.new()
+  chain:add(function(node)
+    calls[#calls + 1] = node.name
+    return { icon = node.name:upper() }
+  end)
+  config.setup()
+  local flat_lines = {}
+  for i, name in ipairs({ "a", "b", "c" }) do
+    flat_lines[i] =
+      { node_id = i, depth = 0, node = Node.create({ id = i, name = name, path = "/" .. name, type = "file" }) }
+  end
+  local ctx = { store = {}, git_status = nil, config = config.get() }
+  local lazy = chain:decorate_lazy(flat_lines, ctx)
+  MiniTest.expect.equality(calls, {})
+  MiniTest.expect.equality(lazy[2], chain:decorate(flat_lines, ctx)[2])
+  calls = {}
+  MiniTest.expect.equality(lazy[2].icon, "B")
+  MiniTest.expect.equality(calls, {})
+  MiniTest.expect.equality(lazy[3].icon, "C")
+  MiniTest.expect.equality(calls, { "c" })
+  MiniTest.expect.equality(lazy[4], nil)
+end
+
+T["Chain decorate_lazy gives an undecorated row an empty decoration"] = function()
+  local chain = decorator.Chain.new()
+  chain:add(function()
+    return nil
+  end)
+  config.setup()
+  local flat_lines = {
+    { node_id = 1, depth = 0, node = Node.create({ id = 1, name = "f", path = "/f", type = "file" }) },
+  }
+  local ctx = { store = {}, git_status = nil, config = config.get() }
+  MiniTest.expect.equality(chain:decorate_lazy(flat_lines, ctx)[1], {})
+  MiniTest.expect.equality(chain:decorate(flat_lines, ctx)[1], {})
+end
+
 T["Chain decorate handles nil returns"] = function()
   local chain = decorator.Chain.new()
   chain:add(function()
