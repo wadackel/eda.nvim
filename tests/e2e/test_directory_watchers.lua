@@ -35,6 +35,22 @@ local T = MiniTest.new_set({
       e2e.open_eda(child, tmp)
       e2e.feed(child, "gE")
       e2e.wait_until(child, [[#require("eda").get_current().buffer.flat_lines == 6]])
+      -- FSEvents can deliver the fixture writes above after the watchers start, and a
+      -- directory-level event arrives without a filename and refreshes every open
+      -- directory. Counting only begins once events and refreshes have been quiet for
+      -- longer than the watcher debounce plus the FSEvents latency.
+      e2e.wait_until(
+        child,
+        [[
+        local ex = require("eda").get_current()
+        local now, events = vim.uv.hrtime() / 1e6, _G.watch_events or 0
+        if events ~= _G.settled_events or ex.refresh.pending or ex.refresh.running or ex.scanner._active_fds > 0 then
+          _G.settled_events, _G.settled_since = events, now
+          return false
+        end
+        return now - _G.settled_since >= 400
+      ]]
+      )
       e2e.exec(
         child,
         [[
