@@ -155,6 +155,12 @@ action.register("select", function(ctx)
     if target_win then
       vim.api.nvim_set_current_win(target_win)
       vim.cmd.edit(vim.fn.fnameescape(node.path))
+      -- In replace kind the edit ran in the explorer window, so `#` is now the explorer
+      -- buffer, which the teardown wipes. Point it at the file the explorer displaced.
+      local displaced = ctx.window.old_bufnr
+      if displaced and vim.api.nvim_buf_is_valid(displaced) then
+        vim.fn.setreg("#", displaced)
+      end
     end
     if should_close_on_select(ctx) then
       get_eda().close(ctx.explorer)

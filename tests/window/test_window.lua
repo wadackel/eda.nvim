@@ -151,6 +151,35 @@ T["open in replace mode leaves the window's global options to the user"] = funct
   end
 end
 
+T["replace mode keeps the window's alternate file across open and close"] = function()
+  config.setup()
+  vim.cmd("tabnew")
+  local a = vim.api.nvim_create_buf(true, false)
+  local b = vim.api.nvim_create_buf(true, false)
+  vim.api.nvim_buf_set_name(a, "eda-alt-a")
+  vim.api.nvim_buf_set_name(b, "eda-alt-b")
+  local buf = vim.api.nvim_create_buf(false, true)
+  local ok, err = pcall(function()
+    vim.cmd.buffer(a)
+    vim.cmd.buffer(b)
+    MiniTest.expect.equality(vim.fn.bufnr("#"), a)
+    local win = Window.new("replace", config.get())
+    win:open(buf)
+    MiniTest.expect.equality(vim.api.nvim_get_current_buf(), buf)
+    MiniTest.expect.equality(vim.fn.bufnr("#"), a)
+    win:close()
+    MiniTest.expect.equality(vim.api.nvim_get_current_buf(), b)
+    MiniTest.expect.equality(vim.fn.bufnr("#"), a)
+  end)
+  vim.cmd("tabclose!")
+  for _, bufnr in ipairs({ buf, a, b }) do
+    vim.api.nvim_buf_delete(bufnr, { force = true })
+  end
+  if not ok then
+    error(err, 0)
+  end
+end
+
 -- PL-1: split_left returns preview only
 T["compute_preview_layout split_left returns preview without filer"] = function()
   config.setup()
