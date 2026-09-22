@@ -34,6 +34,10 @@ require("eda").setup({
       signcolumn = "no",
       cursorline = true,
       foldcolumn = "0",
+      foldenable = false,
+      spell = false,
+      list = false,
+      colorcolumn = "",
     },
   },
 
@@ -286,7 +290,7 @@ Window layout configuration.
 
 - `window.win_opts` `table`
   Window-local options applied to the explorer window.
-  Default: `{ number = false, relativenumber = false, wrap = false, signcolumn = "no", cursorline = true, foldcolumn = "0" }`
+  Default: `{ number = false, relativenumber = false, wrap = false, signcolumn = "no", cursorline = true, foldcolumn = "0", foldenable = false, spell = false, list = false, colorcolumn = "" }`
 
 ### hijack_netrw
 
