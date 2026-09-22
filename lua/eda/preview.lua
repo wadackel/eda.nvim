@@ -189,8 +189,9 @@ function Preview:_open_or_reuse_window(layout)
       vim.api.nvim_win_set_config(self.window.winid, layout.filer)
     end
     self.winid = vim.api.nvim_open_win(self.bufnr, false, layout.preview)
-    -- style = "minimal" leaves 'wrap' alone, so the float would follow the user's global value
+    -- style = "minimal" leaves 'wrap' and folds alone, so the float would follow the user's global values
     vim.api.nvim_set_option_value("wrap", false, { win = self.winid, scope = "local" })
+    vim.api.nvim_set_option_value("foldenable", false, { win = self.winid, scope = "local" })
   else
     vim.api.nvim_win_set_buf(self.winid, self.bufnr)
   end

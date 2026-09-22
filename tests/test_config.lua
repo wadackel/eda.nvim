@@ -22,6 +22,15 @@ T["setup"]["returns defaults when no opts"] = function()
   MiniTest.expect.equality(c.expand_depth, 5)
 end
 
+T["setup"]["default win_opts keep the user's folds and spell out of the explorer"] = function()
+  config.setup()
+  local win_opts = config.get().window.win_opts
+  MiniTest.expect.equality(win_opts.foldenable, false)
+  MiniTest.expect.equality(win_opts.spell, false)
+  MiniTest.expect.equality(win_opts.list, false)
+  MiniTest.expect.equality(win_opts.colorcolumn, "")
+end
+
 T["setup"]["merges user opts"] = function()
   config.setup({ show_hidden = true })
   local c = config.get()

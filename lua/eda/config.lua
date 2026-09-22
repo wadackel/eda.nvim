@@ -169,6 +169,10 @@ local defaults = {
       signcolumn = "no",
       cursorline = true,
       foldcolumn = "0",
+      foldenable = false,
+      spell = false,
+      list = false,
+      colorcolumn = "",
     },
   },
 
