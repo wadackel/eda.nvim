@@ -69,6 +69,49 @@ T["autocmd"]["netrw hijack opens eda when editing a directory"] = function()
   )
 end
 
+T["autocmd"]["netrw hijack works when setup runs after the netrw plugin loaded"] = function()
+  -- Only the plugin script: sourcing autoload/netrw.vim up front would define
+  -- netrw#LocalBrowseCheck and hide the E117 raised by netrw's leftover BufEnter.
+  e2e.exec(child, "vim.cmd('packadd netrw')")
+  e2e.exec(child, "vim.cmd('runtime plugin/netrwPlugin.vim')")
+  MiniTest.expect.equality(e2e.exec(child, "return vim.fn.exists('#FileExplorer')"), 1)
+
+  e2e.exec(
+    child,
+    [[
+    require("eda").setup({
+      git = { enabled = false },
+      icon = { provider = "none" },
+      window = { kind = "replace" },
+      confirm = false,
+      header = false,
+      hijack_netrw = true,
+    })
+  ]]
+  )
+
+  e2e.exec(child, "vim.v.errmsg = ''")
+  local edit_err = e2e.exec(
+    child,
+    string.format("local ok, err = pcall(vim.cmd, 'edit %s'); return ok and vim.v.errmsg or tostring(err)", tmp)
+  )
+  MiniTest.expect.equality(edit_err:match("E117[^\n]*"), nil)
+
+  e2e.wait_until(
+    child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    if vim.bo.filetype ~= "eda" then return false end
+    for _, l in ipairs(lines) do
+      if l:find("file_a.txt") then return true end
+    end
+    return false
+  ]],
+    10000
+  )
+  MiniTest.expect.equality(e2e.exec(child, "return #vim.api.nvim_get_autocmds({ group = 'FileExplorer' })"), 0)
+end
+
 -- update_focused_file / navigate() core logic is covered by unit tests
 -- in tests/test_navigate.lua. E2E testing requires BufEnter autocmd which
 -- does not fire in headless --listen mode.
