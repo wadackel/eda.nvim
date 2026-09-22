@@ -127,6 +127,30 @@ T["is_visible returns false when bufnr is deleted"] = function()
   close_scratch(winid, other_buf)
 end
 
+-- Buffers a window shows for the first time, and windows split from it, take the window's
+-- global option values, so win_opts written there would follow the user's next files.
+T["open in replace mode leaves the window's global options to the user"] = function()
+  config.setup()
+  vim.cmd("tabnew")
+  local winid = vim.api.nvim_get_current_win()
+  local buf = vim.api.nvim_create_buf(false, true)
+  local ok, err = pcall(function()
+    vim.cmd("set wrap nocursorline number")
+    Window.new("replace", config.get()):open(buf)
+    for _, name in ipairs({ "wrap", "cursorline", "number" }) do
+      MiniTest.expect.equality(vim.api.nvim_get_option_value(name, { win = winid }), config.get().window.win_opts[name])
+    end
+    MiniTest.expect.equality(vim.api.nvim_get_option_value("wrap", { win = winid, scope = "global" }), true)
+    MiniTest.expect.equality(vim.api.nvim_get_option_value("cursorline", { win = winid, scope = "global" }), false)
+    MiniTest.expect.equality(vim.api.nvim_get_option_value("number", { win = winid, scope = "global" }), true)
+  end)
+  vim.cmd("tabclose!")
+  vim.api.nvim_buf_delete(buf, { force = true })
+  if not ok then
+    error(err, 0)
+  end
+end
+
 -- PL-1: split_left returns preview only
 T["compute_preview_layout split_left returns preview without filer"] = function()
   config.setup()

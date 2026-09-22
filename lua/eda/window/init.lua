@@ -154,10 +154,11 @@ function Window:open(bufnr)
     end
   end
 
-  -- Apply win_opts
+  -- Apply win_opts. Without scope = "local" this acts like :set and also writes the window's
+  -- global values, which the next file shown in the window and every window split from it inherit.
   if util.is_valid_win(self.winid) then
     for k, v in pairs(self.config.window.win_opts) do
-      vim.api.nvim_set_option_value(k, v, { win = self.winid })
+      vim.api.nvim_set_option_value(k, v, { win = self.winid, scope = "local" })
     end
   end
 end

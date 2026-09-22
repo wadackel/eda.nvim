@@ -59,6 +59,8 @@ T["preview"]["toggle_preview shows and hides preview window"] = function()
 
   -- Preview should add a window
   e2e.wait_until(child, string.format("#vim.api.nvim_list_wins() > %d", win_count_before), 5000)
+  -- Long lines stay unwrapped even when the user's own 'wrap' is on
+  MiniTest.expect.equality(e2e.exec(child, [[return vim.wo[require("eda").get_current().preview.winid].wrap]]), false)
 
   -- Toggle off
   e2e.exec(
