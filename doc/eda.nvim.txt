@@ -1,4 +1,5 @@
 *eda.nvim.txt*              Tree-view file explorer with buffer-native editing
+                          For Neovim >= 0.11    Last change: 2026 September 22
 
 ==============================================================================
 Table of Contents                                 *eda.nvim-table-of-contents*
@@ -291,7 +292,8 @@ Window layout configuration.
     - `replace`: `{}`
     - `split_left`: `{ width = "30%" }`
     - `split_right`: `{ width = "30%" }`
-    >lua
+
+>lua
         -- Function example: responsive width
         window = {
           kinds = {
@@ -302,7 +304,7 @@ Window layout configuration.
             },
           },
         },
-    <
+<
 - `window.buf_opts` `table` Buffer-local options applied to the explorer buffer.
     Default: `{ filetype = "eda", buftype = "acwrite" }`
 - `window.win_opts` `table` Window-local options applied to the explorer window.
@@ -452,14 +454,16 @@ ICON ~
         is surfaced via `:messages`. If the tree renders incorrectly after enabling
         `custom`, check `:messages` first.
     - To apply only to files, early-return on directories:
-        >lua
+
+>lua
             custom = function(_name, node)
               if node.type == "directory" then return nil end
               -- ...
             end
-        <
+<
     Example:
-    >lua
+
+>lua
         icon = {
           provider = "mini_icons",
           custom = function(name, node)
@@ -472,7 +476,7 @@ ICON ~
             return nil
           end,
         }
-    <
+<
 
 
 GIT ~
@@ -517,7 +521,8 @@ PREVIEW ~
 - `max_file_size` `integer|fun(path: string): integer` (default: `102400`)
     Maximum file size in bytes for preview. Larger files are skipped. Accepts a
     function that receives the file path and returns a size limit.
-    >lua
+
+>lua
         -- Allow larger previews for text files
         preview = {
           enabled = true,
@@ -528,7 +533,7 @@ PREVIEW ~
             return 1024 * 100 -- 100KB default
           end,
         },
-    <
+<
 
 When the cursor sits on a directory, the preview pane shows that directory’s
 contents using eda’s tree rendering style (icons, git status, marks, etc.). A
@@ -552,12 +557,13 @@ do not apply to directory previews.
         `"auto"` picks `"file"` unless an SSH session is detected via `SSH_TTY`,
         `SSH_CONNECTION`, or `SSH_CLIENT`, or, inside tmux, via the
         `SSH_CONNECTION` that tmux records from the most recently attached client.
-    >lua
+
+>lua
         preview = {
           enabled = true,
           image = { enabled = true, max_file_size = 5 * 1024 * 1024, transmission = "auto" },
         },
-    <
+<
 
 Image files (`png`, `jpg`, `jpeg`, `gif`, `webp`, `bmp`) are rendered in the
 preview pane using the Kitty graphics protocol on terminals that support it
@@ -688,9 +694,10 @@ INSPECT ~
         the cost of freshness after filesystem changes.
     Example display while a walk is in progress (the spinner cycles through 10
     Braille frames at 100 ms per step):
-    >
+
+>
         Size          ⠋ calculating...
-    <
+<
 
 
 MARK ~
