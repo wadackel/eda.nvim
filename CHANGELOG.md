@@ -1,5 +1,38 @@
 # Changelog
 
+## [1.9.0](https://github.com/wadackel/eda.nvim/compare/v1.8.0...v1.9.0) (2026-09-22)
+
+
+### Features
+
+* identify the explorer in tree open and close events ([#109](https://github.com/wadackel/eda.nvim/issues/109)) ([cb945fb](https://github.com/wadackel/eda.nvim/commit/cb945fba0aa7b7be3a64ca446e742748587aa1b2))
+
+
+### Bug Fixes
+
+* correct header-row parsing, redraw resync, git lookups, and split preview geometry ([#113](https://github.com/wadackel/eda.nvim/issues/113)) ([a73eb76](https://github.com/wadackel/eda.nvim/commit/a73eb767cf4ed0d3c8c78ffe8f97e680fc71dfb5))
+* hand the window back when a replace explorer closes ([#110](https://github.com/wadackel/eda.nvim/issues/110)) ([aa82a58](https://github.com/wadackel/eda.nvim/commit/aa82a584b6c422ae6b1f2cfe9f0ba8b414357e2f))
+* keep icon resync from failing on lines shorter than their indent ([#125](https://github.com/wadackel/eda.nvim/issues/125)) ([d3e7a04](https://github.com/wadackel/eda.nvim/commit/d3e7a04ce0fd8c6479699909701e940dab872f0d))
+* keep the alternate file when the replace explorer is used ([#131](https://github.com/wadackel/eda.nvim/issues/131)) ([5efd8a3](https://github.com/wadackel/eda.nvim/commit/5efd8a37578ba4b304af60b56070fa1cdfabcfa9))
+* keep the user's folds and spell out of the explorer and preview ([#129](https://github.com/wadackel/eda.nvim/issues/129)) ([f544108](https://github.com/wadackel/eda.nvim/commit/f544108bbeb9672885b85af5f533697fd335a611))
+* keep window.win_opts out of files opened after the explorer ([#128](https://github.com/wadackel/eda.nvim/issues/128)) ([0a16bfa](https://github.com/wadackel/eda.nvim/commit/0a16bfa3e61e79d662d63110af8d44dfb0f42497))
+* let hijack_netrw work when setup runs after netrw loaded ([#130](https://github.com/wadackel/eda.nvim/issues/130)) ([6e73647](https://github.com/wadackel/eda.nvim/commit/6e73647d07167441c63b287a2fac50cc332f04d1))
+* release an explorer when its window goes away ([#107](https://github.com/wadackel/eda.nvim/issues/107)) ([12c2f63](https://github.com/wadackel/eda.nvim/commit/12c2f639eaba897bffbd2d17636ec121ebdd16d9))
+* repaint every explorer when the cut register changes ([#124](https://github.com/wadackel/eda.nvim/issues/124)) ([40a2ee7](https://github.com/wadackel/eda.nvim/commit/40a2ee731615e0bb4792d5bda05bfa27b8a59092))
+* repaint every row when shared decoration inputs changed ([#122](https://github.com/wadackel/eda.nvim/issues/122)) ([02a86af](https://github.com/wadackel/eda.nvim/commit/02a86af05c8166ba35109e9346282f07c04b84a0))
+* rescan a directory expanded while its scan is in flight ([#121](https://github.com/wadackel/eda.nvim/issues/121)) ([6e958cc](https://github.com/wadackel/eda.nvim/commit/6e958cce5b04ad6b29bc799e31887b34b4e66907))
+* stop saves, pastes, and selections from touching the wrong entries ([#112](https://github.com/wadackel/eda.nvim/issues/112)) ([75a4aea](https://github.com/wadackel/eda.nvim/commit/75a4aea56f84163fe248485fca1b2861cc906002))
+
+
+### Performance Improvements
+
+* decorate only the rows an incremental paint reads ([#117](https://github.com/wadackel/eda.nvim/issues/117)) ([af45ff9](https://github.com/wadackel/eda.nvim/commit/af45ff9e484e91fbb69dde4567fff12da601dd77))
+* memoize ignored-ancestor lookups per Git status map ([#115](https://github.com/wadackel/eda.nvim/issues/115)) ([68052e1](https://github.com/wadackel/eda.nvim/commit/68052e1774fa635d7c594f5a2ec1faa3cb3971eb))
+* move only the icon extmarks an edit displaced ([#118](https://github.com/wadackel/eda.nvim/issues/118)) ([669226d](https://github.com/wadackel/eda.nvim/commit/669226d0aaee64e8a215152cec9534820e5974a9))
+* scan for non-ASCII bytes with a compiled loop ([#116](https://github.com/wadackel/eda.nvim/issues/116)) ([73bf95d](https://github.com/wadackel/eda.nvim/commit/73bf95db45ab2aeafa950c044192ef90f600acea))
+* shift line lengths and skip pattern checks on incremental paint ([#119](https://github.com/wadackel/eda.nvim/issues/119)) ([250389f](https://github.com/wadackel/eda.nvim/commit/250389f80c088d788e1f80f8cc8bdc710ea2fb09))
+* skip the repaint when a watcher refresh finds Git status unchanged ([#120](https://github.com/wadackel/eda.nvim/issues/120)) ([31513b3](https://github.com/wadackel/eda.nvim/commit/31513b3d80fcce9a5c207aa38fe64f65a487f39c))
+
 ## [1.8.0](https://github.com/wadackel/eda.nvim/compare/v1.7.0...v1.8.0) (2026-09-05)
 
 
