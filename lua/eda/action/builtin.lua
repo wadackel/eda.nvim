@@ -154,7 +154,14 @@ action.register("select", function(ctx)
     local target_win = ctx.window:get_target_winid()
     if target_win then
       vim.api.nvim_set_current_win(target_win)
-      vim.cmd.edit(vim.fn.fnameescape(node.path))
+      -- In replace kind the edit runs in the explorer window, so a plain :edit would make the
+      -- explorer, which the teardown wipes, the alternate file. Keep the user's `#` instead,
+      -- then point it at the file the explorer displaced unless that is the one just opened.
+      local displaced = ctx.window.old_bufnr
+      vim.cmd.edit({ args = { vim.fn.fnameescape(node.path) }, mods = { keepalt = displaced ~= nil } })
+      if displaced and vim.api.nvim_buf_is_valid(displaced) and displaced ~= vim.api.nvim_get_current_buf() then
+        vim.fn.setreg("#", displaced)
+      end
     end
     if should_close_on_select(ctx) then
       get_eda().close(ctx.explorer)

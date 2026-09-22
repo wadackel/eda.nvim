@@ -140,7 +140,9 @@ function Window:open(bufnr)
   if layout.replace then
     self.old_bufnr = vim.api.nvim_get_current_buf()
     self.winid = vim.api.nvim_get_current_win()
-    vim.api.nvim_set_current_buf(bufnr)
+    -- nvim_set_current_buf would make the explorer the window's alternate file, and the
+    -- explorer is wiped on close, so the user's `#` would be lost.
+    vim.cmd.buffer({ count = bufnr, mods = { keepalt = true } })
   elseif layout.relative then
     self.winid = vim.api.nvim_open_win(bufnr, true, layout)
   else
@@ -206,7 +208,10 @@ function Window:close()
     -- untouched. Declining to restore leaves the window to the caller's buffer wipe,
     -- which closes it.
     if self:_can_restore() and vim.api.nvim_win_get_buf(self.winid) == self.bufnr then
-      vim.api.nvim_win_set_buf(self.winid, self.old_bufnr)
+      -- nvim_win_set_buf would leave the soon-wiped explorer as the alternate file.
+      vim.api.nvim_win_call(self.winid, function()
+        vim.cmd.buffer({ count = self.old_bufnr, mods = { keepalt = true } })
+      end)
     end
   else
     local was_focused = util.is_valid_win(self.winid) and vim.api.nvim_get_current_win() == self.winid
