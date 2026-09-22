@@ -4,6 +4,39 @@ local T = MiniTest.new_set()
 
 local child, tmp
 
+-- The user's own values, chosen to differ from every default in window.win_opts
+local USER_WIN_OPTS = [[vim.cmd("set number wrap nocursorline")]]
+
+local function expect_user_win_opts()
+  MiniTest.expect.equality(
+    e2e.exec(child, [[return { vim.wo.wrap, vim.wo.cursorline, vim.wo.number }]]),
+    { true, false, true }
+  )
+end
+
+local function move_cursor_to_alpha()
+  e2e.wait_until(
+    child,
+    [[
+    local lines = vim.api.nvim_buf_get_lines(0, 0, -1, false)
+    for i, l in ipairs(lines) do
+      if l:find("alpha.txt") then
+        vim.api.nvim_win_set_cursor(0, {i, 0})
+        return true
+      end
+    end
+    return false
+  ]]
+  )
+end
+
+local function wait_for_alpha()
+  e2e.wait_until(
+    child,
+    string.format([[vim.fn.bufname(vim.api.nvim_get_current_buf()):find(%q, 1, true) ~= nil]], "alpha.txt")
+  )
+end
+
 T["file select"] = MiniTest.new_set({
   hooks = {
     pre_case = function()
@@ -79,6 +112,7 @@ T["file select"]["select_split opens file in horizontal split"] = function()
 end
 
 T["file select"]["select_tab opens file in new tab"] = function()
+  e2e.exec(child, USER_WIN_OPTS)
   e2e.open_eda(child, tmp)
 
   local tabs_before = e2e.get_tab_count(child)
@@ -108,6 +142,39 @@ T["file select"]["select_tab opens file in new tab"] = function()
   -- Should have one more tab
   local tabs_after = e2e.get_tab_count(child)
   MiniTest.expect.equality(tabs_after, tabs_before + 1)
+  expect_user_win_opts()
+end
+
+T["file select replace"] = MiniTest.new_set({
+  hooks = {
+    pre_case = function()
+      child = e2e.spawn()
+      e2e.setup_eda(child, [[{ window = { kind = "replace" } }]])
+      tmp = vim.uv.fs_realpath(e2e.create_temp_dir())
+      e2e.create_file(tmp .. "/alpha.txt", "alpha")
+      e2e.create_file(tmp .. "/beta.txt", "beta")
+      e2e.exec(child, USER_WIN_OPTS)
+      e2e.open_eda(child, tmp)
+      move_cursor_to_alpha()
+    end,
+    post_case = function()
+      e2e.stop(child)
+      e2e.remove_temp_dir(tmp)
+    end,
+  },
+})
+
+T["file select replace"]["select_tab keeps explorer window options out of the new tab"] = function()
+  e2e.feed(child, "<C-t>")
+  wait_for_alpha()
+  MiniTest.expect.equality(e2e.get_tab_count(child), 2)
+  expect_user_win_opts()
+end
+
+T["file select replace"]["select keeps explorer window options out of the opened file"] = function()
+  e2e.feed(child, "<CR>")
+  wait_for_alpha()
+  expect_user_win_opts()
 end
 
 T["file select float"] = MiniTest.new_set({
