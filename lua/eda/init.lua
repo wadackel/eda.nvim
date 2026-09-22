@@ -593,7 +593,10 @@ function M.setup(opts)
   -- Hijack netrw
   if cfg.hijack_netrw then
     vim.g.loaded_netrwPlugin = 1
-    vim.g.loaded_netrw = 1
+    -- loaded_netrw is left unset: it only disables autoload/netrw.vim, so once netrw's plugin has loaded
+    -- (setup after startup) its remaining entry points (:Explore, URL handlers) would fail with E117.
+    -- Clearing FileExplorer stops that already-loaded plugin from hijacking directories itself.
+    pcall(vim.api.nvim_clear_autocmds, { group = "FileExplorer" })
     vim.api.nvim_create_autocmd("BufEnter", {
       group = vim.api.nvim_create_augroup("eda_netrw_hijack", { clear = true }),
       callback = function(args)
