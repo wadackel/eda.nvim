@@ -75,4 +75,4 @@ jobs:
           eval "$(nix print-dev-env .#ci)"
           GITHUB_ACTIONS= just doc
       - name: Check vimdoc is up to date
-        run: git diff --exit-code doc/eda.nvim.txt
+        run: git diff --exit-code -I 'Last change:' doc/eda.nvim.txt
