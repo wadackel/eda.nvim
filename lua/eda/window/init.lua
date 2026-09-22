@@ -208,7 +208,7 @@ function Window:close()
     -- untouched. Declining to restore leaves the window to the caller's buffer wipe,
     -- which closes it.
     if self:_can_restore() and vim.api.nvim_win_get_buf(self.winid) == self.bufnr then
-      -- keepalt: nvim_win_set_buf would leave the soon-wiped explorer as the alternate file.
+      -- nvim_win_set_buf would leave the soon-wiped explorer as the alternate file.
       vim.api.nvim_win_call(self.winid, function()
         vim.cmd.buffer({ count = self.old_bufnr, mods = { keepalt = true } })
       end)
