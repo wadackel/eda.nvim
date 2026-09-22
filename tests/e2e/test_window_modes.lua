@@ -344,6 +344,27 @@ T["window modes"]["replace mode select leaves the previous file as the alternate
   MiniTest.expect.equality(vim.endswith(alternate_name(), "file.txt"), true)
 end
 
+T["window modes"]["replace mode select of the displaced file keeps the earlier alternate"] = function()
+  open_replace_after_two_files()
+  e2e.wait_until(
+    child,
+    [[
+    for i, l in ipairs(vim.api.nvim_buf_get_lines(0, 0, -1, false)) do
+      if l:find("file.txt", 1, true) then
+        vim.api.nvim_win_set_cursor(0, { i, 0 })
+        return true
+      end
+    end
+    return false
+  ]]
+  )
+
+  e2e.feed(child, "<CR>")
+  e2e.wait_until(child, [[vim.endswith(vim.api.nvim_buf_get_name(0), "/file.txt") and #require("eda").get_all() == 0]])
+
+  MiniTest.expect.equality(vim.endswith(alternate_name(), "code.py"), true)
+end
+
 T["window modes"]["split_right mode starts and shows filetype eda"] = function()
   e2e.exec(
     child,
