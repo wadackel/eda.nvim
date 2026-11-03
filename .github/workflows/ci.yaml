@@ -10,8 +10,8 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: ./.github/actions/setup-nix
+      - uses: actions/checkout@v7.0.1
+      - uses: $/.github/actions/setup-nix
       - name: Lint
         run: |
           eval "$(nix print-dev-env .#ci)"
@@ -38,8 +38,8 @@ jobs:
             neovim: stable
             label: macos-15, stable
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: rhysd/action-setup-vim@febef33995d6649302e9d88dda81e071b68f16a7 # v1
+      - uses: actions/checkout@v7.0.1
+      - uses: rhysd/action-setup-vim@v1.6.1
         with:
           neovim: true
           version: ${{ matrix.neovim }}
@@ -60,16 +60,16 @@ jobs:
   typecheck:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: ./.github/actions/setup-nix
+      - uses: actions/checkout@v7.0.1
+      - uses: $/.github/actions/setup-nix
       - name: Typecheck
         run: nix develop .#typecheck --command just typecheck
 
   docs:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: ./.github/actions/setup-nix
+      - uses: actions/checkout@v7.0.1
+      - uses: $/.github/actions/setup-nix
       - name: Generate vimdoc
         run: |
           eval "$(nix print-dev-env .#ci)"

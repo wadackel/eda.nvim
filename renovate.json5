@@ -3,6 +3,9 @@
   extends: [
     "config:best-practices",
   ],
+
+  // actions.lock holds the commits, so uses: lines stay on version tags.
+  ignorePresets: ["helpers:pinGitHubActionDigests"],
   nix: {
     enabled: true,
   },
