@@ -4,7 +4,7 @@ description: Install Nix and restore/save Nix store cache
 runs:
   using: composite
   steps:
-    - uses: DeterminateSystems/nix-installer-action@v22
+    - uses: DeterminateSystems/nix-installer-action@v23
     - uses: nix-community/cache-nix-action@v7.0.2
       with:
         primary-key: nix-v1-${{ runner.os }}-${{ hashFiles('flake.lock') }}

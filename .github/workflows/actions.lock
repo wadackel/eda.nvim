@@ -5,7 +5,7 @@ version: 'v0.0.3'
 workflows:
     '.github/workflows/ci.yaml':
         - 'actions/checkout@v7.0.1'
-        - 'determinatesystems/nix-installer-action@v22'
+        - 'determinatesystems/nix-installer-action@v23'
         - 'nix-community/cache-nix-action@v7.0.2'
         - 'rhysd/action-setup-vim@v1.6.1'
     '.github/workflows/release.yaml':
@@ -18,9 +18,9 @@ dependencies:
         commit: 'sha1-3d3c42e5aac5ba805825da76410c181273ba90b1'
         owner_id: 44036562
         repo_id: 197814629
-    'determinatesystems/nix-installer-action@v22':
-        ref: 'v22'
-        commit: 'sha1-ef8a148080ab6020fd15196c2084a2eea5ff2d25'
+    'determinatesystems/nix-installer-action@v23':
+        ref: 'v23'
+        commit: 'sha1-3138316df39ed29be04236d7ffc686fa525866aa'
         owner_id: 80991770
         repo_id: 588678074
     'googleapis/release-please-action@v5.0.0':
